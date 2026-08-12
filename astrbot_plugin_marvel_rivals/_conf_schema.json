@@ -1,0 +1,87 @@
+{
+  "MRCN_API_BASE_URL": {
+    "description": "Official CN mini-program API base URL",
+    "type": "string",
+    "default": "https://s3.game.163.com/35a06fa941672d97"
+  },
+  "MRCN_REQUEST_BODY_TEMPLATE": {
+    "description": "Default POST JSON template. Use {uid} placeholder.",
+    "type": "string",
+    "default": "{\"roleId\":\"{uid}\"}"
+  },
+  "MRCN_HEADERS_JSON": {
+    "description": "Request headers JSON. Keep temporary credentials local.",
+    "type": "string",
+    "default": "{\"User-Agent\":\"Mozilla/5.0\"}"
+  },
+  "MRCN_ACCESS_TOKEN": {
+    "description": "Temporary access_token from the mini-program request header",
+    "type": "string",
+    "default": ""
+  },
+  "MRCN_CA_CERT": {
+    "description": "Optional CA PEM path, for example the mitmproxy CA certificate",
+    "type": "string",
+    "default": ""
+  },
+  "MRCN_VERIFY_SSL": {
+    "description": "Keep TLS verification enabled; disable only for local diagnosis",
+    "type": "boolean",
+    "default": true
+  },
+  "MRCN_PROXY": {
+    "description": "Optional HTTP proxy, for example http://127.0.0.1:8080",
+    "type": "string",
+    "default": ""
+  },
+  "MRCN_TIMEOUT_SECONDS": {
+    "description": "HTTP request timeout",
+    "type": "float",
+    "default": 10
+  },
+  "MRCN_CACHE_SECONDS": {
+    "description": "Cache duration for formatted query results",
+    "type": "int",
+    "default": 60
+  },
+  "MRCN_MATCHES_PATH": {
+    "description": "Confirmed recent matches endpoint path",
+    "type": "string",
+    "default": ""
+  },
+  "MRCN_HERO_BODY_TEMPLATE": {
+    "description": "Hero request JSON template. Use {uid} and {hero_id}.",
+    "type": "string",
+    "default": "{\"roleId\":\"{uid}\",\"heroId\":\"{hero_id}\"}"
+  },
+  "MRCN_DATA_BODY_TEMPLATE": {
+    "description": "loadData request JSON template",
+    "type": "string",
+    "default": "{}"
+  },
+  "MRCN_SUMMARY_BODY_TEMPLATE": {
+    "description": "Summary and recent-match request JSON template",
+    "type": "string",
+    "default": "{\"matchSeason\":{\"$eq\":\"19\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10}"
+  },
+  "MRCN_CAREER_BODY_TEMPLATE": {
+    "description": "Career request JSON template",
+    "type": "string",
+    "default": "{\"matchSeason\":\"19\"}"
+  },
+  "MRCN_SORT_HERO_BODY_TEMPLATE": {
+    "description": "Sorted heroes request JSON template",
+    "type": "string",
+    "default": "{\"matchSeason\":\"19\"}"
+  },
+  "MRCN_SUMMARY_DETAIL_BODY_TEMPLATE": {
+    "description": "Match detail request JSON template. Use {match_uid}.",
+    "type": "string",
+    "default": "{\"matchUids\":[\"{match_uid}\"]}"
+  },
+  "MRCN_MATCHES_BODY_TEMPLATE": {
+    "description": "Recent matches request JSON template",
+    "type": "string",
+    "default": "{\"matchSeason\":{\"$eq\":\"19\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10}"
+  }
+}

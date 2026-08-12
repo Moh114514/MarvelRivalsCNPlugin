@@ -1,0 +1,2 @@
+"""AstrBot plugin package."""
+

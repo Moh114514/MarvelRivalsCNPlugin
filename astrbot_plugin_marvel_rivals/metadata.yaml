@@ -1,0 +1,5 @@
+name: astrbot_plugin_marvel_rivals
+desc: Marvel Rivals CN stats, hero and match query plugin
+version: 0.2.0
+author: MR-bot
+repo: ""
