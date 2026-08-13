@@ -173,7 +173,7 @@ class MarvelRivalsPlugin(Star):
         if not uid.isdigit():
             yield event.plain_result("UID 必须是数字")
             return
-        try:帮助
+        try:
             await self.source.validate_uid(uid)
             self.bindings.bind(self._qq_id(event), uid)
         except (DataSourceError, BindingStoreError) as exc:
