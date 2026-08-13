@@ -73,12 +73,8 @@ async def run(args: argparse.Namespace) -> None:
             print(format_player(player))
             save_raw(player.raw, args.raw_output)
         elif args.command == "recent":
-            payload = await source.get_recent_payload(args.uid, season_code)
-            save_raw(payload, args.raw_output)
-            value = payload.get("data", payload)
-            if isinstance(value, dict):
-                value = value.get("matchInfo", value.get("matches", value.get("matchList", value.get("records", value.get("list", [])))))
-            matches = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+            matches = await source.get_recent_matches(args.uid, season_code)
+            save_raw(matches, args.raw_output)
             print(format_matches(matches, season_code or source.default_season))
         elif args.command == "hero":
             try:

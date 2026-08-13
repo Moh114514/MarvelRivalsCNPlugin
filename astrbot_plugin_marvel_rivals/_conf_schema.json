@@ -122,9 +122,9 @@
     "default": "{\"matchSeason\":\"{season}\",\"playerUid\":{player_uid}}"
   },
   "MRCN_SUMMARY_DETAIL_BODY_TEMPLATE": {
-    "description": "Match detail request JSON template. Use {match_uid}.",
+    "description": "Match detail request JSON template. Use {match_uids}.",
     "type": "string",
-    "default": "{\"matchUids\":[\"{match_uid}\"]}"
+    "default": "{\"matchUids\":{match_uids}}"
   },
   "MRCN_MATCHES_BODY_TEMPLATE": {
     "description": "Recent matches request JSON template. Use {season} and {player_uid}.",

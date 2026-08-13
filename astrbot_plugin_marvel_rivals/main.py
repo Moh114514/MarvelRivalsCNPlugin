@@ -36,7 +36,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.4.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.4.1", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -68,6 +68,7 @@ class MarvelRivalsPlugin(Star):
 赛季名称必须使用 S9上半赛季 或 S9下半赛季 格式，支持小写 s。
 不填写赛季名称时使用插件配置的默认赛季。
 已绑定 UID 时可以直接使用：/战绩 S9下半赛季。
+对局命令可粘贴纯 ID，也可直接粘贴最近列表中的 matchUid=...。
 
 【使用示例】
 /战绩 1287101468 S9下半赛季
@@ -191,7 +192,7 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("对局")
     async def match_detail(self, event: AstrMessageEvent, match_uid: str):
-        """使用 matchUid 查询指定对局的详细数据。"""
+        """使用 matchUid 查询详情，支持纯 ID 或 matchUid=... 格式。"""
         try:
             yield event.plain_result(await self.service.match_detail_text(match_uid))
         except (DataSourceError, BindingStoreError) as exc:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -116,7 +117,7 @@ class CNDataSource(RivalsDataSource):
     DEFAULT_BODY_TEMPLATES = {
         "data": '{"playerUid":{player_uid}}',
         "summary": '{"matchSeason":{"$eq":"{season}"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":3,"playerUid":{player_uid}}',
-        "summary_detail": '{"matchUids":["{match_uid}"]}',
+        "summary_detail": '{"matchUids":{match_uids}}',
         "career": '{"matchSeason":"{season}","playerUid":{player_uid}}',
         "hero": '{"heroIdList":{hero_ids},"matchSeason":"{season}","playerUid":{player_uid}}',
         "sort_hero": '{"matchSeason":"{season}","playerUid":{player_uid}}',
@@ -185,6 +186,11 @@ class CNDataSource(RivalsDataSource):
                 body["playerUid"] = "__PLAYER_UID__"
                 template = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
                 self.body_templates[name] = template.replace('"__PLAYER_UID__"', "{player_uid}")
+        detail_template = self.body_templates.get("summary_detail", "")
+        if '"matchUids":["{match_uid}"]' in detail_template:
+            self.body_templates["summary_detail"] = detail_template.replace(
+                '"matchUids":["{match_uid}"]', '"matchUids":{match_uids}'
+            )
         self._client = client
 
     @staticmethod
@@ -404,12 +410,19 @@ class CNDataSource(RivalsDataSource):
 
     async def get_summary_detail(self, uid: str) -> dict[str, Any]:
         match_uid = str(uid).strip()
+        match_uid = re.sub(r"^matchuid\s*[:=：]\s*", "", match_uid, flags=re.IGNORECASE)
         if not match_uid:
-            raise DataSourceError("match_uid cannot be empty")
+            raise DataSourceError("matchUid 不能为空")
+        return await self.get_summary_details([match_uid])
+
+    async def get_summary_details(self, match_uids: list[str]) -> dict[str, Any]:
+        normalized = [str(item).strip() for item in match_uids if str(item).strip()]
+        if not normalized:
+            raise DataSourceError("matchUid 不能为空")
         return await self._post(
             self.paths["summary_detail"], "",
             body_template=self.body_templates["summary_detail"],
-            match_uid=match_uid,
+            match_uids=normalized,
         )
 
     async def get_hero(self, uid: str, hero_id: str, season: str | None = None) -> dict[str, Any]:
@@ -492,7 +505,34 @@ class CNDataSource(RivalsDataSource):
         value = payload.get("data", payload)
         if isinstance(value, dict):
             value = value.get("matchInfo", value.get("matches", value.get("matchList", value.get("records", value.get("list", [])))))
-        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+        matches = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+        match_uids = [_text(item, "matchUid", "matchUID") for item in matches]
+        match_uids = [item for item in match_uids if item]
+        if not match_uids:
+            return matches
+        details_payload = await self.get_summary_details(match_uids)
+        details_data = details_payload.get("data", details_payload)
+        details = details_data.get("matches", []) if isinstance(details_data, dict) else []
+        detail_by_uid = {
+            _text(item, "matchUid", "matchUID"): item
+            for item in details
+            if isinstance(item, dict)
+        }
+        for match in matches:
+            detail = detail_by_uid.get(_text(match, "matchUid", "matchUID"))
+            players = detail.get("matchPlayers", []) if isinstance(detail, dict) else []
+            target = next(
+                (
+                    player for player in players
+                    if isinstance(player, dict) and _text(player, "playerUid", "uid") == uid
+                ),
+                None,
+            )
+            if isinstance(target, dict):
+                player = match.setdefault("matchPlayer", {})
+                if isinstance(player, dict):
+                    player["curHeroId"] = target.get("curHeroId")
+        return matches
 
     @staticmethod
     def normalize_match(item: dict[str, Any]) -> RecentMatch | None:

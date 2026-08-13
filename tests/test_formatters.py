@@ -27,6 +27,14 @@ class TestFormatters(unittest.TestCase):
         self.assertIn("KDA 18/1/30", text)
         self.assertIn("matchUid=match-1", text)
 
+    def test_recent_match_uses_hero_id_enriched_from_detail(self):
+        text = format_matches([{
+            "matchUid": "match-1",
+            "matchPlayer": {"isWin": 1, "curHeroId": 1023, "k": 16, "d": 1, "a": 47},
+        }], "19")
+        self.assertIn("火箭浣熊（1023）", text)
+        self.assertNotIn("未知英雄", text)
+
     def test_hero_uses_careers_array(self):
         text = format_hero({"data": {"careers": [{
             "heroId": 1066,

@@ -45,12 +45,33 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json={"data": {"aid": 1}})
             if request.url.path.endswith("/loadSummary"):
                 return httpx.Response(200, json={"data": {"list": [{"matchUid": "m-1"}]}})
+            if request.url.path.endswith("/loadSummaryDetail"):
+                self.assertEqual(json.loads(request.content), {"matchUids": ["m-1"]})
+                return httpx.Response(200, json={"data": {"matches": [{
+                    "matchUid": "m-1",
+                    "matchPlayers": [{"playerUid": 1, "curHeroId": 1036}],
+                }]}})
             return httpx.Response(404)
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
             matches = await source.get_recent_matches("1")
         self.assertEqual(matches[0]["matchUid"], "m-1")
+        self.assertEqual(matches[0]["matchPlayer"]["curHeroId"], 1036)
+
+    async def test_match_detail_accepts_copied_match_uid_prefix(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(json.loads(request.content))
+            return httpx.Response(200, json={"data": {"matches": [{"matchUid": "m-1"}]}})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            payload = await source.get_summary_detail("matchUid=m-1")
+
+        self.assertEqual(calls, [{"matchUids": ["m-1"]}])
+        self.assertEqual(payload["data"]["matches"][0]["matchUid"], "m-1")
 
     async def test_recent_matches_rejects_non_numeric_uid(self):
         source = CNDataSource(env={"MRCN_API_BASE_URL": "https://example.test", "MRCN_MATCHES_PATH": "/matches"})
@@ -222,6 +243,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         })
         for name in ("data", "summary", "career", "hero", "sort_hero", "matches"):
             self.assertIn("{player_uid}", source.body_templates[name])
+        self.assertIn("{match_uids}", source.body_templates["summary_detail"])
 
 
 if __name__ == "__main__":

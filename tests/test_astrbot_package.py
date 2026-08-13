@@ -29,8 +29,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.4.0", metadata)
-        self.assertIn('"0.4.0"', main)
+        self.assertIn("version: 0.4.1", metadata)
+        self.assertIn('"0.4.1"', main)
 
     def test_core_package_and_plugin_copy_are_synchronized(self):
         root = PLUGIN_DIR.parent
