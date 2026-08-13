@@ -9,8 +9,7 @@ from typing import Any
 
 from .datasource.base import DataSourceError
 from .datasource.cn import CNDataSource
-from .hero_names import get_hero_id
-from .services.rivals import format_hero, format_match_detail, format_matches, format_player, parse_season_name
+from .services.rivals import format_hero, format_match_detail, format_matches, format_player
 
 
 def load_env_file(path: str | Path) -> dict[str, str]:
@@ -46,7 +45,6 @@ def print_config(config: dict[str, Any]) -> None:
     print(f"verify_ssl: {config.get('MRCN_VERIFY_SSL', 'true')}")
     print(f"proxy: {'configured' if config.get('MRCN_PROXY') else '<none from plugin config>'}")
     print(f"trust_env: {config.get('MRCN_TRUST_ENV', 'false')}")
-    print(f"default_season: {config.get('MRCN_DEFAULT_SEASON', '19')}")
 
 
 def save_raw(payload: Any, output: str | None) -> None:
@@ -67,23 +65,22 @@ async def run(args: argparse.Namespace) -> None:
         config["MRCN_DEBUG"] = "1"
     source = CNDataSource(env=config)
     try:
-        season_code = parse_season_name(args.season) if getattr(args, "season", None) else None
         if args.command == "player":
-            player = await source.get_player(args.uid, season_code)
+            player = await source.get_player(args.uid)
             print(format_player(player))
             save_raw(player.raw, args.raw_output)
         elif args.command == "recent":
-            matches = await source.get_recent_matches(args.uid, season_code)
-            save_raw(matches, args.raw_output)
-            print(format_matches(matches, season_code or source.default_season))
-        elif args.command == "hero":
-            try:
-                hero_id = str(get_hero_id(args.hero_name))
-            except ValueError as exc:
-                raise DataSourceError(str(exc)) from exc
-            payload = await source.get_hero(args.uid, hero_id, season_code)
+            payload = await source.get_recent_payload(args.uid)
             save_raw(payload, args.raw_output)
-            print(format_hero(payload, season_code or source.default_season))
+            value = payload.get("data", payload)
+            if isinstance(value, dict):
+                value = value.get("matchInfo", value.get("matches", value.get("matchList", value.get("records", value.get("list", [])))))
+            matches = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+            print(format_matches(matches))
+        elif args.command == "hero":
+            payload = await source.get_hero(args.uid, args.hero_id)
+            save_raw(payload, args.raw_output)
+            print(format_hero(payload))
         elif args.command == "match":
             payload = await source.get_summary_detail(args.match_uid)
             save_raw(payload, args.raw_output)
@@ -100,15 +97,12 @@ def make_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("config-check", help="validate local API configuration without making a request")
     player = sub.add_parser("player", help="query player aggregate data")
-    player.add_argument("uid", help="numeric player UID")
-    player.add_argument("--season", help="season name, for example S9下半赛季")
+    player.add_argument("uid", help="numeric UID label; current access_token determines the account")
     recent = sub.add_parser("recent", help="query recent match list")
     recent.add_argument("uid", help="numeric UID label")
-    recent.add_argument("--season", help="season name, for example S9下半赛季")
     hero = sub.add_parser("hero", help="query one hero")
-    hero.add_argument("hero_name", help="Chinese hero name, for example 蜘蛛侠")
+    hero.add_argument("hero_id", help="hero ID, for example 1066")
     hero.add_argument("uid", help="numeric UID label")
-    hero.add_argument("--season", help="season name, for example S9下半赛季")
     match = sub.add_parser("match", help="query one match detail")
     match.add_argument("match_uid", help="matchUid returned by recent")
     return parser

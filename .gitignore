@@ -38,4 +38,5 @@ tmp*/
 .idea/
 .vscode/
 Thumbs.db
+dist/*.zip
 astrbot_plugin_marvel_rivals.zip

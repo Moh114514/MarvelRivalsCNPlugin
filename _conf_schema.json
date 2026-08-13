@@ -47,7 +47,7 @@
     "default": 10
   },
   "MRCN_CACHE_SECONDS": {
-    "description": "Cache duration for formatted query results",
+    "description": "Cache duration for query results",
     "type": "int",
     "default": 60
   },

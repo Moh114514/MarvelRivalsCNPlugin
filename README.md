@@ -1,11 +1,11 @@
 # Marvel Rivals CN AstrBot Plugin
 
-这是一个面向 AstrBot + NapCat/OneBot 的漫威争锋国服战绩查询插件骨架。国服接口来自官方微信小程序抓包，目前已知接口前缀和接口路径，但请求体、认证头和最近比赛接口仍需以抓包结果为准，因此没有把临时 Cookie 或 Token 提交到代码库。
+这是一个面向 AstrBot 的漫威争锋国服战绩查询插件，支持 QQ Official 与 NapCat/OneBot。国服接口来自官方微信小程序抓包，目前已知接口前缀和接口路径，但请求体、认证头和最近比赛接口仍需以抓包结果为准，因此没有把临时 Cookie 或 Token 提交到代码库。
 
 ## 当前命令
 
 ```text
-/漫威帮助
+/帮助
 /绑定漫威 <UID>
 /解绑漫威
 /战绩 [UID] [赛季名称]
@@ -13,13 +13,22 @@
 /最近 [UID] [赛季名称]
 /英雄 <英雄名称> [UID] [赛季名称]
 /对局 <matchUid>
+/卡片测试
 ```
 
-AstrBot 内置 `/help` 会根据各命令的说明列出可用功能，`/漫威帮助` 会显示本插件完整的参数说明与示例。`/战绩` 和 `/查询` 会调用 `loadData`、`loadSummary`、`loadCareer`、`loadSortHero`，并批量调用 `loadHeroCareer` 补全常用英雄的出场、胜场和击败。默认查询 `MRCN_DEFAULT_SEASON`，也可以通过赛季名称查询历史赛季，例如 `/战绩 1287101468 S9上半赛季`。
+AstrBot 内置 `/help` 会根据各命令的说明列出可用功能，`/帮助` 会显示本插件完整的参数说明与示例。`/战绩` 和 `/查询` 会调用 `loadData`、`loadSummary`、`loadCareer`、`loadSortHero`，并批量调用 `loadHeroCareer` 补全常用英雄的出场、胜场和击败。默认查询 `MRCN_DEFAULT_SEASON`，也可以通过赛季名称查询历史赛季，例如 `/战绩 1287101468 S9上半赛季`。
 
-用户命令只接受 `S9上半赛季`、`S9下半赛季` 这种固定格式，支持 `s/S` 大小写；后台会自动转译为接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄 蜘蛛侠 1287101468 s9上半赛季`，不再接受英雄代码。
+旧命令 `/漫威帮助`、`/绑定漫威`、`/解绑漫威`、`/最近`、`/英雄`、`/对局` 仍作为兼容别名保留；卡片按钮统一生成上方的新命令。
 
-最近比赛基础响应不包含玩家使用的英雄 ID，插件会将当页 `matchUid` 一次性传给 `loadSummaryDetail`，再从详情中的 `matchPlayers` 回填英雄名称。`/对局` 支持纯 ID、`matchUid=...` 和 `matchUid：...` 三种粘贴格式。
+QQ Official 查询命令会生成信息图片并保留卡片按钮；发送失败时自动回退文本。
+
+群聊回复通过 QQ 被动回复机制自动 @ 本次命令的发起者。`/战绩` 与 `/查询` 仅发送战绩图片，不生成 Markdown、文字或按钮；其他图片查询仍保留相应操作按钮。指令帮助按“命令、用途”分行并在各命令之间留空行，便于 AstrBot 转图后阅读。
+
+赛季参数支持 `S0`、`S9`、`S9.5`、`S9上半赛季`、`S9下半赛季`，并支持 `s/S` 大小写；S0 没有半赛季。后台会自动转译为国服接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄数据 蜘蛛侠 1287101468 s9.5`，不再接受英雄代码。
+
+地图相关字段按命名空间分别处理：`gameModeId` 表示快速、竞技、自定义或街机队列；`matchMapId` 表示地图；`playModeId` 仅作为独立玩法编号保留。已确认的常规与特殊地图会显示国服名称和玩法，快速与竞技地图 ID 分别保存；未确认编号会显示 `未知地图（ID xxxx）`，不会根据编号递增关系猜测。
+
+代码中的 `RIVALSMETA_SEASON_MAP` 仅记录 RivalsMeta 的赛季编号体系，不用于解释国服接口中的 `matchSeason` 或 `rankGameSeason`。
 
 ## 配置
 
@@ -44,8 +53,8 @@ MRCN_REQUEST_BODY_TEMPLATE={"aid":"{uid}","zoneId":16001}
 ```powershell
 python -m unittest discover -s tests -v
 python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667
-python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667 --season S9上半赛季
-python -m marvel_rivals_bot.cli --env-file .env.capture hero 蜘蛛侠 195963667 --season s9下半赛季
+python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667 --season S9
+python -m marvel_rivals_bot.cli --env-file .env.capture hero 蜘蛛侠 195963667 --season s9.5
 ```
 
 ## 使用 mitmproxy 抓取接口
@@ -98,11 +107,17 @@ python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-respo
 
 ## 安装到 AstrBot
 
-将 `astrbot_plugin_marvel_rivals` 整个目录复制到 AstrBot 的插件目录，目录名保持为 `astrbot_plugin_marvel_rivals`，然后重载插件。该目录已包含核心包、`metadata.yaml`、`_conf_schema.json` 和插件内 `requirements.txt`，可独立安装。插件依赖 AstrBot 提供的 `astrbot.api`，不在普通单元测试中导入。
+本仓库根目录就是插件目录：其中直接包含 `main.py`、`metadata.yaml`、`_conf_schema.json`、`requirements.txt` 和运行包。开发时可将仓库根目录复制到 AstrBot 的 `data/plugins/astrbot_plugin_marvel_rivals/`，或直接安装 GitHub Release 提供的 ZIP；不要再寻找或创建 `astrbot_plugin_marvel_rivals/` 子目录。插件依赖 AstrBot 提供的 `astrbot.api`，不在普通单元测试中导入。
 
-在 AstrBot WebUI 的插件配置中至少填写 `MRCN_ACCESS_TOKEN`。默认接口地址、路径和请求模板已经内置；生产环境通常不应配置 mitmproxy 的 `MRCN_PROXY` 或 `MRCN_CA_CERT`。QQ 接入需要 AstrBot 已配置可用的 OneBot v11/aiocqhttp 适配器（例如 NapCat）。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`，插件升级不会覆盖。
+在 AstrBot WebUI 的插件配置中至少填写 `MRCN_ACCESS_TOKEN`。默认接口地址、路径和请求模板已经内置；生产环境通常不应配置 mitmproxy 的 `MRCN_PROXY` 或 `MRCN_CA_CERT`。QQ 接入需要 AstrBot 已配置可用的 OneBot v11/aiocqhttp 适配器（例如 NapCat）。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`，插件升级不会覆盖；数据库 schema 版本由插件管理，后续变更必须通过显式迁移完成。
 
-手动安装后应依次验证：插件无加载错误、`/漫威帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定漫威 <UID>` 后省略 UID 仍可查询。发布到插件市场前，还需要为 `metadata.yaml` 填写真实的 HTTPS GitHub `repo` 地址，并从发布包中排除 `__pycache__`、`.env*`、抓包和调试响应。
+手动安装后应依次验证：插件无加载错误、`/帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定账号 <UID>` 后省略 UID 仍可查询。发布包由 `python tools/release.py --build dist/astrbot_plugin_marvel_rivals-v<version>.zip` 构建，脚本会校验版本、插件身份、16 MB 限制和发布包内容，并排除 `tests/`、`tools/`、`captures/`、`.env*`、抓包、调试响应、缓存和 GitHub 配置。
+
+## 发布流程
+
+版本必须同时出现在 `metadata.yaml`、`main.py` 的 `@register` 和 `pyproject.toml` 中，并使用 SemVer。提交 `v0.12.4` 形式的 tag 后，Release workflow 会再次运行测试、校验 tag 与版本一致性、构建 `astrbot_plugin_marvel_rivals-v0.12.4.zip` 并创建 GitHub Release。普通 PR 和 push 则由 CI 检查测试、编译、发布包和空白字符。
+
+插件永久身份为 `MR-bot/astrbot_plugin_marvel_rivals`；`author` 和 `name` 不应随意修改。当前最低 AstrBot 版本声明为 `>=4.19.6`，如需调整必须先用实际版本验证。
 
 新增命令：
 

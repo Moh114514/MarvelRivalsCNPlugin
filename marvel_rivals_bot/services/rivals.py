@@ -3,15 +3,21 @@ from __future__ import annotations
 import time
 import re
 from datetime import datetime
+from typing import TypeVar
 
 from ..datasource.base import DataSourceError, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..hero_names import format_hero_name, get_hero_id
-from ..models import PlayerStats
+from ..models import HeroQueryResult, PlayerStats
+
+
+CacheValue = TypeVar("CacheValue")
 
 
 def format_season_name(code: str | int) -> str:
     value = int(code)
+    if value == 1:
+        return "S0"
     season = value // 2
     half = "上半赛季" if value % 2 == 0 else "下半赛季"
     return f"S{season}{half}"
@@ -19,6 +25,8 @@ def format_season_name(code: str | int) -> str:
 
 def parse_season_name(value: str) -> str:
     text = str(value).strip()
+    if re.fullmatch(r"[sS]0", text):
+        return "1"
     half_match = re.fullmatch(r"[sS]([1-9]\d*)(上|下)半赛季", text)
     if half_match:
         season = int(half_match.group(1))
@@ -28,7 +36,7 @@ def parse_season_name(value: str) -> str:
         season = int(short_match.group(1))
         return str(season * 2 + (1 if short_match.group(2) else 0))
     raise DataSourceError(
-        "赛季格式错误，请使用 S9、S9.5、S9上半赛季 或 S9下半赛季格式"
+        "赛季格式错误，请使用 S0、S9、S9.5、S9上半赛季 或 S9下半赛季格式；S0 没有半赛季"
     )
 
 
@@ -36,52 +44,89 @@ class RivalsService:
     def __init__(self, source: RivalsDataSource, cache_seconds: float = 60):
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
-        self._player_cache: dict[str, tuple[float, str]] = {}
-        self._matches_cache: dict[str, tuple[float, str]] = {}
+        self._player_cache: dict[str, tuple[float, PlayerStats]] = {}
+        self._matches_cache: dict[str, tuple[float, list[dict]]] = {}
+        self._hero_cache: dict[str, tuple[float, HeroQueryResult]] = {}
+        self._match_detail_cache: dict[str, tuple[float, dict]] = {}
 
-    async def player_text(self, uid: str, season: str | None = None) -> str:
+    async def get_player_stats(self, uid: str, season: str | None = None) -> PlayerStats:
         season_code = self._season_code(season)
         cache_key = f"{uid}:{season_code}"
         cached = self._cached(self._player_cache, cache_key)
         if cached is not None:
             return cached
-        result = format_player(await self.source.get_player(uid, season_code))
-        self._player_cache[cache_key] = (time.monotonic(), result)
-        return result
+        stats = await self.source.get_player(uid, season_code)
+        self._player_cache[cache_key] = (time.monotonic(), stats)
+        return stats
 
-    async def matches_text(self, uid: str, season: str | None = None) -> str:
+    async def player_text(self, uid: str, season: str | None = None) -> str:
+        return format_player(await self.get_player_stats(uid, season))
+
+    async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
         season_code = self._season_code(season)
         cache_key = f"{uid}:{season_code}"
         cached = self._cached(self._matches_cache, cache_key)
         if cached is not None:
             return cached
-        result = format_matches(await self.source.get_recent_matches(uid, season_code), season_code)
-        self._matches_cache[cache_key] = (time.monotonic(), result)
-        return result
+        matches = await self.source.get_recent_matches(uid, season_code)
+        self._matches_cache[cache_key] = (time.monotonic(), matches)
+        return matches
 
-    async def hero_text(self, uid: str, hero_name: str, season: str | None = None) -> str:
+    async def matches_text(self, uid: str, season: str | None = None) -> str:
+        season_code = self._season_code(season)
+        return format_matches(await self.get_recent_matches(uid, season), season_code)
+
+    async def get_hero_stats(self, uid: str, hero_name: str, season: str | None = None) -> HeroQueryResult:
         season_code = self._season_code(season)
         try:
             hero_id = str(get_hero_id(hero_name))
         except ValueError as exc:
             raise DataSourceError(str(exc)) from exc
-        return format_hero(await self.source.get_hero(uid, hero_id, season_code), season_code)
+        cache_key = f"{uid}:{hero_id}:{season_code}"
+        cached = self._cached(self._hero_cache, cache_key)
+        if cached is not None:
+            return cached
+        result = HeroQueryResult(
+            uid=uid,
+            hero_id=hero_id,
+            hero_name=hero_name,
+            season=season_code,
+            payload=await self.source.get_hero(uid, hero_id, season_code),
+        )
+        self._hero_cache[cache_key] = (time.monotonic(), result)
+        return result
+
+    async def hero_text(self, uid: str, hero_name: str, season: str | None = None) -> str:
+        result = await self.get_hero_stats(uid, hero_name, season)
+        return format_hero(result.payload, result.season)
+
+    async def get_match_detail(self, match_uid: str) -> dict:
+        cache_key = str(match_uid).strip()
+        cached = self._cached(self._match_detail_cache, cache_key)
+        if cached is not None:
+            return cached
+        payload = await self.source.get_summary_detail(match_uid)
+        self._match_detail_cache[cache_key] = (time.monotonic(), payload)
+        return payload
 
     async def match_detail_text(self, match_uid: str) -> str:
-        return format_match_detail(await self.source.get_summary_detail(match_uid))
+        return format_match_detail(await self.get_match_detail(match_uid))
 
     def _season_code(self, season: str | None) -> str:
         if season is None or not str(season).strip():
             return str(getattr(self.source, "default_season", "19"))
         return parse_season_name(season)
 
-    def _cached(self, cache: dict[str, tuple[float, str]], uid: str) -> str | None:
+    def season_code(self, season: str | None = None) -> str:
+        return self._season_code(season)
+
+    def _cached(self, cache: dict[str, tuple[float, CacheValue]], key: str) -> CacheValue | None:
         if self.cache_seconds <= 0:
             return None
-        item = cache.get(uid)
+        item = cache.get(key)
         if item and time.monotonic() - item[0] < self.cache_seconds:
             return item[1]
-        cache.pop(uid, None)
+        cache.pop(key, None)
         return None
 
 
@@ -218,7 +263,8 @@ def format_match_detail(payload: dict) -> str:
     ]
     players = match.get("matchPlayers", [])
     if isinstance(players, list):
-        for camp in sorted({p.get("camp") for p in players if isinstance(p, dict) and p.get("camp") is not None}):
+        camps = {p.get("camp") for p in players if isinstance(p, dict) and p.get("camp") is not None}
+        for camp in sorted(camps, key=lambda value: (0, str(value).zfill(12)) if isinstance(value, (int, float)) else (1, str(value))):
             lines.append("")
             lines.append(f"阵营 {camp}")
             for player in players:

@@ -1,0 +1,333 @@
+from __future__ import annotations
+
+import os
+from dataclasses import replace
+from pathlib import Path
+
+try:
+    from .marvel_rivals_bot.datasource.base import DataSourceError
+    from .marvel_rivals_bot.datasource.cn import CNDataSource
+    from .marvel_rivals_bot.services.rivals import RivalsService
+    from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
+    from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
+    from .qq_official import (
+        QQOfficialCardSender, build_capability_test_card, build_hero_card,
+        build_match_card, build_player_card, build_recent_card,
+    )
+    from .rendering import MatchImageRenderer
+except ImportError:
+    # AstrBot also supports loading a plugin's main.py with its directory on
+    # sys.path instead of importing it as a package.
+    from marvel_rivals_bot.datasource.base import DataSourceError
+    from marvel_rivals_bot.datasource.cn import CNDataSource
+    from marvel_rivals_bot.services.rivals import RivalsService
+    from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
+    from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
+    from qq_official import (
+        QQOfficialCardSender, build_capability_test_card, build_hero_card,
+        build_match_card, build_player_card, build_recent_card,
+    )
+    from rendering import MatchImageRenderer
+
+try:
+    from astrbot.api import logger
+    from astrbot.api.event import AstrMessageEvent, filter
+    from astrbot.api.star import Context, Star, register
+    from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+except ImportError:  # Allows core modules and tests to run without AstrBot installed.
+    logger = None
+    AstrMessageEvent = object
+    Context = object
+    Star = object
+    get_astrbot_data_path = None
+
+    def register(*args, **kwargs):
+        return lambda cls: cls
+
+    class _Filter:
+        def command(self, *_args, **_kwargs):
+            return lambda func: func
+
+    filter = _Filter()
+
+
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.4", "")
+class MarvelRivalsPlugin(Star):
+    HELP_TEXT = """漫威争锋国服查询 | 指令帮助
+
+/帮助
+显示完整指令帮助
+
+/绑定账号 <UID>
+绑定游戏账号（兼容 /绑定漫威）
+
+/解绑账号
+解除账号绑定（兼容 /解绑漫威）
+
+/战绩 [UID] [赛季]
+查询综合战绩
+
+/查询 [UID] [赛季]
+查询综合战绩
+
+/最近对局 [UID] [赛季]
+查询最近十场（兼容 /最近）
+
+/英雄数据 <名称> [UID] [赛季]
+查询英雄数据（兼容 /英雄）
+
+/对局详情 <matchUid>
+查询对局详情（兼容 /对局）
+
+/卡片测试
+测试 QQ 卡片能力
+
+已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
+
+    def __init__(self, context: Context, config=None):
+        if hasattr(super(), "__init__"):
+            super().__init__(context)
+        configured = dict(config or {})
+        env_config = {key: value for key, value in os.environ.items() if key.startswith("MRCN_")}
+        env_config.update(configured)
+        self.source = CNDataSource(env=env_config)
+        self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
+        self.qq_card_sender = QQOfficialCardSender()
+        self.image_renderer = MatchImageRenderer(self.html_render)
+        db_path = os.getenv("MRCN_BINDINGS_DB")
+        if not db_path:
+            data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
+            db_path = data_root / "plugin_data" / "astrbot_plugin_marvel_rivals" / "bindings.sqlite3"
+        self.bindings = BindingStore(Path(db_path))
+
+    def _qq_id(self, event: AstrMessageEvent) -> str:
+        return str(event.get_sender_id())
+
+    def _bound_uid(self, event: AstrMessageEvent) -> str | None:
+        return self.bindings.get(self._qq_id(event))
+
+    async def _send_card(self, event: AstrMessageEvent, builder, *args, image_url: str | None = None) -> bool:
+        if not self.qq_card_sender.supports(event):
+            return False
+        try:
+            card = builder(*args)
+            if image_url:
+                card = replace(card, image_url=image_url)
+            await self.qq_card_sender.send(event, card)
+            return True
+        except Exception as exc:
+            if logger:
+                logger.warning(f"QQ Official 富消息构建或发送失败，回退普通文本：{exc}")
+            return False
+
+    @staticmethod
+    def _uid_and_season(uid: str, season: str) -> tuple[str, str]:
+        uid, season = uid.strip(), season.strip()
+        if uid.lower().startswith("s") and not season:
+            return "", uid
+        return uid, season
+
+    async def _query(self, event: AstrMessageEvent, uid: str | None, season: str | None = None):
+        try:
+            uid = uid or self._bound_uid(event)
+        except BindingStoreError as exc:
+            yield event.plain_result(str(exc))
+            return
+        if not uid:
+            yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
+            return
+        try:
+            stats = await self.service.get_player_stats(uid, season)
+            try:
+                image_url = await self.image_renderer.player(stats)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"玩家战绩图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(format_player(stats))
+                return
+            if self.qq_card_sender.supports(event):
+                try:
+                    card = replace(build_player_card(stats), image_url=image_url)
+                    await self.qq_card_sender.send(event, card, image_only=True)
+                except Exception as exc:
+                    if logger:
+                        logger.warning(f"QQ Official 战绩图片发送失败，回退普通文本：{exc}")
+                    yield event.plain_result(format_player(stats))
+            else:
+                yield event.image_result(image_url)
+        except DataSourceError as exc:
+            if logger:
+                logger.warning(str(exc))
+            yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("帮助")
+    async def help(self, event: AstrMessageEvent):
+        """显示漫威争锋查询插件的完整指令帮助。"""
+        yield event.plain_result(self.HELP_TEXT)
+
+    @filter.command("漫威帮助")
+    async def help_legacy(self, event: AstrMessageEvent):
+        """兼容旧版 /漫威帮助 指令。"""
+        async for result in self.help(event):
+            yield result
+
+    @filter.command("绑定账号")
+    async def bind(self, event: AstrMessageEvent, uid: str):
+        """绑定当前 QQ 对应的漫威争锋 UID。"""
+        if not uid.isdigit():
+            yield event.plain_result("UID 必须是数字")
+            return
+        try:
+            await self.source.validate_uid(uid)
+            self.bindings.bind(self._qq_id(event), uid)
+        except (DataSourceError, BindingStoreError) as exc:
+            yield event.plain_result(str(exc))
+            return
+        yield event.plain_result(f"已绑定漫威 UID：{uid}")
+
+    @filter.command("绑定漫威")
+    async def bind_legacy(self, event: AstrMessageEvent, uid: str):
+        """兼容旧版 /绑定漫威 指令。"""
+        async for result in self.bind(event, uid):
+            yield result
+
+    @filter.command("解绑账号")
+    async def unbind(self, event: AstrMessageEvent):
+        """解除当前 QQ 已绑定的漫威争锋 UID。"""
+        try:
+            removed = self.bindings.unbind(self._qq_id(event))
+        except BindingStoreError as exc:
+            yield event.plain_result(str(exc))
+            return
+        yield event.plain_result("已解除绑定" if removed else "当前没有绑定")
+
+    @filter.command("解绑漫威")
+    async def unbind_legacy(self, event: AstrMessageEvent):
+        """兼容旧版 /解绑漫威 指令。"""
+        async for result in self.unbind(event):
+            yield result
+
+    @filter.command("战绩")
+    async def stats(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
+        """查询玩家段位、综合数据和常用英雄，可指定 UID 和赛季名称。"""
+        uid, season = self._uid_and_season(uid, season)
+        async for result in self._query(event, uid or None, season or None):
+            yield result
+
+    @filter.command("查询")
+    async def query(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
+        """查询玩家战绩，功能与 /战绩 相同。"""
+        uid, season = self._uid_and_season(uid, season)
+        async for result in self._query(event, uid or None, season or None):
+            yield result
+
+    @filter.command("最近对局")
+    async def recent(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
+        """查询玩家最近十场对局，可指定 UID 和赛季名称。"""
+        uid, season = self._uid_and_season(uid, season)
+        try:
+            uid = uid or self._bound_uid(event)
+        except BindingStoreError as exc:
+            yield event.plain_result(str(exc))
+            return
+        if not uid:
+            yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
+            return
+        try:
+            season_code = self.service.season_code(season or None)
+            matches = await self.service.get_recent_matches(uid, season or None)
+            try:
+                image_url = await self.image_renderer.recent(uid, season_code, matches)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"最近对局图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(format_matches(matches, season_code))
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_card(event, build_recent_card, uid, season_code, matches, image_url=image_url):
+                    yield event.plain_result(format_matches(matches, season_code))
+            else:
+                yield event.image_result(image_url)
+        except DataSourceError as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("最近")
+    async def recent_legacy(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
+        """兼容旧版 /最近 指令。"""
+        async for result in self.recent(event, uid, season):
+            yield result
+
+    @filter.command("英雄数据")
+    async def hero(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
+        """使用中文英雄名称查询指定英雄的赛季数据。"""
+        uid, season = self._uid_and_season(uid, season)
+        try:
+            uid = uid or self._bound_uid(event)
+            if not uid:
+                yield event.plain_result("请提供 UID，或先绑定 UID")
+                return
+            result = await self.service.get_hero_stats(uid, hero_name, season or None)
+            try:
+                image_url = await self.image_renderer.hero(result)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"英雄数据图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(format_hero(result.payload, result.season))
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_card(event, build_hero_card, result, image_url=image_url):
+                    yield event.plain_result(format_hero(result.payload, result.season))
+            else:
+                yield event.image_result(image_url)
+        except (DataSourceError, BindingStoreError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("英雄")
+    async def hero_legacy(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
+        """兼容旧版 /英雄 指令。"""
+        async for result in self.hero(event, hero_name, uid, season):
+            yield result
+
+    @filter.command("对局详情")
+    async def match_detail(self, event: AstrMessageEvent, match_uid: str):
+        """使用 matchUid 查询详情，支持纯 ID 或 matchUid=... 格式。"""
+        try:
+            payload = await self.service.get_match_detail(match_uid)
+            try:
+                image_url = await self.image_renderer.detail(payload)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"对局详情图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(format_match_detail(payload))
+                return
+            if self.qq_card_sender.supports(event):
+                try:
+                    card = replace(build_match_card(payload), image_url=image_url)
+                    await self.qq_card_sender.send(event, card, image_only=True)
+                except Exception as exc:
+                    if logger:
+                        logger.warning(f"QQ Official 对局详情图片发送失败，回退普通文本：{exc}")
+                    yield event.plain_result(format_match_detail(payload))
+            else:
+                yield event.image_result(image_url)
+        except (DataSourceError, BindingStoreError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("对局")
+    async def match_detail_legacy(self, event: AstrMessageEvent, match_uid: str):
+        """兼容旧版 /对局 指令。"""
+        async for result in self.match_detail(event, match_uid):
+            yield result
+
+    @filter.command("卡片测试")
+    async def card_test(self, event: AstrMessageEvent):
+        """验证 QQ Official 原生 Markdown 和消息按钮能力。"""
+        try:
+            await self.qq_card_sender.send(event, build_capability_test_card())
+        except Exception as exc:
+            if logger:
+                logger.warning(f"QQ Official 富消息能力测试失败：{exc}")
+            yield event.plain_result(
+                "QQ Official 富消息发送失败，已回退普通文本。\n"
+                "请确认当前适配器为 QQ Official，且机器人账号拥有 Markdown 与消息按钮权限。"
+            )
