@@ -49,7 +49,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.3", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.4", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -299,7 +299,12 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_match_detail(payload))
                 return
             if self.qq_card_sender.supports(event):
-                if not await self._send_card(event, build_match_card, payload, image_url=image_url):
+                try:
+                    card = replace(build_match_card(payload), image_url=image_url)
+                    await self.qq_card_sender.send(event, card, image_only=True)
+                except Exception as exc:
+                    if logger:
+                        logger.warning(f"QQ Official 对局详情图片发送失败，回退普通文本：{exc}")
                     yield event.plain_result(format_match_detail(payload))
             else:
                 yield event.image_result(image_url)

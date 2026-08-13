@@ -97,7 +97,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
                 {"camp": 2, "isWin": 0, "nickName": "B", "curHeroId": 1066, "k": 5, "d": 6, "a": 1},
             ],
         }]}})
-        self.assertIn("对局详情操作", match.markdown)
+        self.assertEqual(match.markdown, "")
         self.assertEqual(match.rows[0][0].data, "/对局详情 m-1")
 
         mixed_camps = build_match_card({"data": {"matches": [{
@@ -251,6 +251,29 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0][0], "text")
         self.assertIn("matchUid：m-1", results[0][1])
         event.bot.api.post_group_message.assert_not_awaited()
+
+    async def test_match_query_sends_image_only_without_buttons(self):
+        payload = {"data": {"matches": [{"matchUid": "m-1", "matchPlayers": []}]}}
+
+        class FakeService:
+            async def get_match_detail(self, match_uid):
+                return payload
+
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.service = FakeService()
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(detail=AsyncMock(return_value="https://example.com/detail.png"))
+        event = FakeEvent()
+
+        results = [item async for item in plugin.match_detail(event, "m-1")]
+        self.assertEqual(results, [])
+        event.bot.api.post_group_file.assert_awaited_once()
+        event.bot.api.post_group_message.assert_awaited_once()
+        media_payload = event.bot.api.post_group_message.await_args.kwargs
+        self.assertEqual(media_payload["msg_type"], 7)
+        self.assertEqual(media_payload["msg_seq"], 1)
+        self.assertNotIn("keyboard", media_payload)
+        self.assertNotIn("content", media_payload)
 
     def test_payload_contains_markdown_command_and_url_buttons(self):
         payload = QQOfficialCardSender.build_payload(FakeEvent(), build_capability_test_card())

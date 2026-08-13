@@ -133,6 +133,6 @@ def build_hero_card(result: HeroQueryResult) -> InteractiveCard:
 def build_match_card(payload: dict) -> InteractiveCard:
     match = _first_match(payload)
     match_uid = _match_uid(match)
-    lines = ["**对局详情操作**" if match else "暂无对局数据。"]
+    lines = [""] if match else ["暂无对局数据。"]
     rows = [[CardButton("刷新详情", "command", f"/对局详情 {match_uid}", "blue")]] if match_uid else []
     return InteractiveCard("\n".join(lines), rows)
