@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
 from pathlib import Path
 
 try:
@@ -55,7 +54,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.10.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.11.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -124,19 +123,26 @@ class MarvelRivalsPlugin(Star):
     def _bound_uid(self, event: AstrMessageEvent) -> str | None:
         return self.bindings.get(self._qq_id(event))
 
-    async def _send_card(self, event: AstrMessageEvent, builder, *args, image_url: str | None = None) -> bool:
+    async def _send_card(self, event: AstrMessageEvent, builder, *args) -> bool:
         if not self.qq_card_sender.supports(event):
             return False
         try:
-            card = builder(*args)
-            if image_url:
-                card = replace(card, image_url=image_url)
-            await self.qq_card_sender.send(event, card)
+            await self.qq_card_sender.send(event, builder(*args))
             return True
         except Exception as exc:
             if logger:
                 logger.warning(f"QQ Official 富消息构建或发送失败，回退普通文本：{exc}")
             return False
+
+    async def _send_hybrid(self, event: AstrMessageEvent, image_url: str, builder, *args) -> bool:
+        """先经 AstrBot 媒体链发送图片，再发送独立的 QQ 按钮卡片。"""
+        try:
+            await event.send(event.image_result(image_url))
+        except Exception as exc:
+            if logger:
+                logger.warning(f"QQ Official 图片发送失败，回退普通文本：{exc}")
+            return False
+        return await self._send_card(event, builder, *args)
 
     @staticmethod
     def _uid_and_season(uid: str, season: str) -> tuple[str, str]:
@@ -164,7 +170,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_player(stats))
                 return
             if self.qq_card_sender.supports(event):
-                if not await self._send_card(event, build_player_card, stats, image_url=image_url):
+                if not await self._send_hybrid(event, image_url, build_player_card, stats):
                     yield event.plain_result(format_player(stats))
             else:
                 yield event.image_result(image_url)
@@ -239,9 +245,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_matches(matches, season_code))
                 return
             if self.qq_card_sender.supports(event):
-                if not await self._send_card(
-                    event, build_recent_card, uid, season_code, matches, image_url=image_url
-                ):
+                if not await self._send_hybrid(event, image_url, build_recent_card, uid, season_code, matches):
                     yield event.plain_result(format_matches(matches, season_code))
             else:
                 yield event.image_result(image_url)
@@ -266,7 +270,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_hero(result.payload, result.season))
                 return
             if self.qq_card_sender.supports(event):
-                if not await self._send_card(event, build_hero_card, result, image_url=image_url):
+                if not await self._send_hybrid(event, image_url, build_hero_card, result):
                     yield event.plain_result(format_hero(result.payload, result.season))
             else:
                 yield event.image_result(image_url)
@@ -286,7 +290,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_match_detail(payload))
                 return
             if self.qq_card_sender.supports(event):
-                if not await self._send_card(event, build_match_card, payload, image_url=image_url):
+                if not await self._send_hybrid(event, image_url, build_match_card, payload):
                     yield event.plain_result(format_match_detail(payload))
             else:
                 yield event.image_result(image_url)

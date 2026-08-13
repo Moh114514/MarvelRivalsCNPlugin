@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import random
 from typing import Any
-from urllib.parse import quote, urlsplit
 
 from .models import CardButton, InteractiveCard
 
@@ -55,18 +54,8 @@ class QQOfficialCardSender:
                 ]
             })
         message_obj = getattr(event, "message_obj", None)
-        markdown = card.markdown
-        if card.image_url:
-            if not isinstance(card.image_url, str):
-                raise ValueError("图片 URL 必须是字符串")
-            image_url = card.image_url.strip()
-            parsed = urlsplit(image_url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError("图片 URL 必须是可访问的 HTTP(S) 地址")
-            image_url = quote(image_url, safe=":/?#@!$&'*+,;=%")
-            markdown = f"![查询结果]({image_url})\n\n{markdown}"
         payload = {
-            "markdown": {"content": markdown},
+            "markdown": {"content": card.markdown},
             "keyboard": {"content": {"rows": rows}},
             "msg_type": 2,
             "msg_id": getattr(message_obj, "message_id", None),

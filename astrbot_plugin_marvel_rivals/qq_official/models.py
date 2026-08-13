@@ -16,4 +16,3 @@ class CardButton:
 class InteractiveCard:
     markdown: str
     rows: list[list[CardButton]] = field(default_factory=list)
-    image_url: str | None = None

@@ -27,6 +27,7 @@ class FakeEvent:
         self.message_obj = SimpleNamespace(message_id="message-1", raw_message=raw_message)
         self.bot = SimpleNamespace(api=SimpleNamespace(post_group_message=AsyncMock()))
         self.post_c2c_message = AsyncMock()
+        self.send = AsyncMock()
 
     def get_platform_name(self):
         return self._platform
@@ -137,7 +138,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         detail = build_match_detail_html({"data": {"matches": [{"matchPlayers": []}]}})
         self.assertIn("暂无玩家明细", detail)
 
-    async def test_recent_query_sends_one_qq_card_with_image_and_buttons(self):
+    async def test_recent_query_sends_image_then_separate_qq_buttons(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
 
         class FakeService:
@@ -157,9 +158,10 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
 
         results = [item async for item in plugin.recent(event, "123", "S9.5")]
         self.assertEqual(results, [])
+        event.send.assert_awaited_once_with(("image", "https://example.com/recent.png"))
         event.bot.api.post_group_message.assert_awaited_once()
         payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertIn("![查询结果](https://example.com/recent.png)", payload["markdown"]["content"])
+        self.assertNotIn("![", payload["markdown"]["content"])
         self.assertEqual(payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局 m-1")
 
     async def test_recent_query_qq_card_failure_falls_back_to_text(self):
@@ -179,6 +181,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         plugin.image_renderer = SimpleNamespace(recent=AsyncMock(return_value="recent.png"))
         event = FakeEvent()
         event.get_sender_id = lambda: "qq-1"
+        event.send.side_effect = RuntimeError("media rejected")
 
         results = [item async for item in plugin.recent(event, "123", "S9.5")]
         self.assertEqual(results[0][0], "text")
@@ -212,19 +215,6 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(buttons[0]["action"]["data"], "/战绩 1287101468")
         self.assertEqual(buttons[1]["action"]["type"], 0)
         self.assertTrue(buttons[1]["action"]["data"].startswith("https://"))
-
-    def test_payload_combines_image_markdown_and_buttons(self):
-        card = build_recent_card("123", "19", [{"matchUid": "m-1"}])
-        card = type(card)(card.markdown, card.rows, "https://example.com/result image.png")
-        payload = QQOfficialCardSender.build_payload(FakeEvent(), card)
-        self.assertIn("https://example.com/result%20image.png", payload["markdown"]["content"])
-        self.assertIn("keyboard", payload)
-
-    def test_payload_rejects_non_http_image_url(self):
-        card = build_recent_card("123", "19", [{"matchUid": "m-1"}])
-        card = type(card)(card.markdown, card.rows, "recent.png")
-        with self.assertRaisesRegex(ValueError, "HTTP"):
-            QQOfficialCardSender.build_payload(FakeEvent(), card)
 
     async def test_group_sender_calls_qq_official_api(self):
         event = FakeEvent()
@@ -286,11 +276,12 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         results = [item async for item in plugin._query(event, "123", "S9.5")]
         self.assertEqual(results, [])
         self.assertEqual(plugin.service.calls, 1)
+        event.send.assert_awaited_once_with(("image", "https://example.com/player.png"))
         payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertIn("![查询结果](https://example.com/player.png)", payload["markdown"]["content"])
+        self.assertNotIn("![", payload["markdown"]["content"])
 
         event = FakeEvent()
-        event.bot.api.post_group_message.side_effect = RuntimeError("rejected")
+        event.send = AsyncMock(side_effect=RuntimeError("rejected"))
         results = [item async for item in plugin._query(event, "123", "S9.5")]
         self.assertEqual(results[0][0], "text")
         self.assertIn("Tester", results[0][1])
