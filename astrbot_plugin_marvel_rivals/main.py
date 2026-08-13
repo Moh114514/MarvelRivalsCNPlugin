@@ -49,19 +49,36 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.1", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.2", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
-/帮助             显示完整指令帮助
-/绑定账号 <UID>    绑定游戏账号（兼容 /绑定漫威）
-/解绑账号          解除账号绑定（兼容 /解绑漫威）
-/战绩 [UID] [赛季]  查询综合战绩
-/查询 [UID] [赛季]  查询综合战绩
-/最近对局 [UID] [赛季]  查询最近十场（兼容 /最近）
-/英雄数据 <名称> [UID] [赛季]  查询英雄数据（兼容 /英雄）
-/对局详情 <matchUid>  查询对局详情（兼容 /对局）
-/卡片测试         测试 QQ 卡片能力
+/帮助
+显示完整指令帮助
+
+/绑定账号 <UID>
+绑定游戏账号（兼容 /绑定漫威）
+
+/解绑账号
+解除账号绑定（兼容 /解绑漫威）
+
+/战绩 [UID] [赛季]
+查询综合战绩
+
+/查询 [UID] [赛季]
+查询综合战绩
+
+/最近对局 [UID] [赛季]
+查询最近十场（兼容 /最近）
+
+/英雄数据 <名称> [UID] [赛季]
+查询英雄数据（兼容 /英雄）
+
+/对局详情 <matchUid>
+查询对局详情（兼容 /对局）
+
+/卡片测试
+测试 QQ 卡片能力
 
 已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 

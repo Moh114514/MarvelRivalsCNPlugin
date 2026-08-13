@@ -32,8 +32,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.12.1", metadata)
-        self.assertIn('"0.12.1"', main)
+        self.assertIn("version: 0.12.2", metadata)
+        self.assertIn('"0.12.2"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -56,6 +56,7 @@ class TestAstrBotPackage(unittest.TestCase):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for text in ("/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试", "S0", "S9.5", "英雄名称"):
             self.assertIn(text, main)
+        self.assertIn("/帮助\n显示完整指令帮助\n\n/绑定账号 <UID>\n", main)
 
     def test_new_commands_and_legacy_aliases_are_registered(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")

@@ -51,7 +51,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             heroes=[HeroStat(hero_id="1036", hero_name="蜘蛛侠", matches=37, wins=21, kills=492)],
             season="19",
         ))
-        self.assertIn("Player\\*One", card.markdown)
+        self.assertEqual(card.markdown, "")
         commands = [button.data for row in card.rows for button in row]
         self.assertIn("/最近对局 123 S9.5", commands)
         self.assertIn("/英雄数据 蜘蛛侠 123 S9.5", commands)
@@ -185,6 +185,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.bot.api.post_group_message.await_count, 2)
         markdown_payload, media_payload = [call.kwargs for call in event.bot.api.post_group_message.await_args_list]
         self.assertEqual(markdown_payload["msg_type"], 2)
+        self.assertTrue(markdown_payload["markdown"]["content"].startswith("<@user-1>\n\n"))
         self.assertIn("选择要查看的对局", markdown_payload["markdown"]["content"])
         self.assertIn("keyboard", markdown_payload)
         self.assertEqual(markdown_payload["msg_seq"], 1)
@@ -192,10 +193,25 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(button_action["data"], "/对局详情 m-1")
         self.assertIn("unsupport_tips", button_action)
         self.assertEqual(media_payload["msg_type"], 7)
+        self.assertEqual(media_payload["content"], "<@user-1>")
         self.assertEqual(media_payload["media"]["file_info"], "uploaded-image")
-        self.assertNotIn("content", media_payload)
         self.assertNotIn("keyboard", media_payload)
         self.assertEqual(media_payload["msg_seq"], 2)
+
+    def test_player_card_contains_only_buttons_and_sender_adds_mention(self):
+        card = build_player_card(PlayerStats(
+            profile=PlayerProfile(uid="123", name="Tester"),
+            heroes=[HeroStat(hero_id="1036", hero_name="蜘蛛侠")],
+            season="19",
+        ))
+        self.assertEqual(card.markdown, "")
+        payload = QQOfficialCardSender.build_payload(FakeEvent(), card)
+        self.assertEqual(payload["markdown"]["content"], "<@user-1>")
+        self.assertIn("keyboard", payload)
+
+    def test_c2c_markdown_does_not_add_group_mention(self):
+        payload = QQOfficialCardSender.build_payload(FakeEvent(group=False), build_capability_test_card())
+        self.assertFalse(payload["markdown"]["content"].startswith("<@"))
 
     async def test_recent_query_qq_card_failure_falls_back_to_text(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
@@ -255,6 +271,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         event.bot.api.post_group_message.assert_awaited_once()
         kwargs = event.bot.api.post_group_message.await_args.kwargs
         self.assertEqual(kwargs["group_openid"], "group-1")
+        self.assertTrue(kwargs["markdown"]["content"].startswith("<@user-1>\n\n"))
         self.assertIn("keyboard", kwargs)
 
     async def test_group_sender_uploads_image_then_sends_markdown_with_keyboard(self):

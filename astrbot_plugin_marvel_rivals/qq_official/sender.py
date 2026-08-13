@@ -57,11 +57,30 @@ class QQOfficialCardSender:
             })
         return {"content": {"rows": rows}}
 
+    @staticmethod
+    def _group_user_openid(event: Any) -> str:
+        source = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        if not getattr(source, "group_openid", None):
+            return ""
+        author = getattr(source, "author", None)
+        for name in ("member_openid", "user_openid", "openid", "id"):
+            value = getattr(author, name, None)
+            if value not in (None, ""):
+                return str(value)
+        return ""
+
+    @classmethod
+    def _markdown_content(cls, event: Any, content: str) -> str:
+        user_openid = cls._group_user_openid(event)
+        mention = f"<@{user_openid}>" if user_openid else ""
+        content = content.strip()
+        return "\n\n".join(part for part in (mention, content) if part)
+
     @classmethod
     def build_payload(cls, event: Any, card: InteractiveCard) -> dict[str, Any]:
         message_obj = getattr(event, "message_obj", None)
         payload = {
-            "markdown": {"content": card.markdown},
+            "markdown": {"content": cls._markdown_content(event, card.markdown)},
             "keyboard": cls._keyboard(card),
             "msg_type": 2,
             "msg_id": getattr(message_obj, "message_id", None),
@@ -113,12 +132,16 @@ class QQOfficialCardSender:
                 group_openid=group_openid, file_type=1, url=image_url, srv_send_msg=False
             )
             await api.post_group_message(group_openid=group_openid, **markdown_payload)
-            await api.post_group_message(
-                group_openid=group_openid,
-                msg_type=7,
-                media=self._media_payload(media),
+            media_payload = {
+                "group_openid": group_openid,
+                "msg_type": 7,
+                "media": self._media_payload(media),
                 **media_reply_fields,
-            )
+            }
+            user_openid = self._group_user_openid(event)
+            if user_openid:
+                media_payload["content"] = f"<@{user_openid}>"
+            await api.post_group_message(**media_payload)
             return True
         if user_openid and api and hasattr(api, "post_c2c_file") and hasattr(event, "post_c2c_message"):
             media = await api.post_c2c_file(

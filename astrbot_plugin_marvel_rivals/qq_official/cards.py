@@ -74,23 +74,6 @@ def build_capability_test_card() -> InteractiveCard:
 def build_player_card(stats: PlayerStats) -> InteractiveCard:
     profile, summary = stats.profile, stats.summary
     season = _season_command(stats.season)
-    lines = [
-        "# 漫威争锋 · 国服战绩",
-        f"## {_md(profile.name)}",
-        f"UID `{_md(profile.uid)}` · Lv\\.{_md(profile.level if profile.level is not None else '-')}",
-        "",
-        f"**{_md(format_season_name(stats.season))} · {_md(profile.rank_game_season or '暂无段位')}**",
-        "",
-        f"场次 **{_number(summary.matches)}**　胜场 **{_number(summary.wins)}**　胜率 **{_number(summary.win_rate)}%**",
-        f"K / D / A　**{_number(summary.kills)} / {_number(summary.deaths)} / {_number(summary.assists)}**",
-    ]
-    if stats.heroes:
-        lines += ["", "### 常用英雄"]
-        for index, hero in enumerate(stats.heroes[:5], 1):
-            lines.append(
-                f"{index}\\. **{_md(hero.hero_name)}**　{_number(hero.matches)} 场 / "
-                f"{_number(hero.wins)} 胜 / {_number(hero.kills)} 击败"
-            )
     rows = [[
         CardButton("最近10场", "command", f"/最近对局 {profile.uid} {season}", "blue"),
         CardButton("刷新战绩", "command", f"/战绩 {profile.uid} {season}"),
@@ -103,7 +86,7 @@ def build_player_card(stats: PlayerStats) -> InteractiveCard:
     ]
     if hero_buttons:
         rows.append(hero_buttons)
-    return InteractiveCard("\n".join(lines), rows)
+    return InteractiveCard("", rows)
 
 
 def build_recent_card(uid: str, season_code: str, matches: list[dict]) -> InteractiveCard:
