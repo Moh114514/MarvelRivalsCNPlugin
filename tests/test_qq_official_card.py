@@ -9,7 +9,8 @@ from astrbot_plugin_marvel_rivals.qq_official.cards import (
 )
 from astrbot_plugin_marvel_rivals.qq_official.sender import QQOfficialCardSender
 from astrbot_plugin_marvel_rivals.rendering import (
-    MatchImageRenderer, build_match_detail_html, build_recent_matches_html,
+    MatchImageRenderer, build_hero_query_html, build_match_detail_html,
+    build_player_stats_html, build_recent_matches_html,
 )
 from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, PlayerProfile, PlayerStats
 
@@ -116,6 +117,19 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("阵营 1", detail_html)
         self.assertIn("A&amp;lt;", detail_html)
 
+        stats = PlayerStats(profile=PlayerProfile(uid="123", name="Tester"), season="19")
+        self.assertEqual(await renderer.player(stats), "rendered.png")
+        self.assertIn("Tester", html_render.await_args.args[0])
+
+        hero = HeroQueryResult(
+            uid="123", hero_id="1036", hero_name="蜘蛛侠", season="19",
+            payload={"data": {"careers": [{"totalMatchCount": 3}]}},
+        )
+        self.assertEqual(await renderer.hero(hero), "rendered.png")
+        self.assertIn("蜘蛛侠", html_render.await_args.args[0])
+        for call in html_render.await_args_list:
+            self.assertTrue(call.kwargs["options"]["full_page"])
+
     def test_image_html_escapes_untrusted_values(self):
         html = build_recent_matches_html("<script>{{danger}}</script>", "19", [])
         self.assertNotIn("<script>", html)
@@ -123,7 +137,32 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         detail = build_match_detail_html({"data": {"matches": [{"matchPlayers": []}]}})
         self.assertIn("暂无玩家明细", detail)
 
-    async def test_recent_query_sends_image_then_qq_buttons(self):
+    async def test_recent_query_sends_one_qq_card_with_image_and_buttons(self):
+        matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
+
+        class FakeService:
+            def season_code(self, season):
+                return "19"
+
+            async def get_recent_matches(self, uid, season):
+                return matches
+
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.service = FakeService()
+        plugin.bindings = SimpleNamespace(get=lambda _qq: None)
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(recent=AsyncMock(return_value="https://example.com/recent.png"))
+        event = FakeEvent()
+        event.get_sender_id = lambda: "qq-1"
+
+        results = [item async for item in plugin.recent(event, "123", "S9.5")]
+        self.assertEqual(results, [])
+        event.bot.api.post_group_message.assert_awaited_once()
+        payload = event.bot.api.post_group_message.await_args.kwargs
+        self.assertIn("![查询结果](https://example.com/recent.png)", payload["markdown"]["content"])
+        self.assertEqual(payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局 m-1")
+
+    async def test_recent_query_qq_card_failure_falls_back_to_text(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
 
         class FakeService:
@@ -142,10 +181,9 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         event.get_sender_id = lambda: "qq-1"
 
         results = [item async for item in plugin.recent(event, "123", "S9.5")]
-        self.assertEqual(results, [("image", "recent.png")])
-        event.bot.api.post_group_message.assert_awaited_once()
-        payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局 m-1")
+        self.assertEqual(results[0][0], "text")
+        self.assertIn("最近比赛", results[0][1])
+        event.bot.api.post_group_message.assert_not_awaited()
 
     async def test_match_query_image_failure_falls_back_to_same_payload(self):
         payload = {"data": {"matches": [{"matchUid": "m-1", "matchPlayers": []}]}}
@@ -174,6 +212,19 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(buttons[0]["action"]["data"], "/战绩 1287101468")
         self.assertEqual(buttons[1]["action"]["type"], 0)
         self.assertTrue(buttons[1]["action"]["data"].startswith("https://"))
+
+    def test_payload_combines_image_markdown_and_buttons(self):
+        card = build_recent_card("123", "19", [{"matchUid": "m-1"}])
+        card = type(card)(card.markdown, card.rows, "https://example.com/result image.png")
+        payload = QQOfficialCardSender.build_payload(FakeEvent(), card)
+        self.assertIn("https://example.com/result%20image.png", payload["markdown"]["content"])
+        self.assertIn("keyboard", payload)
+
+    def test_payload_rejects_non_http_image_url(self):
+        card = build_recent_card("123", "19", [{"matchUid": "m-1"}])
+        card = type(card)(card.markdown, card.rows, "recent.png")
+        with self.assertRaisesRegex(ValueError, "HTTP"):
+            QQOfficialCardSender.build_payload(FakeEvent(), card)
 
     async def test_group_sender_calls_qq_official_api(self):
         event = FakeEvent()
@@ -230,10 +281,13 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         plugin = object.__new__(MarvelRivalsPlugin)
         plugin.service = FakeService()
         plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(player=AsyncMock(return_value="https://example.com/player.png"))
         event = FakeEvent()
         results = [item async for item in plugin._query(event, "123", "S9.5")]
         self.assertEqual(results, [])
         self.assertEqual(plugin.service.calls, 1)
+        payload = event.bot.api.post_group_message.await_args.kwargs
+        self.assertIn("![查询结果](https://example.com/player.png)", payload["markdown"]["content"])
 
         event = FakeEvent()
         event.bot.api.post_group_message.side_effect = RuntimeError("rejected")
