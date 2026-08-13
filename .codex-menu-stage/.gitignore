@@ -1,0 +1,41 @@
+# Local credentials and runtime configuration
+.env
+.env.*
+!.env.example
+
+# Captured traffic and raw API responses
+captures/*
+!captures/.gitignore
+!captures/.gitkeep
+*.mitm
+debug-responses/
+
+# Runtime data
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments and packaging
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Test leftovers and editor files
+tmp*/
+.idea/
+.vscode/
+Thumbs.db
+astrbot_plugin_marvel_rivals.zip

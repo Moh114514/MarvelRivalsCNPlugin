@@ -14,7 +14,7 @@ DEFAULT_MENU: dict[str, Any] = {
     "menu": {
         "items": [
             {"type": "send_message", "name": "战绩", "send_message": "/战绩"},
-            {"type": "send_message", "name": "最近", "send_message": "/最近"},
+            {"type": "send_message", "name": "最近", "send_message": "/最近对局"},
             {"type": "send_message", "name": "英雄", "send_message": "/英雄 "},
             {
                 "type": "menu",
@@ -29,7 +29,7 @@ DEFAULT_MENU: dict[str, Any] = {
                 "name": "更多",
                 "sub_menu_items": [
                     {"type": "send_message", "name": "对局详情", "send_message": "/对局 "},
-                    {"type": "send_message", "name": "使用帮助", "send_message": "/漫威帮助"},
+                    {"type": "send_message", "name": "使用帮助", "send_message": "/帮助"},
                     {"type": "send_message", "name": "卡片测试", "send_message": "/卡片测试"},
                 ],
             },

@@ -25,11 +25,7 @@ class FakeEvent:
             guild_id=None,
         )
         self.message_obj = SimpleNamespace(message_id="message-1", raw_message=raw_message)
-        self.bot = SimpleNamespace(api=SimpleNamespace(
-            post_group_file=AsyncMock(return_value={"file_info": "uploaded-image", "ttl": 60}),
-            post_group_message=AsyncMock(),
-            post_c2c_file=AsyncMock(return_value={"file_info": "uploaded-image", "ttl": 60}),
-        ))
+        self.bot = SimpleNamespace(api=SimpleNamespace(post_group_message=AsyncMock()))
         self.post_c2c_message = AsyncMock()
         self.send = AsyncMock()
 
@@ -54,14 +50,14 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Player\\*One", card.markdown)
         commands = [button.data for row in card.rows for button in row]
         self.assertIn("/最近对局 123 S9.5", commands)
-        self.assertIn("/英雄数据 蜘蛛侠 123 S9.5", commands)
+        self.assertIn("/英雄 蜘蛛侠 123 S9.5", commands)
 
         unknown = build_player_card(PlayerStats(
             profile=PlayerProfile(uid="123", name="Tester"),
             heroes=[HeroStat(hero_id=None, hero_name="Unknown Hero")],
             season="19",
         ))
-        self.assertFalse(any(button.data.startswith("/英雄数据") for row in unknown.rows for button in row))
+        self.assertFalse(any(button.data.startswith("/英雄") for row in unknown.rows for button in row))
 
     def test_recent_card_has_match_detail_buttons_within_qq_limit(self):
         matches = [{
@@ -74,12 +70,12 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         card = build_recent_card("123", "19", matches)
         self.assertEqual(len(card.rows), 5)
         self.assertEqual(sum(len(row) for row in card.rows), 10)
-        self.assertEqual(card.rows[0][0].data, "/对局详情 match-0")
+        self.assertEqual(card.rows[0][0].data, "/对局 match-0")
 
         card = build_recent_card("123", "19", [{"matchUid": None, "matchUID": "m-1"}, {"matchUID": "m-2"}])
         self.assertEqual(
             [button.data for row in card.rows for button in row],
-            ["/对局详情 m-1", "/对局详情 m-2"],
+            ["/对局 m-1", "/对局 m-2"],
         )
 
     def test_hero_and_match_cards_include_navigation_and_teams(self):
@@ -88,7 +84,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             payload={"data": {"careers": [{"heroId": 1036, "totalMatchCount": 37, "totalMatchWinCount": 21, "k": 492}]}},
         ))
         self.assertIn("蜘蛛侠", hero.markdown)
-        self.assertEqual(hero.rows[0][0].data, "/英雄数据 蜘蛛侠 123 S9.5")
+        self.assertEqual(hero.rows[0][0].data, "/英雄 蜘蛛侠 123 S9.5")
 
         match = build_match_card({"data": {"matches": [{
             "matchUid": "m-1", "matchMapId": 1413, "gameModeId": 2, "playModeId": 0,
@@ -98,7 +94,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             ],
         }]}})
         self.assertIn("对局详情操作", match.markdown)
-        self.assertEqual(match.rows[0][0].data, "/对局详情 m-1")
+        self.assertEqual(match.rows[0][0].data, "/对局 m-1")
 
         mixed_camps = build_match_card({"data": {"matches": [{
             "matchUid": None,
@@ -142,7 +138,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         detail = build_match_detail_html({"data": {"matches": [{"matchPlayers": []}]}})
         self.assertIn("暂无玩家明细", detail)
 
-    async def test_recent_query_sends_one_qq_media_message_with_buttons(self):
+    async def test_recent_query_sends_image_then_separate_qq_buttons(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
 
         class FakeService:
@@ -162,19 +158,11 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
 
         results = [item async for item in plugin.recent(event, "123", "S9.5")]
         self.assertEqual(results, [])
-        event.send.assert_not_awaited()
-        event.bot.api.post_group_file.assert_awaited_once_with(
-            group_openid="group-1", file_type=1,
-            url="https://example.com/recent.png", srv_send_msg=False,
-        )
+        event.send.assert_awaited_once_with(("image", "https://example.com/recent.png"))
         event.bot.api.post_group_message.assert_awaited_once()
         payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(payload["msg_type"], 7)
-        self.assertEqual(payload["media"]["file_info"], "uploaded-image")
-        self.assertTrue(payload["content"].startswith("**"))
-        self.assertIn("选择要查看的对局", payload["content"])
-        self.assertIn("keyboard", payload)
-        self.assertEqual(payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局详情 m-1")
+        self.assertNotIn("![", payload["markdown"]["content"])
+        self.assertEqual(payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局 m-1")
 
     async def test_recent_query_qq_card_failure_falls_back_to_text(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
@@ -193,7 +181,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         plugin.image_renderer = SimpleNamespace(recent=AsyncMock(return_value="recent.png"))
         event = FakeEvent()
         event.get_sender_id = lambda: "qq-1"
-        event.bot.api.post_group_file.side_effect = RuntimeError("media rejected")
+        event.send.side_effect = RuntimeError("media rejected")
 
         results = [item async for item in plugin.recent(event, "123", "S9.5")]
         self.assertEqual(results[0][0], "text")
@@ -234,17 +222,6 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         event.bot.api.post_group_message.assert_awaited_once()
         kwargs = event.bot.api.post_group_message.await_args.kwargs
         self.assertEqual(kwargs["group_openid"], "group-1")
-        self.assertIn("keyboard", kwargs)
-
-    async def test_group_sender_uploads_image_and_sends_media_with_keyboard(self):
-        event = FakeEvent()
-        card = build_capability_test_card()
-        card = type(card)(card.markdown, card.rows, "https://example.com/result.png")
-        await QQOfficialCardSender().send(event, card)
-        event.bot.api.post_group_file.assert_awaited_once()
-        kwargs = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(kwargs["msg_type"], 7)
-        self.assertEqual(kwargs["media"]["file_info"], "uploaded-image")
         self.assertIn("keyboard", kwargs)
 
     async def test_c2c_sender_uses_event_protocol_method(self):
@@ -299,15 +276,12 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         results = [item async for item in plugin._query(event, "123", "S9.5")]
         self.assertEqual(results, [])
         self.assertEqual(plugin.service.calls, 1)
-        event.send.assert_not_awaited()
-        event.bot.api.post_group_file.assert_awaited_once()
+        event.send.assert_awaited_once_with(("image", "https://example.com/player.png"))
         payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(payload["msg_type"], 7)
-        self.assertEqual(payload["media"]["file_info"], "uploaded-image")
-        self.assertIn("keyboard", payload)
+        self.assertNotIn("![", payload["markdown"]["content"])
 
         event = FakeEvent()
-        event.bot.api.post_group_file = AsyncMock(side_effect=RuntimeError("rejected"))
+        event.send = AsyncMock(side_effect=RuntimeError("rejected"))
         results = [item async for item in plugin._query(event, "123", "S9.5")]
         self.assertEqual(results[0][0], "text")
         self.assertIn("Tester", results[0][1])

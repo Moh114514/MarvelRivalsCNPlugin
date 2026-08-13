@@ -97,7 +97,7 @@ def build_player_card(stats: PlayerStats) -> InteractiveCard:
     ]]
     hero_names = [get_hero_name(hero.hero_id) for hero in stats.heroes[:3]]
     hero_buttons = [
-        CardButton(name, "command", f"/英雄数据 {name} {profile.uid} {season}")
+        CardButton(name, "command", f"/英雄 {name} {profile.uid} {season}")
         for name in hero_names
         if name != "未知英雄" and not name.startswith("英雄 ")
     ]
@@ -112,7 +112,7 @@ def build_recent_card(uid: str, season_code: str, matches: list[dict]) -> Intera
     for index, item in enumerate(matches[:10], 1):
         match_uid = _match_uid(item)
         if match_uid and not re.search(r"\s", match_uid):
-            buttons.append(CardButton(f"第{index}场", "command", f"/对局详情 {match_uid}", "blue"))
+            buttons.append(CardButton(f"第{index}场", "command", f"/对局 {match_uid}", "blue"))
     if not matches:
         lines += ["", "暂无可用比赛记录。"]
     rows = [buttons[index:index + 2] for index in range(0, min(len(buttons), 10), 2)]
@@ -141,7 +141,7 @@ def build_hero_card(result: HeroQueryResult) -> InteractiveCard:
     if not hero:
         lines += ["", "暂无该英雄的生涯数据。"]
     return InteractiveCard("\n".join(lines), [[
-        CardButton("刷新英雄", "command", f"/英雄数据 {result.hero_name} {result.uid} {season}", "blue"),
+        CardButton("刷新英雄", "command", f"/英雄 {result.hero_name} {result.uid} {season}", "blue"),
         CardButton("玩家战绩", "command", f"/战绩 {result.uid} {season}"),
         CardButton("最近对局", "command", f"/最近对局 {result.uid} {season}"),
     ]])
@@ -151,5 +151,5 @@ def build_match_card(payload: dict) -> InteractiveCard:
     match = _first_match(payload)
     match_uid = _match_uid(match)
     lines = ["**对局详情操作**" if match else "暂无对局数据。"]
-    rows = [[CardButton("刷新详情", "command", f"/对局详情 {match_uid}", "blue")]] if match_uid else []
+    rows = [[CardButton("刷新详情", "command", f"/对局 {match_uid}", "blue")]] if match_uid else []
     return InteractiveCard("\n".join(lines), rows)

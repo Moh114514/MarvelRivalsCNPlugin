@@ -22,7 +22,7 @@ class TestQQMenu(unittest.IsolatedAsyncioTestCase):
             if item["type"] == "send_message":
                 commands.append(item["send_message"])
             commands.extend(child["send_message"] for child in item.get("sub_menu_items", []) if child["type"] == "send_message")
-        for command in ("/战绩", "/最近对局", "/英雄数据 ", "/绑定账号 ", "/解绑账号", "/对局详情 ", "/帮助", "/卡片测试"):
+        for command in ("/战绩", "/最近对局", "/英雄 ", "/绑定漫威 ", "/解绑漫威", "/对局 ", "/帮助", "/卡片测试"):
             self.assertIn(command, commands)
 
     def test_menu_validation_rejects_invalid_link_and_nested_menu(self):

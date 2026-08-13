@@ -6,23 +6,29 @@
 
 ```text
 /帮助
-/绑定账号 <UID>
-/解绑账号
+/绑定漫威 <UID>
+/解绑漫威
 /战绩 [UID] [赛季名称]
 /查询 [UID] [赛季名称]
 /最近对局 [UID] [赛季名称]
-/英雄数据 <英雄名称> [UID] [赛季名称]
-/对局详情 <matchUid>
+/英雄 <英雄名称> [UID] [赛季名称]
+/对局 <matchUid>
 /卡片测试
+/同步漫威菜单（仅管理员）
+/查看漫威菜单（仅管理员）
 ```
 
 AstrBot 内置 `/help` 会根据各命令的说明列出可用功能，`/帮助` 会显示本插件完整的参数说明与示例。`/战绩` 和 `/查询` 会调用 `loadData`、`loadSummary`、`loadCareer`、`loadSortHero`，并批量调用 `loadHeroCareer` 补全常用英雄的出场、胜场和击败。默认查询 `MRCN_DEFAULT_SEASON`，也可以通过赛季名称查询历史赛季，例如 `/战绩 1287101468 S9上半赛季`。
 
-QQ Official 上的 `/战绩`、`/查询`、`/最近对局`、`/英雄数据` 与 `/对局详情` 都会生成高密度信息图片；图片先上传到 QQ 官方媒体接口，再以 `msg_type=7` 和同一条消息中的文字、按钮一起发送，可从最近十场直接打开任意单局详情。非 QQ Official 平台仍可查看图片，图片渲染或发送失败时自动回退原有文本且不会重复请求国服接口。`/卡片测试` 可单独验证账号的 Markdown、指令按钮和链接按钮权限。插件不额外依赖 Pillow 或自带浏览器。
+QQ Official 上的 `/战绩`、`/查询`、`/最近对局`、`/英雄` 与 `/对局` 都会生成高密度信息图片；图片先经 AstrBot 的媒体发送链上传，随后发送独立的 Markdown 操作区和消息按钮，可从最近十场直接打开任意单局详情。这样无需让 QQ 客户端直接访问 AstrBot 的临时渲染地址。非 QQ Official 平台仍可查看图片，图片渲染或发送失败时自动回退原有文本且不会重复请求国服接口。`/卡片测试` 可单独验证账号的 Markdown、指令按钮和链接按钮权限。插件不额外依赖 Pillow 或自带浏览器。
 
-赛季参数支持 `S0`、`S9`、`S9.5`、`S9上半赛季`、`S9下半赛季`，并支持 `s/S` 大小写；S0 没有半赛季。后台会自动转译为接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄数据 蜘蛛侠 1287101468 s9上半赛季`，不再接受英雄代码。
+QQ 单聊快捷菜单包含“战绩、最近、英雄、账号、更多”五个一级入口，其中“账号”和“更多”为折叠菜单。先在 AstrBot 插件配置中填写 `QQ_BOT_APP_ID` 与 `QQ_BOT_CLIENT_SECRET`，再由管理员执行 `/同步漫威菜单`。该操作调用 QQ 官方 `PUT /v2/menu` 并会完整覆盖机器人已有的全局单聊菜单；可先执行 `/查看漫威菜单` 核对当前版本和一级菜单。凭据只用于服务端换取短期 access_token，不会写入日志。
 
-最近比赛基础响应不包含玩家使用的英雄 ID，插件会将当页 `matchUid` 一次性传给 `loadSummaryDetail`，再从详情中的 `matchPlayers` 回填英雄名称。`/对局详情` 支持纯 ID、`matchUid=...` 和 `matchUid：...` 三种粘贴格式。
+赛季参数支持 `S0`、`S9`、`S9.5`、`S9上半赛季`、`S9下半赛季`，并支持 `s/S` 大小写；S0 没有半赛季。后台会自动转译为国服接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄 蜘蛛侠 1287101468 s9.5`，不再接受英雄代码。
+
+地图相关字段按命名空间分别处理：`gameModeId` 表示快速、竞技、自定义或街机队列；`matchMapId` 表示地图；`playModeId` 仅作为独立玩法编号保留。已确认的常规与特殊地图会显示国服名称和玩法，快速与竞技地图 ID 分别保存；未确认编号会显示 `未知地图（ID xxxx）`，不会根据编号递增关系猜测。
+
+代码中的 `RIVALSMETA_SEASON_MAP` 仅记录 RivalsMeta 的赛季编号体系，不用于解释国服接口中的 `matchSeason` 或 `rankGameSeason`。
 
 ## 配置
 
@@ -47,8 +53,8 @@ MRCN_REQUEST_BODY_TEMPLATE={"aid":"{uid}","zoneId":16001}
 ```powershell
 python -m unittest discover -s tests -v
 python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667
-python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667 --season S9上半赛季
-python -m marvel_rivals_bot.cli --env-file .env.capture hero 蜘蛛侠 195963667 --season s9下半赛季
+python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667 --season S9
+python -m marvel_rivals_bot.cli --env-file .env.capture hero 蜘蛛侠 195963667 --season s9.5
 ```
 
 ## 使用 mitmproxy 抓取接口
@@ -105,13 +111,13 @@ python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-respo
 
 在 AstrBot WebUI 的插件配置中至少填写 `MRCN_ACCESS_TOKEN`。默认接口地址、路径和请求模板已经内置；生产环境通常不应配置 mitmproxy 的 `MRCN_PROXY` 或 `MRCN_CA_CERT`。QQ 接入需要 AstrBot 已配置可用的 OneBot v11/aiocqhttp 适配器（例如 NapCat）。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`，插件升级不会覆盖。
 
-手动安装后应依次验证：插件无加载错误、`/帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定账号 <UID>` 后省略 UID 仍可查询。发布到插件市场前，还需要为 `metadata.yaml` 填写真实的 HTTPS GitHub `repo` 地址，并从发布包中排除 `__pycache__`、`.env*`、抓包和调试响应。
+手动安装后应依次验证：插件无加载错误、`/帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定漫威 <UID>` 后省略 UID 仍可查询。发布到插件市场前，还需要为 `metadata.yaml` 填写真实的 HTTPS GitHub `repo` 地址，并从发布包中排除 `__pycache__`、`.env*`、抓包和调试响应。
 
 新增命令：
 
 ```text
-/对局详情 <matchUid>
-/英雄数据 <英雄名称> [UID] [赛季名称]
+/对局 <matchUid>
+/英雄 <英雄名称> [UID] [赛季名称]
 ```
 
 二维码分享页抓包已确认：`access_token` 用于接口鉴权，查询目标由 `roleId/playerUid` 指定。查询流程先调用 `GET /api/role/loadByRoleId?roleId={uid}`，随后在 `loadData`、`loadCareer`、`loadSortHero`、`loadHeroCareer` 等请求中传入同一个 `playerUid`。当前实现已按此流程查询其他公开玩家，并校验响应中的 `aid/playerUid` 与请求 UID 一致。

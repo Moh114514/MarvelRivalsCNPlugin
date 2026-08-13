@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import random
 from typing import Any
-from urllib.parse import urlsplit
 
 from .models import CardButton, InteractiveCard
 
@@ -45,7 +44,7 @@ class QQOfficialCardSender:
         }
 
     @classmethod
-    def _keyboard(cls, card: InteractiveCard) -> dict[str, Any]:
+    def build_payload(cls, event: Any, card: InteractiveCard) -> dict[str, Any]:
         rows = []
         for row_index, row in enumerate(card.rows[:5]):
             rows.append({
@@ -54,14 +53,10 @@ class QQOfficialCardSender:
                     for button_index, button in enumerate(row[:5])
                 ]
             })
-        return {"content": {"rows": rows}}
-
-    @classmethod
-    def build_payload(cls, event: Any, card: InteractiveCard) -> dict[str, Any]:
         message_obj = getattr(event, "message_obj", None)
         payload = {
             "markdown": {"content": card.markdown},
-            "keyboard": cls._keyboard(card),
+            "keyboard": {"content": {"rows": rows}},
             "msg_type": 2,
             "msg_id": getattr(message_obj, "message_id", None),
             "msg_seq": random.randint(1, 10000),
@@ -70,81 +65,15 @@ class QQOfficialCardSender:
             payload.pop("msg_id")
         return payload
 
-    @staticmethod
-    def _validate_image_url(image_url: str) -> str:
-        if not isinstance(image_url, str):
-            raise ValueError("图片 URL 必须是字符串")
-        image_url = image_url.strip()
-        parsed = urlsplit(image_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("图片 URL 必须是可访问的 HTTP(S) 地址")
-        return image_url
-
-    @staticmethod
-    def _media_payload(media: Any) -> Any:
-        if isinstance(media, dict):
-            return media
-        if hasattr(media, "to_dict"):
-            return media.to_dict()
-        if hasattr(media, "__dict__"):
-            return dict(media.__dict__)
-        fields = {name: getattr(media, name) for name in ("file_uuid", "file_info", "ttl") if hasattr(media, name)}
-        if fields:
-            return fields
-        return media
-
-    async def _send_media(self, event: Any, card: InteractiveCard, source: Any, bot: Any, api: Any) -> bool:
-        image_url = self._validate_image_url(card.image_url or "")
-        message_obj = getattr(event, "message_obj", None)
-        raw_message = getattr(message_obj, "raw_message", None)
-        group_openid = getattr(raw_message, "group_openid", None)
-        author = getattr(raw_message, "author", None)
-        user_openid = getattr(author, "user_openid", None)
-        keyboard = self._keyboard(card)
-        reply_id = getattr(message_obj, "message_id", None)
-        reply_fields = {"msg_id": reply_id, "msg_seq": random.randint(1, 10000)} if reply_id else {}
-        if group_openid and api and hasattr(api, "post_group_file") and hasattr(api, "post_group_message"):
-            media = await api.post_group_file(
-                group_openid=group_openid, file_type=1, url=image_url, srv_send_msg=False
-            )
-            await api.post_group_message(
-                group_openid=group_openid,
-                msg_type=7,
-                media=self._media_payload(media),
-                content=card.markdown,
-                keyboard=keyboard,
-                **reply_fields,
-            )
-            return True
-        if user_openid and api and hasattr(api, "post_c2c_file") and hasattr(event, "post_c2c_message"):
-            media = await api.post_c2c_file(
-                openid=user_openid, file_type=1, url=image_url, srv_send_msg=False
-            )
-            await event.post_c2c_message(
-                openid=user_openid,
-                msg_type=7,
-                media=self._media_payload(media),
-                content=card.markdown,
-                keyboard=keyboard,
-                **reply_fields,
-            )
-            return True
-        raise UnsupportedQQOfficialEvent("当前 QQ Official 会话不支持图片与按钮合并发送")
-
     async def send(self, event: Any, card: InteractiveCard) -> None:
         if not self.supports(event):
             raise UnsupportedQQOfficialEvent("当前平台不是 QQ Official")
+        payload = self.build_payload(event, card)
         source = getattr(getattr(event, "message_obj", None), "raw_message", None)
         bot = getattr(event, "bot", None)
         api = getattr(bot, "api", None)
         if source is None or bot is None:
             raise UnsupportedQQOfficialEvent("无法取得 QQ Official 事件上下文")
-
-        if card.image_url:
-            await self._send_media(event, card, source, bot, api)
-            return
-
-        payload = self.build_payload(event, card)
 
         group_openid = getattr(source, "group_openid", None)
         if group_openid and api and hasattr(api, "post_group_message"):
