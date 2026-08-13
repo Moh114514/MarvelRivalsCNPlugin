@@ -21,8 +21,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.2.1", metadata)
-        self.assertIn('"0.2.1"', main)
+        self.assertIn("version: 0.2.2", metadata)
+        self.assertIn('"0.2.2"', main)
 
     def test_httpx_dependency_is_declared(self):
         requirements = (PLUGIN_DIR / "requirements.txt").read_text(encoding="utf-8")

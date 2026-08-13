@@ -36,7 +36,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.2.1", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.2.2", "")
 class MarvelRivalsPlugin(Star):
     def __init__(self, context: Context, config=None):
         if hasattr(super(), "__init__"):

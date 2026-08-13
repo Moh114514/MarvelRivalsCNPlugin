@@ -79,6 +79,18 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             ):
                 await source.get_player("1")
 
+    async def test_private_profile_error_without_de_particle_includes_hint(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={
+                "code": 403,
+                "msg": "不允许查看该用户游戏数据",
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            with self.assertRaisesRegex(Exception, "漫威争锋小程序→战绩→设置"):
+                await source.get_player("1")
+
     async def test_cn_response_field_names_are_normalized(self):
         responses = {
             "/api/game/player/loadData": {"data": {"name": "Moh233", "aid": 195963667, "level": 83}},
@@ -98,6 +110,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.summary.wins, 14)
         self.assertEqual(stats.summary.matches, 27)
         self.assertEqual(stats.heroes[0].hero_id, "1066")
+        self.assertEqual(stats.heroes[0].hero_name, "红兜帽")
         self.assertEqual(stats.heroes[0].play_time_seconds, 4338.3)
 
     async def test_response_rejects_different_requested_uid(self):

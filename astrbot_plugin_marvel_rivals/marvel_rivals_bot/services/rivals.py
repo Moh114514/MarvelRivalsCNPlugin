@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 
 from ..datasource.base import RivalsDataSource
+from ..hero_names import format_hero_name
 from ..models import PlayerStats
 
 
@@ -79,7 +80,10 @@ def format_player(stats: PlayerStats) -> str:
     if stats.heroes:
         lines += ["", "常用英雄"]
         for index, hero in enumerate(stats.heroes[:5], 1):
-            lines.append(f"{index}. {hero.hero_name}  时长 {_duration(hero.play_time_seconds)}")
+            lines.append(
+                f"{index}. {format_hero_name(hero.hero_id, hero.hero_name)}  "
+                f"时长 {_duration(hero.play_time_seconds)}"
+            )
     return "\n".join(lines)
 
 
@@ -92,8 +96,9 @@ def format_matches(matches: list[dict]) -> str:
         player = item.get("matchPlayer", {})
         result = "胜" if player.get("isWin") == 1 else "负" if player.get("isWin") == 0 else "?"
         kda = f"{player.get('k', '-')}/{player.get('d', '-')}/{player.get('a', '-')}"
+        hero = format_hero_name(player.get("curHeroId")) if player.get("curHeroId") is not None else "未知英雄"
         lines.append(
-            f"{result}  {_time(item.get('matchTimeStamp'))}  KDA {kda}  "
+            f"{result}  {_time(item.get('matchTimeStamp'))}  {hero}  KDA {kda}  "
             f"地图 {item.get('matchMapId', '-')}  {_duration(item.get('matchPlayDuration'))}\n"
             f"matchUid={match_uid}"
         )
@@ -125,7 +130,7 @@ def format_hero(payload: dict) -> str:
     win_rate = wins * 100 / matches if isinstance(matches, (int, float)) and matches and isinstance(wins, (int, float)) else None
     hit_rate = hero.get("sessionMaxHitRate")
     lines = [
-        f"英雄 {hero.get('heroId', '-')}",
+        f"英雄：{format_hero_name(hero.get('heroId'))}",
         f"场次：{_fmt(matches)}    胜场：{_fmt(wins)}    胜率：{_fmt(win_rate)}%",
         f"K/D/A：{_fmt(hero.get('k'))} / {_fmt(hero.get('d'))} / {_fmt(hero.get('a'))}",
         f"游玩时长：{_duration(hero.get('totalPlayTime'))}",
@@ -160,7 +165,7 @@ def format_match_detail(payload: dict) -> str:
                     continue
                 lines.append(
                     f"{'胜' if player.get('isWin') == 1 else '负'} {player.get('nickName', player.get('playerUid', '-'))} "
-                    f"英雄 {player.get('curHeroId', '-')}  {player.get('k', '-')}/{player.get('d', '-')}/{player.get('a', '-')}  "
+                    f"英雄 {format_hero_name(player.get('curHeroId'))}  {player.get('k', '-')}/{player.get('d', '-')}/{player.get('a', '-')}  "
                     f"伤害 {_fmt(player.get('totalHeroDamage'))} 治疗 {_fmt(player.get('totalHeroHeal'))} 承伤 {_fmt(player.get('totalDamageTaken'))}"
                 )
     return "\n".join(lines)

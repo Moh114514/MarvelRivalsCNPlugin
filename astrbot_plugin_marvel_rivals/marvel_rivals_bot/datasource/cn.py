@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from ..hero_names import get_hero_name
 from ..models import CareerSummary, HeroStat, PlayerProfile, PlayerStats, RecentMatch
 from .base import DataSourceError, RivalsDataSource
 
@@ -88,7 +89,10 @@ class CNDataSource(RivalsDataSource):
         "sort_hero": '{"matchSeason":"19","playerUid":{player_uid}}',
         "matches": '{"matchSeason":{"$eq":"19"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":10,"playerUid":{player_uid}}',
     }
-    PRIVATE_PROFILE_MESSAGE = "不允许查看该用户的游戏数据"
+    PRIVATE_PROFILE_MESSAGES = (
+        "不允许查看该用户的游戏数据",
+        "不允许查看该用户游戏数据",
+    )
     PRIVATE_PROFILE_HINT = "请前往“漫威争锋小程序→战绩→设置”打开查询权限。"
 
     def __init__(self, *, client: httpx.AsyncClient | None = None, env: Mapping[str, Any] | None = None):
@@ -275,7 +279,7 @@ class CNDataSource(RivalsDataSource):
     @staticmethod
     def _business_error_message(payload: dict[str, Any], default: str = "业务请求失败") -> str:
         message = str(payload.get("message", payload.get("msg", payload.get("error", default))))
-        if CNDataSource.PRIVATE_PROFILE_MESSAGE in message:
+        if any(item in message for item in CNDataSource.PRIVATE_PROFILE_MESSAGES):
             return f"{message}\n{CNDataSource.PRIVATE_PROFILE_HINT}"
         return message
 
@@ -371,7 +375,7 @@ class CNDataSource(RivalsDataSource):
             hero_id = _text(item, "heroId", "id")
             result.append(HeroStat(
                 hero_id,
-                _text(item, "heroName", "name", default=f"英雄 {hero_id}"),
+                get_hero_name(hero_id, _text(item, "heroName", "name") or None),
                 matches,
                 rate,
                 _number(item, "totalPlayTime", "playTime"),
