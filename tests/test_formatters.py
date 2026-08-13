@@ -160,7 +160,7 @@ class TestFormatters(unittest.TestCase):
             get_hero_id("1036")
 
     def test_bound_command_argument_positions(self):
-        from astrbot_plugin_marvel_rivals.main import MarvelRivalsPlugin
+        from main import MarvelRivalsPlugin
 
         self.assertEqual(
             MarvelRivalsPlugin._uid_and_season("S9上半赛季", ""),

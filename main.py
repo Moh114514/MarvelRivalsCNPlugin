@@ -16,6 +16,8 @@ try:
     )
     from .rendering import MatchImageRenderer
 except ImportError:
+    # AstrBot also supports loading a plugin's main.py with its directory on
+    # sys.path instead of importing it as a package.
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
     from marvel_rivals_bot.services.rivals import RivalsService

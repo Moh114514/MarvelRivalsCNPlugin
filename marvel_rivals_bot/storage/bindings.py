@@ -11,11 +11,33 @@ class BindingStoreError(RuntimeError):
 
 
 class BindingStore:
+    CURRENT_SCHEMA_VERSION = 1
+
     def __init__(self, path: str | Path = "data/marvel_rivals.sqlite3"):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as conn:
+            self._migrate(conn)
             conn.execute("CREATE TABLE IF NOT EXISTS bindings (qq_id TEXT PRIMARY KEY, uid TEXT NOT NULL)")
+
+    @classmethod
+    def _migrate(cls, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_meta "
+            "(id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL)"
+        )
+        row = conn.execute("SELECT schema_version FROM schema_meta WHERE id = 1").fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO schema_meta (id, schema_version) VALUES (1, ?)",
+                (cls.CURRENT_SCHEMA_VERSION,),
+            )
+            return
+        if row[0] > cls.CURRENT_SCHEMA_VERSION:
+            raise BindingStoreError("绑定数据来自更新版本，当前插件无法安全读取")
+        # Future schema changes must be added as explicit, transactional steps.
+        while row[0] < cls.CURRENT_SCHEMA_VERSION:
+            raise BindingStoreError("绑定数据迁移失败，旧数据已保留")
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:

@@ -2,13 +2,13 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from astrbot_plugin_marvel_rivals.main import MarvelRivalsPlugin
-from astrbot_plugin_marvel_rivals.qq_official.cards import (
+from main import MarvelRivalsPlugin
+from qq_official.cards import (
     build_capability_test_card, build_hero_card, build_match_card,
     build_player_card, build_recent_card,
 )
-from astrbot_plugin_marvel_rivals.qq_official.sender import QQOfficialCardSender
-from astrbot_plugin_marvel_rivals.rendering import (
+from qq_official.sender import QQOfficialCardSender
+from rendering import (
     MatchImageRenderer, build_hero_query_html, build_match_detail_html,
     build_player_stats_html, build_recent_matches_html,
 )
@@ -379,7 +379,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plugin.service.calls, 2)
 
         with patch(
-            "astrbot_plugin_marvel_rivals.main.build_player_card",
+            "main.build_player_card",
             side_effect=ValueError("unexpected response shape"),
         ):
             results = [item async for item in plugin._query(FakeEvent(), "123", "S9.5")]

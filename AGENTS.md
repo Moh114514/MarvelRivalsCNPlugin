@@ -6,11 +6,12 @@ These rules apply to the entire repository.
 
 ## Source Layout
 
-- `marvel_rivals_bot/` is the development copy of the core package.
-- `astrbot_plugin_marvel_rivals/marvel_rivals_bot/` is the bundled copy shipped with the standalone AstrBot plugin.
-- Any change to shared core code must be applied to both locations in the same task.
-- Shared files must remain byte-for-byte identical. The synchronization test in `tests/test_astrbot_package.py` must pass.
-- AstrBot-only integration belongs in `astrbot_plugin_marvel_rivals/main.py`, metadata, and configuration files. Do not add AstrBot imports to the shared core package.
+- The repository root is the AstrBot plugin root.
+- `main.py`, `metadata.yaml`, `_conf_schema.json`, `requirements.txt`,
+  `marvel_rivals_bot/`, `qq_official/`, and `rendering/` are the single shipped
+  source tree. Do not create a second bundled core directory.
+- AstrBot-only integration belongs in root `main.py`, metadata, and configuration
+  files. Do not add AstrBot imports to `marvel_rivals_bot/`.
 
 ## API And Configuration
 
@@ -34,15 +35,19 @@ These rules apply to the entire repository.
 
 ## Versioning And Packaging
 
-- When shipped plugin behavior changes, update the version in both `astrbot_plugin_marvel_rivals/main.py` and `metadata.yaml`.
+- When shipped plugin behavior changes, update the release version in
+  `metadata.yaml`, root `main.py`, and `pyproject.toml` together. The release
+  validator in `tools/release.py` is the source of truth for consistency checks.
 - Keep `_conf_schema.json`, `.env.example`, and runtime defaults synchronized.
-- After plugin changes, rebuild `astrbot_plugin_marvel_rivals.zip`. The archive remains ignored by Git.
+- Build a release archive with `python tools/release.py --build
+  dist/astrbot_plugin_marvel_rivals-v<version>.zip`; the archive is ignored by Git.
 
 ## Verification
 
 - Run `python -m unittest discover -s tests -v` after every code change.
 - Run `python -m py_compile` for modified runtime modules when syntax or imports changed.
 - Run `git diff --check` before delivery.
+- Run `python tools/release.py --check` for every release-related change.
 - For changes to request bodies or response parsing, add MockTransport coverage. Use a live API query only when credentials are locally available, and never expose the token in output.
 - Do not claim historical-season or endpoint support based only on mocks; verify once against the live interface when feasible.
 

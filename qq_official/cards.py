@@ -4,7 +4,6 @@ import re
 from typing import Any
 
 from .models import CardButton, InteractiveCard
-
 try:
     from ..marvel_rivals_bot.game_metadata import format_match_map, format_queue
     from ..marvel_rivals_bot.hero_names import format_hero_name, get_hero_name

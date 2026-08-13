@@ -4,7 +4,7 @@ short_desc: 查询国服玩家战绩、英雄数据和对局记录。
 desc: 面向 QQ 的漫威争锋国服战绩查询插件，支持 UID 绑定、玩家战绩、常用英雄、最近对局和单局详情查询。
 version: 0.12.4
 author: MR-bot
-repo: ""
+repo: https://github.com/Moh114514/MarvelRivalsCNPlugin
 astrbot_version: ">=4.19.6"
 support_platforms:
   - aiocqhttp
