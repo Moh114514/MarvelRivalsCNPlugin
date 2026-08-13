@@ -75,6 +75,19 @@ $env:MRCN_CAPTURE_CONFIG="D:\MR-bot\captures\mrcn_config.json"
 
 CLI 会执行真实请求；没有配置有效 API 时应返回明确的配置或 HTTP 错误，而不是静默输出假数据。
 
+### 导出原始响应
+
+当接口调用成功但终端没有展示字段时，使用 `--raw-output` 保存完整响应。输出仅包含接口 JSON，不包含请求头和 `access_token`：
+
+```powershell
+python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-responses/player.json player 195963667
+python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-responses/recent.json recent 195963667
+python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-responses/hero-1066.json hero 1066 195963667
+python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-responses/match.json match 65930926_1786278432_1413197_16001_0
+```
+
+`debug-responses/`、`.env.capture`、抓包文件、SQLite 数据库和日志均已加入根目录 `.gitignore`。
+
 ## 安装到 AstrBot
 
 将 `astrbot_plugin_marvel_rivals` 整个目录复制到 AstrBot 的插件目录，目录名保持为 `astrbot_plugin_marvel_rivals`，然后重载插件。该目录已包含核心包、`metadata.yaml`、`_conf_schema.json` 和插件内 `requirements.txt`，可独立安装。插件依赖 AstrBot 提供的 `astrbot.api`，不在普通单元测试中导入。
@@ -86,4 +99,6 @@ CLI 会执行真实请求；没有配置有效 API 时应返回明确的配置�
 /英雄 <heroId> [UID]
 ```
 
-截图已确认 `loadSummaryDetail` 的请求体是 `{"matchUids":["..."]}`，`loadHeroCareer` 的请求体是 `{"heroIdList":[1066],"matchSeason":"19"}`。`loadData` 等接口的请求体不包含 UID，当前 token 的账号范围仍需通过多账号抓包确认。
+二维码分享页抓包已确认：`access_token` 用于接口鉴权，查询目标由 `roleId/playerUid` 指定。查询流程先调用 `GET /api/role/loadByRoleId?roleId={uid}`，随后在 `loadData`、`loadCareer`、`loadSortHero`、`loadHeroCareer` 等请求中传入同一个 `playerUid`。当前实现已按此流程查询其他公开玩家，并校验响应中的 `aid/playerUid` 与请求 UID 一致。
+
+`loadSummaryDetail` 的请求体是 `{"matchUids":["..."]}`；`loadHeroCareer` 的请求体是 `{"heroIdList":[1066],"matchSeason":"19","playerUid":1287101468}`。玩家 UID 是每次查询的业务参数，不应写死在环境配置中。

@@ -24,13 +24,17 @@ from mitmproxy import ctx, http
 
 BASE_HOST = "s3.game.163.com"
 KNOWN_ENDPOINTS = {
+    "role": "/api/role/loadByRoleId",
     "data": "/api/game/player/loadData",
     "summary": "/api/game/player/loadSummary",
     "career": "/api/game/player/loadCareer",
     "hero": "/api/game/player/loadHeroCareer",
     "sort_hero": "/api/game/player/loadSortHero",
 }
-SENSITIVE_HEADERS = re.compile(r"^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-token|token|sign|signature)$", re.I)
+SENSITIVE_HEADERS = re.compile(
+    r"^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|(?:.*[-_])?token|sign|signature)$",
+    re.I,
+)
 UID_PATTERN = re.compile(r"(?<!\d)\d{5,}(?!\d)")
 
 
@@ -155,4 +159,3 @@ class MarvelRivalsCapture:
 
 
 addons = [MarvelRivalsCapture()]
-

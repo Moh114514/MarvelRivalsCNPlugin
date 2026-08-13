@@ -3,10 +3,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from marvel_rivals_bot.datasource.base import DataSourceError
-from marvel_rivals_bot.datasource.cn import CNDataSource
-from marvel_rivals_bot.services.rivals import RivalsService
-from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
+try:
+    from .marvel_rivals_bot.datasource.base import DataSourceError
+    from .marvel_rivals_bot.datasource.cn import CNDataSource
+    from .marvel_rivals_bot.services.rivals import RivalsService
+    from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
+except ImportError:
+    from marvel_rivals_bot.datasource.base import DataSourceError
+    from marvel_rivals_bot.datasource.cn import CNDataSource
+    from marvel_rivals_bot.services.rivals import RivalsService
+    from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
 
 try:
     from astrbot.api import logger
@@ -73,8 +79,9 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result("UID 必须是数字")
             return
         try:
+            await self.source.validate_uid(uid)
             self.bindings.bind(self._qq_id(event), uid)
-        except BindingStoreError as exc:
+        except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(str(exc))
             return
         yield event.plain_result(f"已绑定漫威 UID：{uid}")

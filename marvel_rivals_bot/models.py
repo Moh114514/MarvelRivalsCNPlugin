@@ -32,6 +32,7 @@ class HeroStat:
     hero_name: str = "未知英雄"
     matches: int | None = None
     win_rate: float | None = None
+    play_time_seconds: float | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
