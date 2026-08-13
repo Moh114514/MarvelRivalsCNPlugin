@@ -13,6 +13,7 @@ try:
         QQOfficialCardSender, build_capability_test_card, build_hero_card,
         build_match_card, build_player_card, build_recent_card,
     )
+    from .rendering import MatchImageRenderer
 except ImportError:
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
@@ -23,6 +24,7 @@ except ImportError:
         QQOfficialCardSender, build_capability_test_card, build_hero_card,
         build_match_card, build_player_card, build_recent_card,
     )
+    from rendering import MatchImageRenderer
 
 try:
     from astrbot.api import logger
@@ -46,7 +48,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.7.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.8.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -97,6 +99,7 @@ class MarvelRivalsPlugin(Star):
         self.source = CNDataSource(env=env_config)
         self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
         self.qq_card_sender = QQOfficialCardSender()
+        self.image_renderer = MatchImageRenderer(self.html_render)
         db_path = os.getenv("MRCN_BINDINGS_DB")
         if not db_path:
             data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
@@ -203,8 +206,16 @@ class MarvelRivalsPlugin(Star):
         try:
             season_code = self.service.season_code(season or None)
             matches = await self.service.get_recent_matches(uid, season or None)
-            if not await self._send_card(event, build_recent_card, uid, season_code, matches):
+            try:
+                image_url = await self.image_renderer.recent(uid, season_code, matches)
+                yield event.image_result(image_url)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"最近对局图片渲染失败，回退普通文本：{exc}")
                 yield event.plain_result(format_matches(matches, season_code))
+                return
+            if self.qq_card_sender.supports(event):
+                await self._send_card(event, build_recent_card, uid, season_code, matches)
         except DataSourceError as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
@@ -228,8 +239,16 @@ class MarvelRivalsPlugin(Star):
         """使用 matchUid 查询详情，支持纯 ID 或 matchUid=... 格式。"""
         try:
             payload = await self.service.get_match_detail(match_uid)
-            if not await self._send_card(event, build_match_card, payload):
+            try:
+                image_url = await self.image_renderer.detail(payload)
+                yield event.image_result(image_url)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"对局详情图片渲染失败，回退普通文本：{exc}")
                 yield event.plain_result(format_match_detail(payload))
+                return
+            if self.qq_card_sender.supports(event):
+                await self._send_card(event, build_match_card, payload)
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
 

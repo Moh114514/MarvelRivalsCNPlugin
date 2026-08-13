@@ -43,7 +43,7 @@ MATCH_MAPS: dict[int, tuple[str, str, str | None]] = {
     1413: ("沉思藏馆", "巡航模式", "quick"),
     1418: ("沉思藏馆", "巡航模式", "competitive"),
     1420: ("底比斯", "巡航模式", "quick"),
-    1434: ("底比斯", "巡航模式", "competitive"),  
+    1434: ("底比斯", "巡航模式", "competitive"),
 
     # 角逐模式
     1170: ("阿斯加德：仙宫", "角逐模式", "quick"),

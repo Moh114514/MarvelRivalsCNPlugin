@@ -32,12 +32,14 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.7.0", metadata)
-        self.assertIn('"0.7.0"', main)
+        self.assertIn("version: 0.8.0", metadata)
+        self.assertIn('"0.8.0"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
-        self.assertIn("Markdown + 消息按钮", (PLUGIN_DIR / "README.md").read_text(encoding="utf-8"))
+        readme = (PLUGIN_DIR / "README.md").read_text(encoding="utf-8")
+        self.assertIn("高密度信息图片", readme)
+        self.assertIn("消息按钮", readme)
 
     def test_core_package_and_plugin_copy_are_synchronized(self):
         root = PLUGIN_DIR.parent

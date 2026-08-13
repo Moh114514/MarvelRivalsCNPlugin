@@ -6,12 +6,12 @@ from typing import Any
 from .models import CardButton, InteractiveCard
 
 try:
-    from ..marvel_rivals_bot.game_metadata import format_match_map, format_queue, get_map_mode
+    from ..marvel_rivals_bot.game_metadata import format_match_map, format_queue
     from ..marvel_rivals_bot.hero_names import format_hero_name, get_hero_name
     from ..marvel_rivals_bot.models import HeroQueryResult, PlayerStats
     from ..marvel_rivals_bot.services.rivals import format_season_name
 except ImportError:
-    from marvel_rivals_bot.game_metadata import format_match_map, format_queue, get_map_mode
+    from marvel_rivals_bot.game_metadata import format_match_map, format_queue
     from marvel_rivals_bot.hero_names import format_hero_name, get_hero_name
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
     from marvel_rivals_bot.services.rivals import format_season_name
@@ -51,10 +51,6 @@ def _match_uid(data: dict) -> str:
         if value not in (None, "") and str(value).strip():
             return str(value).strip()
     return ""
-
-
-def _camp_sort_key(value: Any) -> tuple[int, str]:
-    return (0, str(value).zfill(12)) if isinstance(value, (int, float)) else (1, str(value))
 
 
 def build_capability_test_card() -> InteractiveCard:
@@ -111,21 +107,12 @@ def build_player_card(stats: PlayerStats) -> InteractiveCard:
 
 
 def build_recent_card(uid: str, season_code: str, matches: list[dict]) -> InteractiveCard:
-    lines = [f"# 最近比赛 · {_md(format_season_name(season_code))}", f"UID `{_md(uid)}`"]
+    lines = [f"**{_md(format_season_name(season_code))} · 选择要查看的对局**"]
     buttons = []
     for index, item in enumerate(matches[:10], 1):
-        player = item.get("matchPlayer", {}) if isinstance(item.get("matchPlayer"), dict) else {}
-        result = "✅ 胜利" if player.get("isWin") == 1 else "❌ 失败" if player.get("isWin") == 0 else "➖ 未知"
-        hero = format_hero_name(player.get("curHeroId")) if player.get("curHeroId") is not None else "未知英雄"
         match_uid = _match_uid(item)
-        lines += [
-            "",
-            f"### {index}\\. {result} · {_md(hero)}",
-            f"KDA **{_count(player, 'k')}/{_count(player, 'd')}/{_count(player, 'a')}** · {_md(format_match_map(item.get('matchMapId')))}",
-            f"{_md(format_queue(item.get('gameModeId'), item.get('playModeId')))}",
-        ]
         if match_uid and not re.search(r"\s", match_uid):
-            buttons.append(CardButton(f"第{index}局详情", "command", f"/对局 {match_uid}", "blue"))
+            buttons.append(CardButton(f"第{index}场", "command", f"/对局 {match_uid}", "blue"))
     if not matches:
         lines += ["", "暂无可用比赛记录。"]
     rows = [buttons[index:index + 2] for index in range(0, min(len(buttons), 10), 2)]
@@ -163,31 +150,6 @@ def build_hero_card(result: HeroQueryResult) -> InteractiveCard:
 def build_match_card(payload: dict) -> InteractiveCard:
     match = _first_match(payload)
     match_uid = _match_uid(match)
-    map_mode = get_map_mode(match.get("matchMapId"))
-    lines = [
-        "# 对局详情",
-        f"**{_md(format_match_map(match.get('matchMapId')))}**",
-        f"{_md(format_queue(match.get('gameModeId'), match.get('playModeId')))} · {_md(map_mode or '未知玩法')}",
-        f"胜方阵营 **{_md(match.get('matchWinnerSide', '-'))}** · matchUid `{_md(match_uid or '-')}`",
-    ]
-    players = match.get("matchPlayers", [])
-    if isinstance(players, list):
-        camps = sorted(
-            {item.get("camp") for item in players if isinstance(item, dict) and item.get("camp") is not None},
-            key=_camp_sort_key,
-        )
-        for camp in camps:
-            lines += ["", f"### 阵营 {_md(camp)}"]
-            for player in players:
-                if not isinstance(player, dict) or player.get("camp") != camp:
-                    continue
-                name = player.get("nickName", player.get("playerUid", "-"))
-                hero = format_hero_name(player.get("curHeroId"))
-                lines.append(
-                    f"{'✅' if player.get('isWin') == 1 else '❌'} **{_md(name)}** · {_md(hero)} · "
-                    f"{_count(player, 'k')}/{_count(player, 'd')}/{_count(player, 'a')}"
-                )
-    if not match:
-        lines += ["", "暂无对局数据。"]
+    lines = ["**对局详情操作**" if match else "暂无对局数据。"]
     rows = [[CardButton("刷新详情", "command", f"/对局 {match_uid}", "blue")]] if match_uid else []
     return InteractiveCard("\n".join(lines), rows)
