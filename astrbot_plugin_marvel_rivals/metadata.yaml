@@ -2,7 +2,7 @@ name: astrbot_plugin_marvel_rivals
 display_name: 漫威争锋国服战绩查询
 short_desc: 查询国服玩家战绩、英雄数据和对局记录。
 desc: 面向 QQ 的漫威争锋国服战绩查询插件，支持 UID 绑定、玩家战绩、常用英雄、最近对局和单局详情查询。
-version: 0.5.0
+version: 0.5.1
 author: MR-bot
 repo: ""
 astrbot_version: ">=4.9.2"

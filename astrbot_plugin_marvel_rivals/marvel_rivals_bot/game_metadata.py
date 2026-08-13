@@ -13,29 +13,59 @@ GAME_MODE_MAP: dict[int, str] = {
     7: "训练/街机",
 }
 
-# Only include match_map_id values with reliable external confirmation.
-SPECIAL_MAP_MAP: dict[int, str] = {
-    1118: "圣所 / Sanctum Sanctorum",
-    1246: "二之丸 / Ninomaru",
-    1254: "皇家宫殿（杰夫冬季活动）",
-    1289: "世界竞技场 / World Arena",
-    1307: "克林塔：克努尔王座",
-    1314: "奥创纪元 / Age of Ultron",
-    1320: "克林塔：克努尔王座",
-    1399: "Grand Garden",
-    1408: "Jeffland",
-}
+# match_map_id -> (official CN map name, objective, queue variant).
+# The queue variant describes the map ID variant; game_mode_id remains the
+# authoritative source for the queue of an individual match.
+MATCH_MAPS: dict[int, tuple[str, str, str | None]] = {
+    # 融合模式
+    1034: ("东京2099：新涩谷区", "融合模式", "quick"),
+    1230: ("东京2099：新涩谷区", "融合模式", "competitive"),
+    1101: ("银河帝国瓦坎达：贾利亚神殿", "融合模式", "quick"),
+    1267: ("银河帝国瓦坎达：贾利亚神殿", "融合模式", "competitive"),
+    1217: ("永恒之夜帝国：中央公园", "融合模式", "quick"),
+    1292: ("永恒之夜帝国：中央公园", "融合模式", "competitive"),
+    1240: ("克林塔：共生地表", "融合模式", "quick"),
+    1290: ("克林塔：共生地表", "融合模式", "competitive"),
+    2041: ("昆仑：天都之心", "融合模式", "quick"),
+    2042: ("昆仑：天都之心", "融合模式", "competitive"),
+    1411: ("曼哈顿下城", "融合模式", "quick"),
+    1421: ("曼哈顿下城", "融合模式", "competitive"),
 
-SPECIAL_MAP_MODE_MAP: dict[int, str] = {
-    1118: "Doom Match",
-    1246: "Conquest",
-    1254: "Jeff's Winter Splash Festival",
-    1289: "Clash of Dancing Lions",
-    1307: "Resource Rumble / Quick",
-    1314: "特殊模式",
-    1320: "Resource Rumble / Competitive",
-    1399: "18v18 Annihilation",
-    1408: "杰夫活动模式",
+    # 巡航模式
+    1032: ("阿斯加德：世界树", "巡航模式", "quick"),
+    1231: ("阿斯加德：世界树", "巡航模式", "competitive"),
+    1148: ("东京2099：蜘蛛岛", "巡航模式", "quick"),
+    1245: ("东京2099：蜘蛛岛", "巡航模式", "competitive"),
+    1201: ("永恒之夜帝国：中城区", "巡航模式", "quick"),
+    1291: ("永恒之夜帝国：中城区", "巡航模式", "competitive"),
+    1286: ("地狱火晚宴：阿拉寇", "巡航模式", "quick"),
+    1311: ("地狱火晚宴：阿拉寇", "巡航模式", "competitive"),
+    1413: ("沉思藏馆", "巡航模式", "quick"),
+    1418: ("沉思藏馆", "巡航模式", "competitive"),
+    1420: ("底比斯", "巡航模式", None),
+
+    # 角逐模式
+    1170: ("阿斯加德：仙宫", "角逐模式", "quick"),
+    1236: ("阿斯加德：仙宫", "角逐模式", "competitive"),
+    1235: ("银河帝国瓦坎达：黄金之城", "角逐模式", "quick"),
+    1272: ("银河帝国瓦坎达：黄金之城", "角逐模式", "competitive"),
+    1287: ("九头蛇：夏提厄冰山", "角逐模式", "quick"),
+    1288: ("九头蛇：夏提厄冰山", "角逐模式", "competitive"),
+    1309: ("地狱火晚宴：克拉科", "角逐模式", "quick"),
+    1310: ("地狱火晚宴：克拉科", "角逐模式", "competitive"),
+    1317: ("克林塔：天神遗骸", "角逐模式", "quick"),
+    1318: ("克林塔：天神遗骸", "角逐模式", "competitive"),
+
+    # 已确认的特殊地图
+    1118: ("永恒之夜帝国：至圣所", "纷争模式", "arcade"),
+    1246: ("东京2099：二之丸", "征服模式", "arcade"),
+    1254: ("阿斯加德：仙宫（杰夫冬季活动）", "杰夫冬季活动", "arcade"),
+    1289: ("世界竞技场", "醒狮争霸", "arcade"),
+    1307: ("克林塔：深渊王座", "资源争夺", "quick"),
+    1314: ("奥创纪元", "特殊模式", "arcade"),
+    1320: ("克林塔：深渊王座", "资源争夺", "competitive"),
+    1399: ("天尊花园", "18对18征服（歼灭）", "arcade"),
+    1408: ("杰夫乐园", "杰夫活动模式", "arcade"),
 }
 
 # This namespace belongs to RivalsMeta and is not used to interpret CN API fields.
@@ -94,13 +124,20 @@ def format_match_map(value: Any) -> str:
     map_id = _integer(value)
     if map_id is None:
         return "未知地图"
-    name = SPECIAL_MAP_MAP.get(map_id)
-    return f"{name}（{map_id}）" if name else f"未知地图（ID {map_id}）"
+    metadata = MATCH_MAPS.get(map_id)
+    return f"{metadata[0]}（{map_id}）" if metadata else f"未知地图（ID {map_id}）"
 
 
 def get_map_mode(value: Any) -> str | None:
     map_id = _integer(value)
-    return SPECIAL_MAP_MODE_MAP.get(map_id) if map_id is not None else None
+    metadata = MATCH_MAPS.get(map_id) if map_id is not None else None
+    return metadata[1] if metadata else None
+
+
+def get_map_queue_variant(value: Any) -> str | None:
+    map_id = _integer(value)
+    metadata = MATCH_MAPS.get(map_id) if map_id is not None else None
+    return metadata[2] if metadata else None
 
 
 def format_play_mode(value: Any) -> str:

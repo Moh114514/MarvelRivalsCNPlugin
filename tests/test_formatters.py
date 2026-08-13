@@ -2,11 +2,13 @@ import unittest
 
 from marvel_rivals_bot.hero_names import HERO_ID_MAP, format_hero_name, get_hero_id, get_hero_name
 from marvel_rivals_bot.game_metadata import (
+    MATCH_MAPS,
     RIVALSMETA_SEASON_MAP,
     format_game_mode,
     format_match_map,
     format_queue,
     get_map_mode,
+    get_map_queue_variant,
 )
 from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
 from marvel_rivals_bot.services.rivals import (
@@ -107,10 +109,27 @@ class TestFormatters(unittest.TestCase):
         self.assertEqual(format_queue(2, 0), "竞技比赛")
         self.assertEqual(format_queue(2, 1), "自定义比赛")
         self.assertEqual(format_queue(6, 0), "街机模式")
-        self.assertEqual(format_match_map(1118), "圣所 / Sanctum Sanctorum（1118）")
-        self.assertEqual(get_map_mode(1118), "Doom Match")
+        self.assertEqual(format_match_map(1118), "永恒之夜帝国：至圣所（1118）")
+        self.assertEqual(get_map_mode(1118), "纷争模式")
         self.assertEqual(format_match_map(1434), "未知地图（ID 1434）")
         self.assertEqual(RIVALSMETA_SEASON_MAP[18], "S9")
+
+    def test_match_map_ids_use_cn_names_and_keep_queue_variants(self):
+        expected_ids = {
+            1034, 1230, 1101, 1267, 1217, 1292, 1240, 1290, 2041, 2042,
+            1411, 1421, 1032, 1231, 1148, 1245, 1201, 1291, 1286, 1311,
+            1413, 1418, 1420, 1170, 1236, 1235, 1272, 1287, 1288, 1309,
+            1310, 1317, 1318,
+        }
+        self.assertTrue(expected_ids.issubset(MATCH_MAPS))
+        self.assertEqual(MATCH_MAPS[1034], ("东京2099：新涩谷区", "融合模式", "quick"))
+        self.assertEqual(MATCH_MAPS[1230], ("东京2099：新涩谷区", "融合模式", "competitive"))
+        self.assertEqual(format_match_map(1413), "沉思藏馆（1413）")
+        self.assertEqual(format_match_map(1170), "阿斯加德：仙宫（1170）")
+        self.assertEqual(get_map_mode(1287), "角逐模式")
+        self.assertEqual(get_map_queue_variant(1287), "quick")
+        self.assertEqual(get_map_queue_variant(1288), "competitive")
+        self.assertIsNone(get_map_queue_variant(1420))
 
     def test_match_output_formats_map_queue_and_play_mode_separately(self):
         text = format_match_detail({"data": {"matches": [{
@@ -120,9 +139,9 @@ class TestFormatters(unittest.TestCase):
             "playModeId": 7,
             "matchPlayers": [],
         }]}})
-        self.assertIn("地图：圣所 / Sanctum Sanctorum（1118）", text)
+        self.assertIn("地图：永恒之夜帝国：至圣所（1118）", text)
         self.assertIn("队列：街机模式", text)
-        self.assertIn("玩法：Doom Match", text)
+        self.assertIn("玩法：纷争模式", text)
         self.assertNotIn("模式：6/7", text)
 
     def test_chinese_hero_names_map_to_ids(self):
