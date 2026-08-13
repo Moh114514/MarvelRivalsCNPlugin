@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 
 from ..datasource.base import DataSourceError, RivalsDataSource
+from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..hero_names import format_hero_name, get_hero_id
 from ..models import PlayerStats
 
@@ -18,11 +19,17 @@ def format_season_name(code: str | int) -> str:
 
 def parse_season_name(value: str) -> str:
     text = str(value).strip()
-    match = re.fullmatch(r"[sS]([1-9]\d*)(上|下)半赛季", text)
-    if not match:
-        raise DataSourceError("赛季格式错误，请使用固定格式，例如：S9上半赛季 或 S9下半赛季")
-    season = int(match.group(1))
-    return str(season * 2 if match.group(2) == "上" else season * 2 + 1)
+    half_match = re.fullmatch(r"[sS]([1-9]\d*)(上|下)半赛季", text)
+    if half_match:
+        season = int(half_match.group(1))
+        return str(season * 2 if half_match.group(2) == "上" else season * 2 + 1)
+    short_match = re.fullmatch(r"[sS]([1-9]\d*)(?:\.(5))?", text)
+    if short_match:
+        season = int(short_match.group(1))
+        return str(season * 2 + (1 if short_match.group(2) else 0))
+    raise DataSourceError(
+        "赛季格式错误，请使用 S9、S9.5、S9上半赛季 或 S9下半赛季格式"
+    )
 
 
 class RivalsService:
@@ -141,9 +148,14 @@ def format_matches(matches: list[dict], season: str | None = None) -> str:
         result = "胜" if player.get("isWin") == 1 else "负" if player.get("isWin") == 0 else "?"
         kda = f"{_count(player.get('k'))}/{_count(player.get('d'))}/{_count(player.get('a'))}"
         hero = format_hero_name(player.get("curHeroId")) if player.get("curHeroId") is not None else "未知英雄"
+        map_name = format_match_map(item.get("matchMapId"))
+        queue = format_queue(item.get("gameModeId"), item.get("playModeId"))
+        map_mode = get_map_mode(item.get("matchMapId"))
+        mode_text = f"{queue} / {map_mode}" if map_mode else queue
         lines.append(
             f"{result}  {_time(item.get('matchTimeStamp'))}  {hero}  KDA {kda}  "
-            f"地图 {item.get('matchMapId', '-')}  {_duration(item.get('matchPlayDuration'))}\n"
+            f"{_duration(item.get('matchPlayDuration'))}\n"
+            f"地图 {map_name}  {mode_text}\n"
             f"matchUid={match_uid}"
         )
     return "\n".join(lines)
@@ -194,10 +206,13 @@ def format_match_detail(payload: dict) -> str:
     if not isinstance(matches, list) or not matches:
         return "对局详情\n没有返回对局数据。"
     match = matches[0]
+    map_mode = get_map_mode(match.get("matchMapId"))
     lines = [
         "对局详情",
         f"时间：{_time(match.get('matchTimeStamp'))}",
-        f"地图：{match.get('matchMapId', '-')}    模式：{match.get('gameModeId', '-')}/{match.get('playModeId', '-')}",
+        f"地图：{format_match_map(match.get('matchMapId'))}",
+        f"队列：{format_queue(match.get('gameModeId'), match.get('playModeId'))}",
+        f"玩法：{map_mode or format_play_mode(match.get('playModeId'))}",
         f"时长：{_duration(match.get('matchPlayDuration'))}    胜方阵营：{match.get('matchWinnerSide', '-')}",
         f"matchUid：{match.get('matchUid', '-')}",
     ]

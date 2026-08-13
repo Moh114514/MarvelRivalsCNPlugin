@@ -36,7 +36,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.4.1", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.5.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -65,14 +65,15 @@ class MarvelRivalsPlugin(Star):
 
 【参数说明】
 绑定 UID 后，查询命令可以省略 UID。
-赛季名称必须使用 S9上半赛季 或 S9下半赛季 格式，支持小写 s。
+赛季支持 S9、S9.5、S9上半赛季、S9下半赛季，支持小写 s。
 不填写赛季名称时使用插件配置的默认赛季。
 已绑定 UID 时可以直接使用：/战绩 S9下半赛季。
 对局命令可粘贴纯 ID，也可直接粘贴最近列表中的 matchUid=...。
 
 【使用示例】
 /战绩 1287101468 S9下半赛季
-/英雄 蜘蛛侠 1287101468 s9上半赛季"""
+/最近 1287101468 s9.5
+/英雄 蜘蛛侠 1287101468 s9"""
 
     def __init__(self, context: Context, config=None):
         if hasattr(super(), "__init__"):

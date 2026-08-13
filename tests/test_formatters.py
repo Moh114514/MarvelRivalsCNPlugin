@@ -1,6 +1,13 @@
 import unittest
 
 from marvel_rivals_bot.hero_names import HERO_ID_MAP, format_hero_name, get_hero_id, get_hero_name
+from marvel_rivals_bot.game_metadata import (
+    RIVALSMETA_SEASON_MAP,
+    format_game_mode,
+    format_match_map,
+    format_queue,
+    get_map_mode,
+)
 from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
 from marvel_rivals_bot.services.rivals import (
     RivalsService,
@@ -89,8 +96,34 @@ class TestFormatters(unittest.TestCase):
     def test_user_season_names_map_to_api_codes(self):
         self.assertEqual(parse_season_name("S9上半赛季"), "18")
         self.assertEqual(parse_season_name("s9下半赛季"), "19")
+        self.assertEqual(parse_season_name("S9"), "18")
+        self.assertEqual(parse_season_name("s9.5"), "19")
+        self.assertEqual(parse_season_name("S8.5"), "17")
         with self.assertRaisesRegex(Exception, "S9上半赛季"):
             parse_season_name("18")
+
+    def test_game_mode_map_and_map_names_use_separate_namespaces(self):
+        self.assertEqual(format_game_mode(2), "竞技比赛（2）")
+        self.assertEqual(format_queue(2, 0), "竞技比赛")
+        self.assertEqual(format_queue(2, 1), "自定义比赛")
+        self.assertEqual(format_queue(6, 0), "街机模式")
+        self.assertEqual(format_match_map(1118), "圣所 / Sanctum Sanctorum（1118）")
+        self.assertEqual(get_map_mode(1118), "Doom Match")
+        self.assertEqual(format_match_map(1434), "未知地图（ID 1434）")
+        self.assertEqual(RIVALSMETA_SEASON_MAP[18], "S9")
+
+    def test_match_output_formats_map_queue_and_play_mode_separately(self):
+        text = format_match_detail({"data": {"matches": [{
+            "matchUid": "match-1",
+            "matchMapId": 1118,
+            "gameModeId": 6,
+            "playModeId": 7,
+            "matchPlayers": [],
+        }]}})
+        self.assertIn("地图：圣所 / Sanctum Sanctorum（1118）", text)
+        self.assertIn("队列：街机模式", text)
+        self.assertIn("玩法：Doom Match", text)
+        self.assertNotIn("模式：6/7", text)
 
     def test_chinese_hero_names_map_to_ids(self):
         self.assertEqual(get_hero_id("蜘蛛侠"), 1036)

@@ -16,7 +16,9 @@ These rules apply to the entire repository.
 
 - Treat the NetEase mini-program API as an observed, unstable interface. Keep endpoint paths and request templates configurable.
 - Preserve the original numeric season code in API requests. Convert it to a user-facing season name only when formatting output.
-- User-facing commands and CLI options accept season names such as `S9上半赛季`, never raw numeric season codes. Conversion to the numeric API code belongs in the service boundary.
+- User-facing commands and CLI options accept season names such as `S9`, `S9.5`, or `S9上半赛季`, never raw numeric season codes. Conversion to the numeric API code belongs in the service boundary.
+- Keep `game_mode_id`, `match_map_id`, `play_mode_id`, and third-party season namespaces separate. Never merge them into a generic mapping.
+- Add map IDs only when evidence is reliable. Unknown map IDs must retain their numeric ID and must not receive guessed names.
 - Never commit `access_token`, cookies, authorization headers, proxy certificates, captures, raw responses, local databases, or `.env.capture`.
 - Do not disable TLS verification or route production requests through mitmproxy by default.
 - Maintain compatibility with existing configuration where practical, especially old request templates.

@@ -29,19 +29,19 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.4.1", metadata)
-        self.assertIn('"0.4.1"', main)
+        self.assertIn("version: 0.5.0", metadata)
+        self.assertIn('"0.5.0"', main)
 
     def test_core_package_and_plugin_copy_are_synchronized(self):
         root = PLUGIN_DIR.parent
-        for relative in ("models.py", "hero_names.py", "datasource/base.py", "datasource/cn.py", "services/rivals.py"):
+        for relative in ("models.py", "hero_names.py", "game_metadata.py", "datasource/base.py", "datasource/cn.py", "services/rivals.py"):
             core = (root / "marvel_rivals_bot" / relative).read_bytes()
             bundled = (PLUGIN_DIR / "marvel_rivals_bot" / relative).read_bytes()
             self.assertEqual(core, bundled, relative)
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "S9上半赛季", "英雄名称"):
+        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "S9.5", "英雄名称"):
             self.assertIn(text, main)
 
     def test_httpx_dependency_is_declared(self):

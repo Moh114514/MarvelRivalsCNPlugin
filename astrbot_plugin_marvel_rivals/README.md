@@ -17,7 +17,11 @@
 
 AstrBot 内置 `/help` 会根据各命令的说明列出可用功能，`/漫威帮助` 会显示本插件完整的参数说明与示例。`/战绩` 和 `/查询` 会调用 `loadData`、`loadSummary`、`loadCareer`、`loadSortHero`，并批量调用 `loadHeroCareer` 补全常用英雄的出场、胜场和击败。默认查询 `MRCN_DEFAULT_SEASON`，也可以通过赛季名称查询历史赛季，例如 `/战绩 1287101468 S9上半赛季`。
 
-用户命令只接受 `S9上半赛季`、`S9下半赛季` 这种固定格式，支持 `s/S` 大小写；后台会自动转译为接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄 蜘蛛侠 1287101468 s9上半赛季`，不再接受英雄代码。
+赛季参数支持 `S9`、`S9.5`、`S9上半赛季`、`S9下半赛季`，并支持 `s/S` 大小写；后台会自动转译为国服接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄 蜘蛛侠 1287101468 s9.5`，不再接受英雄代码。
+
+地图相关字段按命名空间分别处理：`gameModeId` 表示快速、竞技、自定义或街机队列；`matchMapId` 表示地图；`playModeId` 仅作为独立玩法编号保留。已确认的特殊地图会显示名称和玩法，未确认编号会显示 `未知地图（ID xxxx）`，不会根据编号递增关系猜测。
+
+代码中的 `RIVALSMETA_SEASON_MAP` 仅记录 RivalsMeta 的赛季编号体系，不用于解释国服接口中的 `matchSeason` 或 `rankGameSeason`。
 
 ## 配置
 
@@ -42,8 +46,8 @@ MRCN_REQUEST_BODY_TEMPLATE={"aid":"{uid}","zoneId":16001}
 ```powershell
 python -m unittest discover -s tests -v
 python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667
-python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667 --season S9上半赛季
-python -m marvel_rivals_bot.cli --env-file .env.capture hero 蜘蛛侠 195963667 --season s9下半赛季
+python -m marvel_rivals_bot.cli --env-file .env.capture player 195963667 --season S9
+python -m marvel_rivals_bot.cli --env-file .env.capture hero 蜘蛛侠 195963667 --season s9.5
 ```
 
 ## 使用 mitmproxy 抓取接口
