@@ -119,14 +119,14 @@ class TestFormatters(unittest.TestCase):
         self.assertEqual(format_queue(6, 0), "街机模式")
         self.assertEqual(format_match_map(1118), "永恒之夜帝国：至圣所（1118）")
         self.assertEqual(get_map_mode(1118), "纷争模式")
-        self.assertEqual(format_match_map(1434), "未知地图（ID 1434）")
+        self.assertEqual(format_match_map(1434), "底比斯（1434）")
         self.assertEqual(RIVALSMETA_SEASON_MAP[18], "S9")
 
     def test_match_map_ids_use_cn_names_and_keep_queue_variants(self):
         expected_ids = {
             1034, 1230, 1101, 1267, 1217, 1292, 1240, 1290, 2041, 2042,
             1411, 1421, 1032, 1231, 1148, 1245, 1201, 1291, 1286, 1311,
-            1413, 1418, 1420, 1170, 1236, 1235, 1272, 1287, 1288, 1309,
+            1413, 1418, 1420, 1434, 1170, 1236, 1235, 1272, 1287, 1288, 1309,
             1310, 1317, 1318,
         }
         self.assertTrue(expected_ids.issubset(MATCH_MAPS))
@@ -137,7 +137,8 @@ class TestFormatters(unittest.TestCase):
         self.assertEqual(get_map_mode(1287), "角逐模式")
         self.assertEqual(get_map_queue_variant(1287), "quick")
         self.assertEqual(get_map_queue_variant(1288), "competitive")
-        self.assertIsNone(get_map_queue_variant(1420))
+        self.assertEqual(get_map_queue_variant(1420), "quick")
+        self.assertEqual(get_map_queue_variant(1434), "competitive")
 
     def test_match_output_formats_map_queue_and_play_mode_separately(self):
         text = format_match_detail({"data": {"matches": [{
@@ -204,6 +205,35 @@ class TestServiceTranslation(unittest.IsolatedAsyncioTestCase):
         stats = await service.get_player_stats("1287101468", "s0")
         self.assertEqual(source.call, ("1287101468", "1"))
         self.assertEqual(format_player(stats).splitlines()[0], "漫威争锋国服战绩（S0的数据）")
+
+    async def test_structured_recent_hero_and_match_queries_share_cache_with_text(self):
+        class FakeSource:
+            default_season = "19"
+
+            def __init__(self):
+                self.calls = {"recent": 0, "hero": 0, "match": 0}
+
+            async def get_recent_matches(self, uid, season):
+                self.calls["recent"] += 1
+                return [{"matchUid": "m-1"}]
+
+            async def get_hero(self, uid, hero_id, season):
+                self.calls["hero"] += 1
+                return {"data": {"careers": [{"heroId": int(hero_id)}]}}
+
+            async def get_summary_detail(self, match_uid):
+                self.calls["match"] += 1
+                return {"data": {"matches": [{"matchUid": match_uid}]}}
+
+        source = FakeSource()
+        service = RivalsService(source, cache_seconds=60)
+        await service.get_recent_matches("123", "S9.5")
+        await service.matches_text("123", "S9.5")
+        await service.get_hero_stats("123", "蜘蛛侠", "S9.5")
+        await service.hero_text("123", "蜘蛛侠", "S9.5")
+        await service.get_match_detail("m-1")
+        await service.match_detail_text("m-1")
+        self.assertEqual(source.calls, {"recent": 1, "hero": 1, "match": 1})
 
     async def test_hero_name_and_season_are_translated_before_data_source_call(self):
         class FakeSource:

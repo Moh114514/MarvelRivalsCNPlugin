@@ -1,10 +1,14 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from astrbot_plugin_marvel_rivals.main import MarvelRivalsPlugin
-from astrbot_plugin_marvel_rivals.qq_official.cards import build_capability_test_card
+from astrbot_plugin_marvel_rivals.qq_official.cards import (
+    build_capability_test_card, build_hero_card, build_match_card,
+    build_player_card, build_recent_card,
+)
 from astrbot_plugin_marvel_rivals.qq_official.sender import QQOfficialCardSender
+from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, PlayerProfile, PlayerStats
 
 
 class FakeEvent:
@@ -28,6 +32,71 @@ class FakeEvent:
 
 
 class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
+    def test_player_card_contains_navigation_and_hero_commands(self):
+        card = build_player_card(PlayerStats(
+            profile=PlayerProfile(uid="123", name="Player*One", level=80, rank_game_season="钻石2（4411 分）"),
+            summary=CareerSummary(matches=43, wins=22, kills=787, deaths=297, assists=427, win_rate=51.2),
+            heroes=[HeroStat(hero_id="1036", hero_name="蜘蛛侠", matches=37, wins=21, kills=492)],
+            season="19",
+        ))
+        self.assertIn("Player\\*One", card.markdown)
+        commands = [button.data for row in card.rows for button in row]
+        self.assertIn("/最近 123 S9.5", commands)
+        self.assertIn("/英雄 蜘蛛侠 123 S9.5", commands)
+
+        unknown = build_player_card(PlayerStats(
+            profile=PlayerProfile(uid="123", name="Tester"),
+            heroes=[HeroStat(hero_id=None, hero_name="Unknown Hero")],
+            season="19",
+        ))
+        self.assertFalse(any(button.data.startswith("/英雄") for row in unknown.rows for button in row))
+
+    def test_recent_card_has_match_detail_buttons_within_qq_limit(self):
+        matches = [{
+            "matchUid": f"match-{index}",
+            "matchMapId": 1413,
+            "gameModeId": 2,
+            "playModeId": 0,
+            "matchPlayer": {"isWin": index % 2, "curHeroId": 1036, "k": 18, "d": 4, "a": 7},
+        } for index in range(12)]
+        card = build_recent_card("123", "19", matches)
+        self.assertEqual(len(card.rows), 5)
+        self.assertEqual(sum(len(row) for row in card.rows), 10)
+        self.assertEqual(card.rows[0][0].data, "/对局 match-0")
+
+        card = build_recent_card("123", "19", [{"matchUid": None, "matchUID": "m-1"}, {"matchUID": "m-2"}])
+        self.assertEqual(
+            [button.data for row in card.rows for button in row],
+            ["/对局 m-1", "/对局 m-2"],
+        )
+
+    def test_hero_and_match_cards_include_navigation_and_teams(self):
+        hero = build_hero_card(HeroQueryResult(
+            uid="123", hero_id="1036", hero_name="蜘蛛侠", season="19",
+            payload={"data": {"careers": [{"heroId": 1036, "totalMatchCount": 37, "totalMatchWinCount": 21, "k": 492}]}},
+        ))
+        self.assertIn("蜘蛛侠", hero.markdown)
+        self.assertEqual(hero.rows[0][0].data, "/英雄 蜘蛛侠 123 S9.5")
+
+        match = build_match_card({"data": {"matches": [{
+            "matchUid": "m-1", "matchMapId": 1413, "gameModeId": 2, "playModeId": 0,
+            "matchWinnerSide": 1, "matchPlayers": [
+                {"camp": 1, "isWin": 1, "nickName": "A", "curHeroId": 1036, "k": 10, "d": 2, "a": 3},
+                {"camp": 2, "isWin": 0, "nickName": "B", "curHeroId": 1066, "k": 5, "d": 6, "a": 1},
+            ],
+        }]}})
+        self.assertIn("阵营 1", match.markdown)
+        self.assertIn("阵营 2", match.markdown)
+        self.assertEqual(match.rows[0][0].data, "/对局 m-1")
+
+        mixed_camps = build_match_card({"data": {"matches": [{
+            "matchUid": None,
+            "matchPlayers": [{"camp": 1}, {"camp": "2"}],
+        }]}})
+        self.assertIn("阵营 1", mixed_camps.markdown)
+        self.assertIn("阵营 2", mixed_camps.markdown)
+        self.assertEqual(mixed_camps.rows, [])
+
     def test_payload_contains_markdown_command_and_url_buttons(self):
         payload = QQOfficialCardSender.build_payload(FakeEvent(), build_capability_test_card())
         self.assertEqual(payload["msg_type"], 2)
@@ -80,6 +149,40 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         results = [item async for item in plugin.card_test(event)]
         self.assertEqual(results[0][0], "text")
         self.assertIn("Markdown 与消息按钮权限", results[0][1])
+
+    async def test_player_query_sends_card_and_api_failure_falls_back_same_data(self):
+        stats = PlayerStats(profile=PlayerProfile(uid="123", name="Tester"), season="19")
+
+        class FakeService:
+            calls = 0
+
+            async def get_player_stats(self, uid, season):
+                self.calls += 1
+                return stats
+
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.service = FakeService()
+        plugin.qq_card_sender = QQOfficialCardSender()
+        event = FakeEvent()
+        results = [item async for item in plugin._query(event, "123", "S9.5")]
+        self.assertEqual(results, [])
+        self.assertEqual(plugin.service.calls, 1)
+
+        event = FakeEvent()
+        event.bot.api.post_group_message.side_effect = RuntimeError("rejected")
+        results = [item async for item in plugin._query(event, "123", "S9.5")]
+        self.assertEqual(results[0][0], "text")
+        self.assertIn("Tester", results[0][1])
+        self.assertEqual(plugin.service.calls, 2)
+
+        with patch(
+            "astrbot_plugin_marvel_rivals.main.build_player_card",
+            side_effect=ValueError("unexpected response shape"),
+        ):
+            results = [item async for item in plugin._query(FakeEvent(), "123", "S9.5")]
+        self.assertEqual(results[0][0], "text")
+        self.assertIn("Tester", results[0][1])
+        self.assertEqual(plugin.service.calls, 3)
 
 
 if __name__ == "__main__":

@@ -7,14 +7,22 @@ try:
     from .marvel_rivals_bot.datasource.base import DataSourceError
     from .marvel_rivals_bot.datasource.cn import CNDataSource
     from .marvel_rivals_bot.services.rivals import RivalsService
+    from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
-    from .qq_official import QQOfficialCardSender, build_capability_test_card
+    from .qq_official import (
+        QQOfficialCardSender, build_capability_test_card, build_hero_card,
+        build_match_card, build_player_card, build_recent_card,
+    )
 except ImportError:
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
     from marvel_rivals_bot.services.rivals import RivalsService
+    from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
-    from qq_official import QQOfficialCardSender, build_capability_test_card
+    from qq_official import (
+        QQOfficialCardSender, build_capability_test_card, build_hero_card,
+        build_match_card, build_player_card, build_recent_card,
+    )
 
 try:
     from astrbot.api import logger
@@ -38,7 +46,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.6.1", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.7.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -101,6 +109,17 @@ class MarvelRivalsPlugin(Star):
     def _bound_uid(self, event: AstrMessageEvent) -> str | None:
         return self.bindings.get(self._qq_id(event))
 
+    async def _send_card(self, event: AstrMessageEvent, builder, *args) -> bool:
+        if not self.qq_card_sender.supports(event):
+            return False
+        try:
+            await self.qq_card_sender.send(event, builder(*args))
+            return True
+        except Exception as exc:
+            if logger:
+                logger.warning(f"QQ Official 富消息构建或发送失败，回退普通文本：{exc}")
+            return False
+
     @staticmethod
     def _uid_and_season(uid: str, season: str) -> tuple[str, str]:
         uid, season = uid.strip(), season.strip()
@@ -118,7 +137,9 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
             return
         try:
-            yield event.plain_result(await self.service.player_text(uid, season))
+            stats = await self.service.get_player_stats(uid, season)
+            if not await self._send_card(event, build_player_card, stats):
+                yield event.plain_result(format_player(stats))
         except DataSourceError as exc:
             if logger:
                 logger.warning(str(exc))
@@ -180,7 +201,10 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
             return
         try:
-            yield event.plain_result(await self.service.matches_text(uid, season or None))
+            season_code = self.service.season_code(season or None)
+            matches = await self.service.get_recent_matches(uid, season or None)
+            if not await self._send_card(event, build_recent_card, uid, season_code, matches):
+                yield event.plain_result(format_matches(matches, season_code))
         except DataSourceError as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
@@ -193,7 +217,9 @@ class MarvelRivalsPlugin(Star):
             if not uid:
                 yield event.plain_result("请提供 UID，或先绑定 UID")
                 return
-            yield event.plain_result(await self.service.hero_text(uid, hero_name, season or None))
+            result = await self.service.get_hero_stats(uid, hero_name, season or None)
+            if not await self._send_card(event, build_hero_card, result):
+                yield event.plain_result(format_hero(result.payload, result.season))
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
@@ -201,7 +227,9 @@ class MarvelRivalsPlugin(Star):
     async def match_detail(self, event: AstrMessageEvent, match_uid: str):
         """使用 matchUid 查询详情，支持纯 ID 或 matchUid=... 格式。"""
         try:
-            yield event.plain_result(await self.service.match_detail_text(match_uid))
+            payload = await self.service.get_match_detail(match_uid)
+            if not await self._send_card(event, build_match_card, payload):
+                yield event.plain_result(format_match_detail(payload))
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
 

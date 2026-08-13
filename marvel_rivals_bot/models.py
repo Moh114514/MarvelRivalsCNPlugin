@@ -48,6 +48,15 @@ class PlayerStats:
 
 
 @dataclass(slots=True)
+class HeroQueryResult:
+    uid: str
+    hero_id: str
+    hero_name: str
+    season: str
+    payload: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
 class RecentMatch:
     match_uid: str
     result: str = "?"
