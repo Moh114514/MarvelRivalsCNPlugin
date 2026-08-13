@@ -41,6 +41,7 @@ class QQOfficialCardSender:
                 "enter": button.action == "command",
                 "reply": False,
                 "at_bot_show_channel_list": False,
+                "unsupport_tips": "当前 QQ 版本不支持此操作，请更新 QQ 后重试。",
             },
         }
 
@@ -100,33 +101,35 @@ class QQOfficialCardSender:
         group_openid = getattr(raw_message, "group_openid", None)
         author = getattr(raw_message, "author", None)
         user_openid = getattr(author, "user_openid", None)
-        keyboard = self._keyboard(card)
         reply_id = getattr(message_obj, "message_id", None)
-        reply_fields = {"msg_id": reply_id, "msg_seq": random.randint(1, 10000)} if reply_id else {}
+        media_reply_fields = {"msg_id": reply_id, "msg_seq": 2} if reply_id else {}
+        markdown_payload = self.build_payload(event, card)
+        if reply_id:
+            # 群/C2C 的被动回复需要为同一 msg_id 使用递增的序号。
+            # 先发 Markdown 可让 QQ 自动附加的 @ 信息显示在结果最前面。
+            markdown_payload["msg_seq"] = 1
         if group_openid and api and hasattr(api, "post_group_file") and hasattr(api, "post_group_message"):
             media = await api.post_group_file(
                 group_openid=group_openid, file_type=1, url=image_url, srv_send_msg=False
             )
+            await api.post_group_message(group_openid=group_openid, **markdown_payload)
             await api.post_group_message(
                 group_openid=group_openid,
                 msg_type=7,
                 media=self._media_payload(media),
-                content=card.markdown,
-                keyboard=keyboard,
-                **reply_fields,
+                **media_reply_fields,
             )
             return True
         if user_openid and api and hasattr(api, "post_c2c_file") and hasattr(event, "post_c2c_message"):
             media = await api.post_c2c_file(
                 openid=user_openid, file_type=1, url=image_url, srv_send_msg=False
             )
+            await event.post_c2c_message(openid=user_openid, **markdown_payload)
             await event.post_c2c_message(
                 openid=user_openid,
                 msg_type=7,
                 media=self._media_payload(media),
-                content=card.markdown,
-                keyboard=keyboard,
-                **reply_fields,
+                **media_reply_fields,
             )
             return True
         raise UnsupportedQQOfficialEvent("当前 QQ Official 会话不支持图片与按钮合并发送")

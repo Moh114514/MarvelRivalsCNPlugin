@@ -142,7 +142,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         detail = build_match_detail_html({"data": {"matches": [{"matchPlayers": []}]}})
         self.assertIn("暂无玩家明细", detail)
 
-    async def test_recent_query_sends_one_qq_media_message_with_buttons(self):
+    async def test_recent_query_sends_image_then_markdown_buttons(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
 
         class FakeService:
@@ -167,14 +167,20 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             group_openid="group-1", file_type=1,
             url="https://example.com/recent.png", srv_send_msg=False,
         )
-        event.bot.api.post_group_message.assert_awaited_once()
-        payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(payload["msg_type"], 7)
-        self.assertEqual(payload["media"]["file_info"], "uploaded-image")
-        self.assertTrue(payload["content"].startswith("**"))
-        self.assertIn("选择要查看的对局", payload["content"])
-        self.assertIn("keyboard", payload)
-        self.assertEqual(payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局 m-1")
+        self.assertEqual(event.bot.api.post_group_message.await_count, 2)
+        markdown_payload, media_payload = [call.kwargs for call in event.bot.api.post_group_message.await_args_list]
+        self.assertEqual(markdown_payload["msg_type"], 2)
+        self.assertIn("选择要查看的对局", markdown_payload["markdown"]["content"])
+        self.assertIn("keyboard", markdown_payload)
+        self.assertEqual(markdown_payload["msg_seq"], 1)
+        button_action = markdown_payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]
+        self.assertEqual(button_action["data"], "/对局 m-1")
+        self.assertIn("unsupport_tips", button_action)
+        self.assertEqual(media_payload["msg_type"], 7)
+        self.assertEqual(media_payload["media"]["file_info"], "uploaded-image")
+        self.assertNotIn("content", media_payload)
+        self.assertNotIn("keyboard", media_payload)
+        self.assertEqual(media_payload["msg_seq"], 2)
 
     async def test_recent_query_qq_card_failure_falls_back_to_text(self):
         matches = [{"matchUid": "m-1", "matchPlayer": {"isWin": 1}}]
@@ -236,16 +242,19 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["group_openid"], "group-1")
         self.assertIn("keyboard", kwargs)
 
-    async def test_group_sender_uploads_image_and_sends_media_with_keyboard(self):
+    async def test_group_sender_uploads_image_then_sends_markdown_with_keyboard(self):
         event = FakeEvent()
         card = build_capability_test_card()
         card = type(card)(card.markdown, card.rows, "https://example.com/result.png")
         await QQOfficialCardSender().send(event, card)
         event.bot.api.post_group_file.assert_awaited_once()
-        kwargs = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(kwargs["msg_type"], 7)
-        self.assertEqual(kwargs["media"]["file_info"], "uploaded-image")
-        self.assertIn("keyboard", kwargs)
+        self.assertEqual(event.bot.api.post_group_message.await_count, 2)
+        markdown_payload, media_payload = [call.kwargs for call in event.bot.api.post_group_message.await_args_list]
+        self.assertEqual(media_payload["msg_type"], 7)
+        self.assertEqual(media_payload["media"]["file_info"], "uploaded-image")
+        self.assertNotIn("keyboard", media_payload)
+        self.assertEqual(markdown_payload["msg_type"], 2)
+        self.assertIn("keyboard", markdown_payload)
 
     async def test_c2c_sender_uses_event_protocol_method(self):
         event = FakeEvent(group=False)
@@ -302,9 +311,13 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         event.send.assert_not_awaited()
         event.bot.api.post_group_file.assert_awaited_once()
         payload = event.bot.api.post_group_message.await_args.kwargs
-        self.assertEqual(payload["msg_type"], 7)
-        self.assertEqual(payload["media"]["file_info"], "uploaded-image")
-        self.assertIn("keyboard", payload)
+        self.assertEqual(event.bot.api.post_group_message.await_count, 2)
+        markdown_payload, media_payload = [call.kwargs for call in event.bot.api.post_group_message.await_args_list]
+        self.assertEqual(media_payload["msg_type"], 7)
+        self.assertEqual(media_payload["media"]["file_info"], "uploaded-image")
+        self.assertNotIn("keyboard", media_payload)
+        self.assertEqual(markdown_payload["msg_type"], 2)
+        self.assertIn("keyboard", markdown_payload)
 
         event = FakeEvent()
         event.bot.api.post_group_file = AsyncMock(side_effect=RuntimeError("rejected"))
