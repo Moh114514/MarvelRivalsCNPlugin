@@ -18,8 +18,8 @@ except ImportError:
 
 _STYLE = """
 <style>
-*{box-sizing:border-box}html,body{width:fit-content;min-height:0;margin:0;overflow:hidden;background:#0b1020;color:#f5f7ff;font-family:"Microsoft YaHei","Noto Sans SC",sans-serif}
-.card{width:1040px;padding:42px;background:radial-gradient(circle at 90% 0,#263b72 0,transparent 32%),linear-gradient(145deg,#151d38,#090d19)}
+*{box-sizing:border-box}html,body{width:100%;min-height:100%;margin:0;overflow:hidden;background:#0b1020;color:#f5f7ff;font-family:"Microsoft YaHei","Noto Sans SC",sans-serif}
+.card{width:100vw;padding:42px;background:radial-gradient(circle at 90% 0,#263b72 0,transparent 32%),linear-gradient(145deg,#151d38,#090d19)}
 .head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:26px}.title{font-size:42px;font-weight:800}.sub{color:#aebbd9;font-size:20px;margin-top:8px}.badge{padding:9px 18px;border-radius:20px;background:#2e61ff;font-size:20px;font-weight:700}
 .matches{display:grid;grid-template-columns:1fr 1fr;gap:14px}.match,.team{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:20px}.match{display:grid;grid-template-columns:54px 1fr auto;gap:16px;align-items:center}.index{font-size:28px;color:#8494bb}.main{font-size:23px;font-weight:700}.meta{font-size:17px;color:#aebbd9;margin-top:8px}.kda{font-size:24px;font-weight:800;text-align:right}.win{color:#70e1a1}.loss{color:#ff7188}.unknown{color:#b9c1d5}
 .overview{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.metric{background:rgba(255,255,255,.07);border-radius:15px;padding:16px}.metric b{display:block;font-size:21px;margin-top:5px}.metric span{color:#9eaccd;font-size:15px}.teams{display:grid;grid-template-columns:1fr 1fr;gap:16px}.team-title{font-size:25px;font-weight:800;margin-bottom:13px}.player{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) auto;gap:10px;padding:12px 0;border-top:1px solid rgba(255,255,255,.09)}.player:first-of-type{border-top:0}.name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hero,.stats{color:#b7c2df}.extra{grid-column:1/-1;color:#8f9cbd;font-size:14px}.empty{padding:36px;text-align:center;color:#aebbd9;background:rgba(255,255,255,.06);border-radius:18px}
@@ -37,7 +37,11 @@ def _number(data: dict, *keys: str) -> str:
     for key in keys:
         value = data.get(key)
         if isinstance(value, (int, float)):
-            return f"{value / 1000:.1f}K" if abs(value) >= 1000 else str(round(value))
+            if abs(value) >= 1000:
+                return f"{value / 1000:.1f}K"
+            if isinstance(value, float) and not value.is_integer():
+                return f"{value:.1f}"
+            return str(int(value))
     return "-"
 
 
@@ -116,22 +120,25 @@ def build_match_detail_html(payload: dict) -> str:
 
 def build_player_stats_html(stats: PlayerStats) -> str:
     profile, summary = stats.profile, stats.summary
+    win_rate = summary.win_rate
+    if win_rate is None and summary.matches and summary.wins is not None:
+        win_rate = summary.wins * 100 / summary.matches
     overview = _metrics((
         ("场次", _number({"value": summary.matches}, "value")),
         ("胜场", _number({"value": summary.wins}, "value")),
-        ("胜率", f"{_number({'value': summary.win_rate})}%"),
-        ("K / D / A", f"{_number({'value': summary.kills})}/{_number({'value': summary.deaths})}/{_number({'value': summary.assists})}"),
+        ("胜率", f"{_number({'value': win_rate}, 'value')}%"),
+        ("K / D / A", f"{_number({'value': summary.kills}, 'value')}/{_number({'value': summary.deaths}, 'value')}/{_number({'value': summary.assists}, 'value')}"),
     ))
     heroes = []
     for index, hero in enumerate(stats.heroes[:10], 1):
         heroes.append(
             f'<article class="hero-row"><div class="main">{index}. {_text(format_hero_name(hero.hero_id, hero.hero_name))}</div>'
-            f'<div class="meta">出场 {_number({"value": hero.matches}, "value")} 路 胜场 {_number({"value": hero.wins}, "value")} 路 击败 {_number({"value": hero.kills}, "value")}</div>'
-            f'<div class="meta">胜率 {_number({"value": hero.win_rate}, "value")}% 路 时长 {_duration(hero.play_time_seconds)}</div></article>'
+            f'<div class="meta">出场 {_number({"value": hero.matches}, "value")} · 胜场 {_number({"value": hero.wins}, "value")} · 击败 {_number({"value": hero.kills}, "value")}</div>'
+            f'<div class="meta">胜率 {_number({"value": hero.win_rate}, "value")}% · 时长 {_duration(hero.play_time_seconds)}</div></article>'
         )
     body = '<section class="hero-list">' + "".join(heroes) + "</section>" if heroes else '<div class="empty">暂无常用英雄数据</div>'
     rank = profile.rank_game_season or "暂无段位"
-    return f'<!doctype html><html><head><meta charset="utf-8">{_STYLE}</head><body><main class="card"><header class="head"><div><div class="title">{_text(profile.name)}</div><div class="sub">UID {_text(profile.uid)} 路 等级 {_text(profile.level)} 路 {_text(rank)}</div></div><div class="badge">{_text(format_season_name(stats.season))}</div></header>{overview}<div class="team-title">常用英雄</div>{body}</main></body></html>'
+    return f'<!doctype html><html><head><meta charset="utf-8">{_STYLE}</head><body><main class="card"><header class="head"><div><div class="title">{_text(profile.name)}</div><div class="sub">UID {_text(profile.uid)} · 等级 {_text(profile.level)} · {_text(rank)}</div></div><div class="badge">{_text(format_season_name(stats.season))}</div></header>{overview}<div class="team-title">常用英雄</div>{body}</main></body></html>'
 
 
 def build_hero_query_html(result: HeroQueryResult) -> str:
@@ -141,7 +148,7 @@ def build_hero_query_html(result: HeroQueryResult) -> str:
     overview = _metrics((
         ("比赛", _number({"value": matches}, "value")),
         ("胜场", _number({"value": wins}, "value")),
-        ("胜率", f"{_number({'value': win_rate})}%"),
+        ("胜率", f"{_number({'value': win_rate}, 'value')}%"),
         ("K / D / A", f"{_number(hero, 'k')}/{_number(hero, 'd')}/{_number(hero, 'a')}"),
     ))
     details = _metrics((
@@ -151,7 +158,7 @@ def build_hero_query_html(result: HeroQueryResult) -> str:
         ("MVP / SVP", f"{_number(hero, 'totalMvpTimes')}/{_number(hero, 'totalSvpTimes')}"),
     )) if hero else '<div class="empty">暂无该英雄的生涯数据</div>'
     title = format_hero_name(result.hero_id, result.hero_name)
-    return f'<!doctype html><html><head><meta charset="utf-8">{_STYLE}</head><body><main class="card"><header class="head"><div><div class="title">{_text(title)}</div><div class="sub">UID {_text(result.uid)} 路 英雄 ID {_text(result.hero_id)}</div></div><div class="badge">{_text(format_season_name(result.season))}</div></header>{overview}{details}</main></body></html>'
+    return f'<!doctype html><html><head><meta charset="utf-8">{_STYLE}</head><body><main class="card"><header class="head"><div><div class="title">{_text(title)}</div><div class="sub">UID {_text(result.uid)} · 英雄 ID {_text(result.hero_id)}</div></div><div class="badge">{_text(format_season_name(result.season))}</div></header>{overview}{details}</main></body></html>'
 
 
 _PNG_OPTIONS = {"type": "png", "full_page": True, "animations": "disabled", "caret": "hide"}

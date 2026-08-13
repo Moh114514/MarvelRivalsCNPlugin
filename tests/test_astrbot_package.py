@@ -32,8 +32,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.12.0", metadata)
-        self.assertIn('"0.12.0"', main)
+        self.assertIn("version: 0.12.1", metadata)
+        self.assertIn('"0.12.1"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -54,8 +54,16 @@ class TestAstrBotPackage(unittest.TestCase):
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "/卡片测试", "S0", "S9.5", "英雄名称"):
+        for text in ("/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试", "S0", "S9.5", "英雄名称"):
             self.assertIn(text, main)
+
+    def test_new_commands_and_legacy_aliases_are_registered(self):
+        main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
+        for command in (
+            "帮助", "漫威帮助", "绑定账号", "绑定漫威", "解绑账号", "解绑漫威",
+            "最近对局", "最近", "英雄数据", "英雄", "对局详情", "对局",
+        ):
+            self.assertIn(f'@filter.command("{command}")', main)
 
     def test_httpx_dependency_is_declared(self):
         requirements = (PLUGIN_DIR / "requirements.txt").read_text(encoding="utf-8")

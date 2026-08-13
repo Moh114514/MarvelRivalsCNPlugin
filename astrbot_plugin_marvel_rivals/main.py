@@ -49,17 +49,18 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.1", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
-/绑定漫威 <UID>  绑定游戏账号
-/解绑漫威       解除账号绑定
+/帮助             显示完整指令帮助
+/绑定账号 <UID>    绑定游戏账号（兼容 /绑定漫威）
+/解绑账号          解除账号绑定（兼容 /解绑漫威）
 /战绩 [UID] [赛季]  查询综合战绩
 /查询 [UID] [赛季]  查询综合战绩
-/最近 [UID] [赛季]  查询最近十场
-/英雄 <名称> [UID] [赛季]  查询英雄数据
-/对局 <matchUid>  查询对局详情
+/最近对局 [UID] [赛季]  查询最近十场（兼容 /最近）
+/英雄数据 <名称> [UID] [赛季]  查询英雄数据（兼容 /英雄）
+/对局详情 <matchUid>  查询对局详情（兼容 /对局）
 /卡片测试         测试 QQ 卡片能力
 
 已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
@@ -135,12 +136,18 @@ class MarvelRivalsPlugin(Star):
                 logger.warning(str(exc))
             yield event.plain_result(f"查询失败：{exc}")
 
-    @filter.command("漫威帮助")
+    @filter.command("帮助")
     async def help(self, event: AstrMessageEvent):
         """显示漫威争锋查询插件的完整指令帮助。"""
         yield event.plain_result(self.HELP_TEXT)
 
-    @filter.command("绑定漫威")
+    @filter.command("漫威帮助")
+    async def help_legacy(self, event: AstrMessageEvent):
+        """兼容旧版 /漫威帮助 指令。"""
+        async for result in self.help(event):
+            yield result
+
+    @filter.command("绑定账号")
     async def bind(self, event: AstrMessageEvent, uid: str):
         """绑定当前 QQ 对应的漫威争锋 UID。"""
         if not uid.isdigit():
@@ -154,7 +161,13 @@ class MarvelRivalsPlugin(Star):
             return
         yield event.plain_result(f"已绑定漫威 UID：{uid}")
 
-    @filter.command("解绑漫威")
+    @filter.command("绑定漫威")
+    async def bind_legacy(self, event: AstrMessageEvent, uid: str):
+        """兼容旧版 /绑定漫威 指令。"""
+        async for result in self.bind(event, uid):
+            yield result
+
+    @filter.command("解绑账号")
     async def unbind(self, event: AstrMessageEvent):
         """解除当前 QQ 已绑定的漫威争锋 UID。"""
         try:
@@ -163,6 +176,12 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result(str(exc))
             return
         yield event.plain_result("已解除绑定" if removed else "当前没有绑定")
+
+    @filter.command("解绑漫威")
+    async def unbind_legacy(self, event: AstrMessageEvent):
+        """兼容旧版 /解绑漫威 指令。"""
+        async for result in self.unbind(event):
+            yield result
 
     @filter.command("战绩")
     async def stats(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
@@ -178,7 +197,7 @@ class MarvelRivalsPlugin(Star):
         async for result in self._query(event, uid or None, season or None):
             yield result
 
-    @filter.command("最近")
+    @filter.command("最近对局")
     async def recent(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
         """查询玩家最近十场对局，可指定 UID 和赛季名称。"""
         uid, season = self._uid_and_season(uid, season)
@@ -208,7 +227,13 @@ class MarvelRivalsPlugin(Star):
         except DataSourceError as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
-    @filter.command("英雄")
+    @filter.command("最近")
+    async def recent_legacy(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
+        """兼容旧版 /最近 指令。"""
+        async for result in self.recent(event, uid, season):
+            yield result
+
+    @filter.command("英雄数据")
     async def hero(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
         """使用中文英雄名称查询指定英雄的赛季数据。"""
         uid, season = self._uid_and_season(uid, season)
@@ -233,7 +258,13 @@ class MarvelRivalsPlugin(Star):
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
-    @filter.command("对局")
+    @filter.command("英雄")
+    async def hero_legacy(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
+        """兼容旧版 /英雄 指令。"""
+        async for result in self.hero(event, hero_name, uid, season):
+            yield result
+
+    @filter.command("对局详情")
     async def match_detail(self, event: AstrMessageEvent, match_uid: str):
         """使用 matchUid 查询详情，支持纯 ID 或 matchUid=... 格式。"""
         try:
@@ -252,6 +283,12 @@ class MarvelRivalsPlugin(Star):
                 yield event.image_result(image_url)
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("对局")
+    async def match_detail_legacy(self, event: AstrMessageEvent, match_uid: str):
+        """兼容旧版 /对局 指令。"""
+        async for result in self.match_detail(event, match_uid):
+            yield result
 
     @filter.command("卡片测试")
     async def card_test(self, event: AstrMessageEvent):

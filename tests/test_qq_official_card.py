@@ -53,8 +53,8 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertIn("Player\\*One", card.markdown)
         commands = [button.data for row in card.rows for button in row]
-        self.assertIn("/最近 123 S9.5", commands)
-        self.assertIn("/英雄 蜘蛛侠 123 S9.5", commands)
+        self.assertIn("/最近对局 123 S9.5", commands)
+        self.assertIn("/英雄数据 蜘蛛侠 123 S9.5", commands)
 
         unknown = build_player_card(PlayerStats(
             profile=PlayerProfile(uid="123", name="Tester"),
@@ -74,12 +74,12 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         card = build_recent_card("123", "19", matches)
         self.assertEqual(len(card.rows), 5)
         self.assertEqual(sum(len(row) for row in card.rows), 10)
-        self.assertEqual(card.rows[0][0].data, "/对局 match-0")
+        self.assertEqual(card.rows[0][0].data, "/对局详情 match-0")
 
         card = build_recent_card("123", "19", [{"matchUid": None, "matchUID": "m-1"}, {"matchUID": "m-2"}])
         self.assertEqual(
             [button.data for row in card.rows for button in row],
-            ["/对局 m-1", "/对局 m-2"],
+            ["/对局详情 m-1", "/对局详情 m-2"],
         )
 
     def test_hero_and_match_cards_include_navigation_and_teams(self):
@@ -88,7 +88,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             payload={"data": {"careers": [{"heroId": 1036, "totalMatchCount": 37, "totalMatchWinCount": 21, "k": 492}]}},
         ))
         self.assertIn("蜘蛛侠", hero.markdown)
-        self.assertEqual(hero.rows[0][0].data, "/英雄 蜘蛛侠 123 S9.5")
+        self.assertEqual(hero.rows[0][0].data, "/英雄数据 蜘蛛侠 123 S9.5")
 
         match = build_match_card({"data": {"matches": [{
             "matchUid": "m-1", "matchMapId": 1413, "gameModeId": 2, "playModeId": 0,
@@ -98,7 +98,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             ],
         }]}})
         self.assertIn("对局详情操作", match.markdown)
-        self.assertEqual(match.rows[0][0].data, "/对局 m-1")
+        self.assertEqual(match.rows[0][0].data, "/对局详情 m-1")
 
         mixed_camps = build_match_card({"data": {"matches": [{
             "matchUid": None,
@@ -134,6 +134,21 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("蜘蛛侠", html_render.await_args.args[0])
         for call in html_render.await_args_list:
             self.assertTrue(call.kwargs["options"]["full_page"])
+
+    def test_player_html_fills_viewport_and_computes_missing_win_rate(self):
+        stats = PlayerStats(
+            profile=PlayerProfile(uid="123", name="Tester", level=80),
+            summary=CareerSummary(matches=27, wins=14, kills=386, deaths=117, assists=284),
+            heroes=[HeroStat(hero_id=str(index), hero_name=f"英雄{index}", matches=index) for index in range(1, 11)],
+            season="19",
+        )
+        html = build_player_stats_html(stats)
+        self.assertIn("width:100vw", html)
+        self.assertNotIn("width:1040px", html)
+        self.assertNotIn("路", html)
+        self.assertIn("胜率</span><b>51.9%", html)
+        self.assertIn("K / D / A</span><b>386/117/284", html)
+        self.assertIn("10. 英雄10", html)
 
     def test_image_html_escapes_untrusted_values(self):
         html = build_recent_matches_html("<script>{{danger}}</script>", "19", [])
@@ -174,7 +189,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("keyboard", markdown_payload)
         self.assertEqual(markdown_payload["msg_seq"], 1)
         button_action = markdown_payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]
-        self.assertEqual(button_action["data"], "/对局 m-1")
+        self.assertEqual(button_action["data"], "/对局详情 m-1")
         self.assertIn("unsupport_tips", button_action)
         self.assertEqual(media_payload["msg_type"], 7)
         self.assertEqual(media_payload["media"]["file_info"], "uploaded-image")

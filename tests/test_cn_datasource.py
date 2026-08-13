@@ -140,6 +140,42 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.heroes[0].wins, 7)
         self.assertEqual(stats.heroes[0].kills, 186)
 
+    async def test_career_array_and_top_ten_heroes_are_normalized(self):
+        requested_hero_ids = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/loadByRoleId"):
+                return httpx.Response(200, json={"data": {"roleId": 1287101468}})
+            body = json.loads(request.content)
+            if request.url.path.endswith("/loadData"):
+                data = {"aid": 1287101468}
+            elif request.url.path.endswith("/loadCareer"):
+                data = {"career": None, "careers": [{
+                    "playerUid": 1287101468, "totalMatchCount": 27,
+                    "totalMatchWinCount": 14, "k": 386, "d": 117, "a": 284,
+                }]}
+            elif request.url.path.endswith("/loadSortHero"):
+                data = {"heros": [{"heroId": hero_id} for hero_id in range(1001, 1013)]}
+            elif request.url.path.endswith("/loadHeroCareer"):
+                requested_hero_ids.extend(body["heroIdList"])
+                data = {"careers": [
+                    {"heroId": hero_id, "totalMatchCount": 1, "totalMatchWinCount": 1}
+                    for hero_id in body["heroIdList"]
+                ]}
+            else:
+                data = {}
+            return httpx.Response(200, json={"data": data})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            stats = await source.get_player("1287101468")
+
+        self.assertEqual((stats.summary.matches, stats.summary.wins), (27, 14))
+        self.assertEqual((stats.summary.kills, stats.summary.deaths, stats.summary.assists), (386, 117, 284))
+        self.assertAlmostEqual(stats.summary.win_rate, 14 * 100 / 27)
+        self.assertEqual(requested_hero_ids, list(range(1001, 1011)))
+        self.assertTrue(all(hero.matches == 1 for hero in stats.heroes[:10]))
+
     async def test_historical_season_is_sent_and_rank_is_mapped(self):
         calls = []
         rank_seasons = {"1001018": json.dumps({"level": 14, "rank_score": 4411.2})}

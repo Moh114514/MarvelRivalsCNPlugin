@@ -18,6 +18,8 @@
 
 AstrBot 内置 `/help` 会根据各命令的说明列出可用功能，`/帮助` 会显示本插件完整的参数说明与示例。`/战绩` 和 `/查询` 会调用 `loadData`、`loadSummary`、`loadCareer`、`loadSortHero`，并批量调用 `loadHeroCareer` 补全常用英雄的出场、胜场和击败。默认查询 `MRCN_DEFAULT_SEASON`，也可以通过赛季名称查询历史赛季，例如 `/战绩 1287101468 S9上半赛季`。
 
+旧命令 `/漫威帮助`、`/绑定漫威`、`/解绑漫威`、`/最近`、`/英雄`、`/对局` 仍作为兼容别名保留；卡片按钮统一生成上方的新命令。
+
 QQ Official 查询命令会生成信息图片并保留卡片按钮；发送失败时自动回退文本。
 
 赛季参数支持 `S0`、`S9`、`S9.5`、`S9上半赛季`、`S9下半赛季`，并支持 `s/S` 大小写；S0 没有半赛季。后台会自动转译为国服接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄数据 蜘蛛侠 1287101468 s9.5`，不再接受英雄代码。
@@ -107,7 +109,7 @@ python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-respo
 
 在 AstrBot WebUI 的插件配置中至少填写 `MRCN_ACCESS_TOKEN`。默认接口地址、路径和请求模板已经内置；生产环境通常不应配置 mitmproxy 的 `MRCN_PROXY` 或 `MRCN_CA_CERT`。QQ 接入需要 AstrBot 已配置可用的 OneBot v11/aiocqhttp 适配器（例如 NapCat）。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`，插件升级不会覆盖。
 
-手动安装后应依次验证：插件无加载错误、`/漫威帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定漫威 <UID>` 后省略 UID 仍可查询。发布到插件市场前，还需要为 `metadata.yaml` 填写真实的 HTTPS GitHub `repo` 地址，并从发布包中排除 `__pycache__`、`.env*`、抓包和调试响应。
+手动安装后应依次验证：插件无加载错误、`/帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定账号 <UID>` 后省略 UID 仍可查询。发布到插件市场前，还需要为 `metadata.yaml` 填写真实的 HTTPS GitHub `repo` 地址，并从发布包中排除 `__pycache__`、`.env*`、抓包和调试响应。
 
 新增命令：
 

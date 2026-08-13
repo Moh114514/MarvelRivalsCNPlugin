@@ -76,6 +76,20 @@ def _first_mapping(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _career_mapping(value: Any) -> dict[str, Any]:
+    """Return the aggregate career row from observed loadCareer shapes."""
+    outer = _first_mapping(value)
+    rows = outer.get("careers")
+    if isinstance(rows, list):
+        row = _first_mapping(rows)
+        if row:
+            return {**outer, **row}
+    career = outer.get("career")
+    if isinstance(career, Mapping):
+        return {**outer, **career}
+    return outer
+
+
 def _rank_text(value: Any, season: str = "19") -> str:
     if not isinstance(value, (str, Mapping)) or not value:
         return ""
@@ -359,7 +373,7 @@ class CNDataSource(RivalsDataSource):
                 self.paths[name], uid, body_template=self.body_templates[name], season=season
             )
         summary = _first_mapping(responses["summary"].get("data", responses["summary"]))
-        career = _first_mapping(responses["career"].get("data", responses["career"]))
+        career = _career_mapping(responses["career"].get("data", responses["career"]))
         career_uid = self._response_uid(career)
         if career_uid and career_uid != response_uid:
             raise DataSourceError("国服接口返回了不一致的账号 UID，已拒绝展示数据")
@@ -390,7 +404,7 @@ class CNDataSource(RivalsDataSource):
             hero_damage=_number(source, "totalHeroDamage", "heroDamage"),
         )
         heroes = self._parse_heroes(responses["sort_hero"])
-        hero_ids = [int(hero.hero_id) for hero in heroes[:5] if hero.hero_id.isdigit()]
+        hero_ids = [int(hero.hero_id) for hero in heroes[:10] if hero.hero_id.isdigit()]
         if hero_ids:
             responses["hero_career"] = await self._post(
                 self.paths["hero"],
