@@ -1,6 +1,6 @@
 # Marvel Rivals CN AstrBot Plugin
 
-这是一个面向 AstrBot + NapCat/OneBot 的漫威争锋国服战绩查询插件骨架。国服接口来自官方微信小程序抓包，目前已知接口前缀和接口路径，但请求体、认证头和最近比赛接口仍需以抓包结果为准，因此没有把临时 Cookie 或 Token 提交到代码库。
+这是一个面向 AstrBot 的漫威争锋国服战绩查询插件，支持 QQ Official 与 NapCat/OneBot。国服接口来自官方微信小程序抓包，目前已知接口前缀和接口路径，但请求体、认证头和最近比赛接口仍需以抓包结果为准，因此没有把临时 Cookie 或 Token 提交到代码库。
 
 ## 当前命令
 
@@ -13,13 +13,14 @@
 /最近 [UID] [赛季名称]
 /英雄 <英雄名称> [UID] [赛季名称]
 /对局 <matchUid>
+/卡片测试
 ```
 
 AstrBot 内置 `/help` 会根据各命令的说明列出可用功能，`/漫威帮助` 会显示本插件完整的参数说明与示例。`/战绩` 和 `/查询` 会调用 `loadData`、`loadSummary`、`loadCareer`、`loadSortHero`，并批量调用 `loadHeroCareer` 补全常用英雄的出场、胜场和击败。默认查询 `MRCN_DEFAULT_SEASON`，也可以通过赛季名称查询历史赛季，例如 `/战绩 1287101468 S9上半赛季`。
 
-`/战绩` 默认使用 AstrBot 的 HTML 渲染能力输出玩家概览卡片；`/查询` 与其他命令仍输出文本。可通过 `MRCN_CARD_ENABLED` 关闭卡片，通过 `MRCN_CARD_THEME` 选择 `dark` 或 `light`，渲染失败时默认由 `MRCN_CARD_FALLBACK_TEXT` 控制是否回退到原文本。
+`/卡片测试` 只用于验证 QQ Official 原生 Markdown、指令按钮和链接按钮权限；非 QQ Official 平台或能力不可用时会回退普通文本。正式查询命令目前继续输出文本，不依赖 HTML、Playwright 或 Pillow。
 
-用户命令只接受 `S9上半赛季`、`S9下半赛季` 这种固定格式，支持 `s/S` 大小写；后台会自动转译为接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄 蜘蛛侠 1287101468 s9上半赛季`，不再接受英雄代码。
+赛季参数支持 `S0`、`S9`、`S9.5`、`S9上半赛季`、`S9下半赛季`，并支持 `s/S` 大小写；S0 没有半赛季。后台会自动转译为接口代码。英雄查询只接受映射表中的中文名称，例如 `/英雄 蜘蛛侠 1287101468 s9上半赛季`，不再接受英雄代码。
 
 最近比赛基础响应不包含玩家使用的英雄 ID，插件会将当页 `matchUid` 一次性传给 `loadSummaryDetail`，再从详情中的 `matchPlayers` 回填英雄名称。`/对局` 支持纯 ID、`matchUid=...` 和 `matchUid：...` 三种粘贴格式。
 

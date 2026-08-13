@@ -16,6 +16,8 @@ CacheValue = TypeVar("CacheValue")
 
 def format_season_name(code: str | int) -> str:
     value = int(code)
+    if value == 1:
+        return "S0"
     season = value // 2
     half = "上半赛季" if value % 2 == 0 else "下半赛季"
     return f"S{season}{half}"
@@ -23,6 +25,8 @@ def format_season_name(code: str | int) -> str:
 
 def parse_season_name(value: str) -> str:
     text = str(value).strip()
+    if re.fullmatch(r"[sS]0", text):
+        return "1"
     half_match = re.fullmatch(r"[sS]([1-9]\d*)(上|下)半赛季", text)
     if half_match:
         season = int(half_match.group(1))
@@ -32,7 +36,7 @@ def parse_season_name(value: str) -> str:
         season = int(short_match.group(1))
         return str(season * 2 + (1 if short_match.group(2) else 0))
     raise DataSourceError(
-        "赛季格式错误，请使用 S9、S9.5、S9上半赛季 或 S9下半赛季格式"
+        "赛季格式错误，请使用 S0、S9、S9.5、S9上半赛季 或 S9下半赛季格式；S0 没有半赛季"
     )
 
 

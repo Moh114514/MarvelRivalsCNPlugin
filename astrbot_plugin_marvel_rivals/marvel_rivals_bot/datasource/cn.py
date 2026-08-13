@@ -81,7 +81,7 @@ def _rank_text(value: Any, season: str = "19") -> str:
         return ""
     try:
         seasons = json.loads(value) if isinstance(value, str) else value
-        current = seasons.get(f"10010{season}") if isinstance(seasons, dict) else None
+        current = seasons.get(f"10010{int(season):02d}") if isinstance(seasons, dict) else None
         rank = json.loads(current) if isinstance(current, str) else current
     except (json.JSONDecodeError, TypeError):
         return value

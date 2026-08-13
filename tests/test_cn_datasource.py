@@ -172,7 +172,16 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(match_season.get("$eq") if isinstance(match_season, dict) else match_season, "18")
 
     def test_rank_level_mapping(self):
-        payload = json.dumps({"1001019": json.dumps({"level": 1}), "1001018": json.dumps({"level": 14})})
+        payload = json.dumps({
+            "1001001": json.dumps({"level": 7}),
+            "1001009": json.dumps({"level": 10}),
+            "1001010": json.dumps({"level": 19}),
+            "1001019": json.dumps({"level": 1}),
+            "1001018": json.dumps({"level": 14}),
+        })
+        self.assertEqual(_rank_text(payload, "1"), "黄金3")
+        self.assertEqual(_rank_text(payload, "9"), "铂金3")
+        self.assertEqual(_rank_text(payload, "10"), "天神3")
         self.assertEqual(_rank_text(payload, "19"), "青铜3")
         self.assertEqual(_rank_text(payload, "18"), "钻石2")
 

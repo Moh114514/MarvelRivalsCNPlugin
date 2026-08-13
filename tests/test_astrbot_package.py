@@ -17,9 +17,9 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertEqual(schema["MRCN_ACCESS_TOKEN"]["default"], "")
         self.assertTrue(schema["MRCN_ACCESS_TOKEN"]["obvious_hint"])
         self.assertEqual(schema["MRCN_DEFAULT_SEASON"]["default"], 19)
-        self.assertTrue(schema["MRCN_CARD_ENABLED"]["default"])
-        self.assertEqual(schema["MRCN_CARD_THEME"]["default"], "dark")
-        self.assertTrue(schema["MRCN_CARD_FALLBACK_TEXT"]["default"])
+        self.assertNotIn("MRCN_CARD_ENABLED", schema)
+        self.assertNotIn("MRCN_CARD_THEME", schema)
+        self.assertNotIn("MRCN_CARD_FALLBACK_TEXT", schema)
         for name in ("MRCN_SUMMARY_BODY_TEMPLATE", "MRCN_CAREER_BODY_TEMPLATE", "MRCN_HERO_BODY_TEMPLATE", "MRCN_SORT_HERO_BODY_TEMPLATE", "MRCN_MATCHES_BODY_TEMPLATE"):
             self.assertIn("{season}", schema[name]["default"])
 
@@ -32,24 +32,26 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.6.0", metadata)
-        self.assertIn('"0.6.0"', main)
+        self.assertIn("version: 0.6.1", metadata)
+        self.assertIn('"0.6.1"', main)
+        self.assertIn('astrbot_version: ">=4.19.6"', metadata)
+        self.assertIn("qq_official", metadata)
+        self.assertIn("qq_official_webhook", metadata)
 
     def test_core_package_and_plugin_copy_are_synchronized(self):
         root = PLUGIN_DIR.parent
-        for relative in ("models.py", "hero_names.py", "game_metadata.py", "datasource/base.py", "datasource/cn.py", "services/rivals.py", "presenters/__init__.py", "presenters/cards.py"):
+        for relative in ("models.py", "hero_names.py", "game_metadata.py", "datasource/base.py", "datasource/cn.py", "services/rivals.py"):
             core = (root / "marvel_rivals_bot" / relative).read_bytes()
             bundled = (PLUGIN_DIR / "marvel_rivals_bot" / relative).read_bytes()
             self.assertEqual(core, bundled, relative)
 
-    def test_player_card_template_exists_outside_main(self):
-        template = PLUGIN_DIR / "templates" / "player_card.html"
-        self.assertTrue(template.is_file())
-        self.assertIn("{{ player.name|e }}", template.read_text(encoding="utf-8"))
+    def test_html_player_card_has_been_removed(self):
+        self.assertFalse((PLUGIN_DIR / "templates" / "player_card.html").exists())
+        self.assertFalse((PLUGIN_DIR.parent / "marvel_rivals_bot" / "presenters" / "cards.py").exists())
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "S9.5", "英雄名称"):
+        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "/卡片测试", "S0", "S9.5", "英雄名称"):
             self.assertIn(text, main)
 
     def test_httpx_dependency_is_declared(self):

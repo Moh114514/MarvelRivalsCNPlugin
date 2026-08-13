@@ -11,7 +11,6 @@ from marvel_rivals_bot.game_metadata import (
     get_map_queue_variant,
 )
 from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
-from marvel_rivals_bot.presenters.cards import build_player_card
 from marvel_rivals_bot.services.rivals import (
     RivalsService,
     format_hero,
@@ -24,17 +23,6 @@ from marvel_rivals_bot.services.rivals import (
 
 
 class TestFormatters(unittest.TestCase):
-    def test_player_card_presenter_builds_display_ready_view_model(self):
-        card = build_player_card(PlayerStats(
-            profile=PlayerProfile(uid="1", name="Tester", level=83, rank_game_season="天神 III"),
-            heroes=[HeroStat(hero_id="1036", matches=16, wins=10, kills=231)],
-            season="19",
-        ))
-        self.assertEqual(card["season"], "S9下半赛季")
-        self.assertEqual(card["player"]["level"], "83")
-        self.assertEqual(card["summary"]["win_rate"], "-")
-        self.assertEqual(card["heroes"][0]["position"], "01")
-        self.assertIn("蜘蛛侠", card["heroes"][0]["name"])
     def test_recent_match_uses_nested_current_player(self):
         text = format_matches([{
             "matchUid": "match-1",
@@ -104,15 +92,23 @@ class TestFormatters(unittest.TestCase):
         self.assertNotIn("时长", text)
 
     def test_season_codes_map_to_half_seasons(self):
+        self.assertEqual(format_season_name(1), "S0")
+        self.assertEqual(format_season_name(2), "S1上半赛季")
+        self.assertEqual(format_season_name(3), "S1下半赛季")
         self.assertEqual(format_season_name(18), "S9上半赛季")
         self.assertEqual(format_season_name("19"), "S9下半赛季")
 
     def test_user_season_names_map_to_api_codes(self):
+        self.assertEqual(parse_season_name("S0"), "1")
+        self.assertEqual(parse_season_name("s0"), "1")
         self.assertEqual(parse_season_name("S9上半赛季"), "18")
         self.assertEqual(parse_season_name("s9下半赛季"), "19")
         self.assertEqual(parse_season_name("S9"), "18")
         self.assertEqual(parse_season_name("s9.5"), "19")
         self.assertEqual(parse_season_name("S8.5"), "17")
+        for invalid in ("S0.5", "S0上半赛季", "S0下半赛季"):
+            with self.assertRaisesRegex(Exception, "S0 没有半赛季"):
+                parse_season_name(invalid)
         with self.assertRaisesRegex(Exception, "S9上半赛季"):
             parse_season_name("18")
 
@@ -194,6 +190,21 @@ class TestServiceTranslation(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(stats, PlayerStats)
         self.assertIn("Tester", text)
         self.assertEqual(source.calls, 1)
+
+    async def test_s0_is_translated_to_api_season_one(self):
+        class FakeSource:
+            default_season = "19"
+
+            async def get_player(self, uid, season):
+                self.call = (uid, season)
+                return PlayerStats(profile=PlayerProfile(uid=uid), season=season)
+
+        source = FakeSource()
+        service = RivalsService(source, cache_seconds=0)
+        stats = await service.get_player_stats("1287101468", "s0")
+        self.assertEqual(source.call, ("1287101468", "1"))
+        self.assertEqual(format_player(stats).splitlines()[0], "漫威争锋国服战绩（S0的数据）")
+
     async def test_hero_name_and_season_are_translated_before_data_source_call(self):
         class FakeSource:
             default_season = "19"
@@ -208,7 +219,10 @@ class TestServiceTranslation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source.call, ("1287101468", "1036", "18"))
 
     def test_hero_map_is_complete_and_unknown_ids_have_fallback(self):
-        self.assertEqual(len(HERO_ID_MAP), 53)
+        self.assertGreaterEqual(len(HERO_ID_MAP), 55)
+        self.assertEqual(get_hero_name(10571), "T位死侍")
+        self.assertEqual(get_hero_name(10572), "C位死侍")
+        self.assertEqual(get_hero_name(10573), "奶位死侍")
         self.assertEqual(get_hero_name(1031), "冰月花雪")
         self.assertEqual(get_hero_name("1047"), "陆行鲨杰夫")
         self.assertEqual(format_hero_name(9999), "英雄 9999（9999）")
