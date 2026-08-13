@@ -53,43 +53,16 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
-【账号绑定】
-/绑定账号 <UID>
-绑定当前 QQ 的游戏账号
+/绑定漫威 <UID>  绑定游戏账号
+/解绑漫威       解除账号绑定
+/战绩 [UID] [赛季]  查询综合战绩
+/查询 [UID] [赛季]  查询综合战绩
+/最近 [UID] [赛季]  查询最近十场
+/英雄 <名称> [UID] [赛季]  查询英雄数据
+/对局 <matchUid>  查询对局详情
+/卡片测试         测试 QQ 卡片能力
 
-/解绑账号
-解除当前 QQ 的游戏账号绑定
-
-【数据查询】
-/战绩 [UID] [赛季名称]
-查询段位、综合数据和常用英雄
-
-/查询 [UID] [赛季名称]
-功能与 /战绩 相同
-
-/最近对局 [UID] [赛季名称]
-查询最近十场对局
-
-/英雄数据 <英雄名称> [UID] [赛季名称]
-查询指定英雄的赛季数据
-
-/对局详情 <matchUid>
-查询指定对局的详细数据
-
-/卡片测试
-验证 QQ Official Markdown、指令按钮和链接按钮能力
-
-【参数说明】
-绑定 UID 后，查询命令可以省略 UID。
-赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季，支持小写 s；S0 没有半赛季。
-不填写赛季名称时使用插件配置的默认赛季。
-已绑定 UID 时可以直接使用：/战绩 S9下半赛季。
-对局命令可粘贴纯 ID，也可直接粘贴最近列表中的 matchUid=...。
-
-【使用示例】
-/战绩 1287101468 S9下半赛季
-/最近对局 1287101468 s9.5
-/英雄数据 蜘蛛侠 1287101468 s9"""
+已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
     def __init__(self, context: Context, config=None):
         if hasattr(super(), "__init__"):
@@ -141,7 +114,7 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result(str(exc))
             return
         if not uid:
-            yield event.plain_result("请提供 UID，或先使用 /绑定账号 <UID>")
+            yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
             return
         try:
             stats = await self.service.get_player_stats(uid, season)
@@ -215,7 +188,7 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result(str(exc))
             return
         if not uid:
-            yield event.plain_result("请提供 UID，或先使用 /绑定账号 <UID>")
+            yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
             return
         try:
             season_code = self.service.season_code(season or None)

@@ -38,8 +38,8 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
         readme = (PLUGIN_DIR / "README.md").read_text(encoding="utf-8")
-        self.assertIn("高密度信息图片", readme)
-        self.assertIn("msg_type=7", readme)
+        self.assertIn("信息图片", readme)
+        self.assertIn("卡片按钮", readme)
 
     def test_core_package_and_plugin_copy_are_synchronized(self):
         root = PLUGIN_DIR.parent
@@ -54,7 +54,7 @@ class TestAstrBotPackage(unittest.TestCase):
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for text in ("/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试", "S0", "S9.5", "英雄名称"):
+        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "/卡片测试", "S0", "S9.5", "英雄名称"):
             self.assertIn(text, main)
 
     def test_httpx_dependency_is_declared(self):
