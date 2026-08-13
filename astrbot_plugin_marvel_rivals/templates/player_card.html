@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root { color-scheme: dark; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 760px; background: transparent; color: #f7f8fb; }
+    .card { min-height: 960px; padding: 46px 50px 40px; overflow: hidden; position: relative;
+      background: radial-gradient(circle at 90% 0, #51314f 0, transparent 38%), linear-gradient(145deg, #191925, #0e1018 72%); }
+    .card.light { color: #171925; background: radial-gradient(circle at 90% 0, #efd7e8 0, transparent 38%), linear-gradient(145deg, #fff, #edf0f7 72%); }
+    .accent { position: absolute; inset: 0 auto 0 0; width: 8px; background: #e43d4f; }
+    header, .identity, .hero-row, footer { display: flex; align-items: center; justify-content: space-between; }
+    .brand { font-size: 20px; font-weight: 800; letter-spacing: 3px; }
+    .season { padding: 8px 15px; border: 1px solid #e65c6b; border-radius: 99px; color: #ff8995; font-weight: 700; }
+    .identity { margin-top: 56px; align-items: flex-end; }
+    h1 { max-width: 510px; margin: 0 0 11px; overflow-wrap: anywhere; font-size: 46px; line-height: 1.1; }
+    .meta { color: #aeb2c2; font-size: 17px; letter-spacing: .4px; }
+    .level { color: #f1f2f6; font-size: 20px; font-weight: 700; }
+    .light .meta { color: #656b7d; } .light .level { color: #292d3b; }
+    .rank { margin: 38px 0 34px; padding: 24px; text-align: center; border: 1px solid #353847; border-radius: 16px; background: rgba(255,255,255,.035); }
+    .rank-label, .section-title { color: #aeb2c2; font-size: 14px; letter-spacing: 3px; }
+    .rank-value { margin-top: 8px; font-size: 31px; font-weight: 800; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .stat { padding: 20px 8px; text-align: center; border-radius: 12px; background: rgba(255,255,255,.055); }
+    .stat strong { display: block; font-size: 29px; } .stat span { color: #aeb2c2; font-size: 14px; }
+    .heroes { margin-top: 38px; }
+    .section-title { display: flex; align-items: center; gap: 15px; margin-bottom: 16px; }
+    .section-title::after { content: ""; height: 1px; flex: 1; background: #353847; }
+    .hero-row { min-height: 57px; padding: 10px 4px; border-bottom: 1px solid rgba(150,155,175,.18); }
+    .hero-name { flex: 1; margin-left: 15px; font-size: 18px; font-weight: 700; }
+    .hero-position { color: #e85c6b; font-weight: 800; }
+    .hero-data { color: #c7cad5; font-size: 14px; word-spacing: 6px; }
+    .empty { padding: 24px 0; color: #858a9e; }
+    footer { position: absolute; left: 50px; right: 50px; bottom: 34px; color: #777d90; font-size: 13px; letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+  <main class="card {{ theme }}">
+    <div class="accent"></div>
+    <header><div class="brand">MARVEL RIVALS</div><div class="season">{{ season|e }}</div></header>
+    <section class="identity">
+      <div><h1>{{ player.name|e }}</h1><div class="meta">UID {{ player.uid|e }}</div></div>
+      <div class="level">Lv. {{ player.level|e }}</div>
+    </section>
+    <section class="rank"><div class="rank-label">当前段位</div><div class="rank-value">{{ player.rank|e }}</div></section>
+    <section class="stats">
+      <div class="stat"><strong>{{ summary.matches|e }}</strong><span>场次</span></div>
+      <div class="stat"><strong>{{ summary.wins|e }}</strong><span>胜场</span></div>
+      <div class="stat"><strong>{{ summary.win_rate|e }}</strong><span>胜率</span></div>
+      <div class="stat"><strong>{{ summary.kills|e }}</strong><span>击败</span></div>
+      <div class="stat"><strong>{{ summary.deaths|e }}</strong><span>死亡</span></div>
+      <div class="stat"><strong>{{ summary.assists|e }}</strong><span>助攻</span></div>
+    </section>
+    <section class="heroes">
+      <div class="section-title">常用英雄</div>
+      {% for hero in heroes %}<div class="hero-row"><span class="hero-position">{{ hero.position|e }}</span><span class="hero-name">{{ hero.name|e }}</span><span class="hero-data">{{ hero.matches|e }}场　{{ hero.wins|e }}胜　{{ hero.kills|e }}击败</span></div>{% else %}<div class="empty">暂无常用英雄数据</div>{% endfor %}
+    </section>
+    <footer><span>Marvel Rivals CN Plugin</span><span>PLAYER OVERVIEW</span></footer>
+  </main>
+</body>
+</html>

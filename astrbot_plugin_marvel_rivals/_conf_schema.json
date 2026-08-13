@@ -47,9 +47,24 @@
     "default": 10
   },
   "MRCN_CACHE_SECONDS": {
-    "description": "Cache duration for formatted query results",
+    "description": "Cache duration for query results",
     "type": "int",
     "default": 60
+  },
+  "MRCN_CARD_ENABLED": {
+    "description": "Render /战绩 as a player overview card",
+    "type": "bool",
+    "default": true
+  },
+  "MRCN_CARD_THEME": {
+    "description": "Player card theme: dark or light",
+    "type": "string",
+    "default": "dark"
+  },
+  "MRCN_CARD_FALLBACK_TEXT": {
+    "description": "Fall back to the original text when card rendering fails",
+    "type": "bool",
+    "default": true
   },
   "MRCN_DEFAULT_SEASON": {
     "description": "Default season number used when a command does not specify one",

@@ -17,6 +17,9 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertEqual(schema["MRCN_ACCESS_TOKEN"]["default"], "")
         self.assertTrue(schema["MRCN_ACCESS_TOKEN"]["obvious_hint"])
         self.assertEqual(schema["MRCN_DEFAULT_SEASON"]["default"], 19)
+        self.assertTrue(schema["MRCN_CARD_ENABLED"]["default"])
+        self.assertEqual(schema["MRCN_CARD_THEME"]["default"], "dark")
+        self.assertTrue(schema["MRCN_CARD_FALLBACK_TEXT"]["default"])
         for name in ("MRCN_SUMMARY_BODY_TEMPLATE", "MRCN_CAREER_BODY_TEMPLATE", "MRCN_HERO_BODY_TEMPLATE", "MRCN_SORT_HERO_BODY_TEMPLATE", "MRCN_MATCHES_BODY_TEMPLATE"):
             self.assertIn("{season}", schema[name]["default"])
 
@@ -29,15 +32,20 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.5.1", metadata)
-        self.assertIn('"0.5.1"', main)
+        self.assertIn("version: 0.6.0", metadata)
+        self.assertIn('"0.6.0"', main)
 
     def test_core_package_and_plugin_copy_are_synchronized(self):
         root = PLUGIN_DIR.parent
-        for relative in ("models.py", "hero_names.py", "game_metadata.py", "datasource/base.py", "datasource/cn.py", "services/rivals.py"):
+        for relative in ("models.py", "hero_names.py", "game_metadata.py", "datasource/base.py", "datasource/cn.py", "services/rivals.py", "presenters/__init__.py", "presenters/cards.py"):
             core = (root / "marvel_rivals_bot" / relative).read_bytes()
             bundled = (PLUGIN_DIR / "marvel_rivals_bot" / relative).read_bytes()
             self.assertEqual(core, bundled, relative)
+
+    def test_player_card_template_exists_outside_main(self):
+        template = PLUGIN_DIR / "templates" / "player_card.html"
+        self.assertTrue(template.is_file())
+        self.assertIn("{{ player.name|e }}", template.read_text(encoding="utf-8"))
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")

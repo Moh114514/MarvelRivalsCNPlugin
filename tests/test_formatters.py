@@ -11,6 +11,7 @@ from marvel_rivals_bot.game_metadata import (
     get_map_queue_variant,
 )
 from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
+from marvel_rivals_bot.presenters.cards import build_player_card
 from marvel_rivals_bot.services.rivals import (
     RivalsService,
     format_hero,
@@ -23,6 +24,17 @@ from marvel_rivals_bot.services.rivals import (
 
 
 class TestFormatters(unittest.TestCase):
+    def test_player_card_presenter_builds_display_ready_view_model(self):
+        card = build_player_card(PlayerStats(
+            profile=PlayerProfile(uid="1", name="Tester", level=83, rank_game_season="天神 III"),
+            heroes=[HeroStat(hero_id="1036", matches=16, wins=10, kills=231)],
+            season="19",
+        ))
+        self.assertEqual(card["season"], "S9下半赛季")
+        self.assertEqual(card["player"]["level"], "83")
+        self.assertEqual(card["summary"]["win_rate"], "-")
+        self.assertEqual(card["heroes"][0]["position"], "01")
+        self.assertIn("蜘蛛侠", card["heroes"][0]["name"])
     def test_recent_match_uses_nested_current_player(self):
         text = format_matches([{
             "matchUid": "match-1",
@@ -164,6 +176,24 @@ class TestFormatters(unittest.TestCase):
 
 
 class TestServiceTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_player_cache_keeps_structured_stats_for_text_and_cards(self):
+        class FakeSource:
+            default_season = "19"
+
+            def __init__(self):
+                self.calls = 0
+
+            async def get_player(self, uid, season):
+                self.calls += 1
+                return PlayerStats(profile=PlayerProfile(uid=uid, name="Tester"), season=season)
+
+        source = FakeSource()
+        service = RivalsService(source, cache_seconds=60)
+        stats = await service.get_player_stats("1", "S9.5")
+        text = await service.player_text("1", "S9.5")
+        self.assertIsInstance(stats, PlayerStats)
+        self.assertIn("Tester", text)
+        self.assertEqual(source.calls, 1)
     async def test_hero_name_and_season_are_translated_before_data_source_call(self):
         class FakeSource:
             default_season = "19"

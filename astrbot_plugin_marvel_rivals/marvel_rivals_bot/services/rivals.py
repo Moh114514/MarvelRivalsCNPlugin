@@ -3,11 +3,15 @@ from __future__ import annotations
 import time
 import re
 from datetime import datetime
+from typing import TypeVar
 
 from ..datasource.base import DataSourceError, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..hero_names import format_hero_name, get_hero_id
 from ..models import PlayerStats
+
+
+CacheValue = TypeVar("CacheValue")
 
 
 def format_season_name(code: str | int) -> str:
@@ -36,18 +40,21 @@ class RivalsService:
     def __init__(self, source: RivalsDataSource, cache_seconds: float = 60):
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
-        self._player_cache: dict[str, tuple[float, str]] = {}
+        self._player_cache: dict[str, tuple[float, PlayerStats]] = {}
         self._matches_cache: dict[str, tuple[float, str]] = {}
 
-    async def player_text(self, uid: str, season: str | None = None) -> str:
+    async def get_player_stats(self, uid: str, season: str | None = None) -> PlayerStats:
         season_code = self._season_code(season)
         cache_key = f"{uid}:{season_code}"
         cached = self._cached(self._player_cache, cache_key)
         if cached is not None:
             return cached
-        result = format_player(await self.source.get_player(uid, season_code))
-        self._player_cache[cache_key] = (time.monotonic(), result)
-        return result
+        stats = await self.source.get_player(uid, season_code)
+        self._player_cache[cache_key] = (time.monotonic(), stats)
+        return stats
+
+    async def player_text(self, uid: str, season: str | None = None) -> str:
+        return format_player(await self.get_player_stats(uid, season))
 
     async def matches_text(self, uid: str, season: str | None = None) -> str:
         season_code = self._season_code(season)
@@ -75,13 +82,13 @@ class RivalsService:
             return str(getattr(self.source, "default_season", "19"))
         return parse_season_name(season)
 
-    def _cached(self, cache: dict[str, tuple[float, str]], uid: str) -> str | None:
+    def _cached(self, cache: dict[str, tuple[float, CacheValue]], key: str) -> CacheValue | None:
         if self.cache_seconds <= 0:
             return None
-        item = cache.get(uid)
+        item = cache.get(key)
         if item and time.monotonic() - item[0] < self.cache_seconds:
             return item[1]
-        cache.pop(uid, None)
+        cache.pop(key, None)
         return None
 
 

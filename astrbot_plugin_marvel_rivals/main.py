@@ -6,12 +6,16 @@ from pathlib import Path
 try:
     from .marvel_rivals_bot.datasource.base import DataSourceError
     from .marvel_rivals_bot.datasource.cn import CNDataSource
+    from .marvel_rivals_bot.presenters.cards import build_player_card
     from .marvel_rivals_bot.services.rivals import RivalsService
+    from .marvel_rivals_bot.services.rivals import format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
 except ImportError:
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
+    from marvel_rivals_bot.presenters.cards import build_player_card
     from marvel_rivals_bot.services.rivals import RivalsService
+    from marvel_rivals_bot.services.rivals import format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
 
 try:
@@ -36,8 +40,9 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.5.1", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.6.0", "")
 class MarvelRivalsPlugin(Star):
+    PLAYER_CARD_TEMPLATE = (Path(__file__).parent / "templates" / "player_card.html").read_text(encoding="utf-8")
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
 【账号绑定】
@@ -83,6 +88,9 @@ class MarvelRivalsPlugin(Star):
         env_config.update(configured)
         self.source = CNDataSource(env=env_config)
         self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
+        self.card_enabled = self._as_bool(env_config.get("MRCN_CARD_ENABLED", True))
+        self.card_theme = str(env_config.get("MRCN_CARD_THEME", "dark")).strip().lower()
+        self.card_fallback_text = self._as_bool(env_config.get("MRCN_CARD_FALLBACK_TEXT", True))
         db_path = os.getenv("MRCN_BINDINGS_DB")
         if not db_path:
             data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
@@ -91,6 +99,12 @@ class MarvelRivalsPlugin(Star):
 
     def _qq_id(self, event: AstrMessageEvent) -> str:
         return str(event.get_sender_id())
+
+    @staticmethod
+    def _as_bool(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     def _bound_uid(self, event: AstrMessageEvent) -> str | None:
         return self.bindings.get(self._qq_id(event))
@@ -113,6 +127,39 @@ class MarvelRivalsPlugin(Star):
             return
         try:
             yield event.plain_result(await self.service.player_text(uid, season))
+        except DataSourceError as exc:
+            if logger:
+                logger.warning(str(exc))
+            yield event.plain_result(f"查询失败：{exc}")
+
+    async def _stats_card_query(self, event: AstrMessageEvent, uid: str | None, season: str | None = None):
+        try:
+            uid = uid or self._bound_uid(event)
+        except BindingStoreError as exc:
+            yield event.plain_result(str(exc))
+            return
+        if not uid:
+            yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
+            return
+        try:
+            stats = await self.service.get_player_stats(uid, season)
+            if not self.card_enabled:
+                yield event.plain_result(format_player(stats))
+                return
+            try:
+                image = await self.html_render(
+                    self.PLAYER_CARD_TEMPLATE,
+                    build_player_card(stats, self.card_theme),
+                    options={"type": "png", "full_page": True, "animations": "disabled"},
+                )
+                yield event.image_result(image)
+            except Exception:
+                if logger:
+                    logger.exception("战绩卡片渲染失败")
+                if self.card_fallback_text:
+                    yield event.plain_result(format_player(stats))
+                else:
+                    yield event.plain_result("战绩卡片渲染失败，请稍后重试")
         except DataSourceError as exc:
             if logger:
                 logger.warning(str(exc))
@@ -151,7 +198,7 @@ class MarvelRivalsPlugin(Star):
     async def stats(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
         """查询玩家段位、综合数据和常用英雄，可指定 UID 和赛季名称。"""
         uid, season = self._uid_and_season(uid, season)
-        async for result in self._query(event, uid or None, season or None):
+        async for result in self._stats_card_query(event, uid or None, season or None):
             yield result
 
     @filter.command("查询")
