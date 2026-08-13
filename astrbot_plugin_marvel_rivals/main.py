@@ -18,11 +18,13 @@ try:
     from astrbot.api import logger
     from astrbot.api.event import AstrMessageEvent, filter
     from astrbot.api.star import Context, Star, register
+    from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 except ImportError:  # Allows core modules and tests to run without AstrBot installed.
     logger = None
     AstrMessageEvent = object
     Context = object
     Star = object
+    get_astrbot_data_path = None
 
     def register(*args, **kwargs):
         return lambda cls: cls
@@ -34,7 +36,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.2.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.2.1", "")
 class MarvelRivalsPlugin(Star):
     def __init__(self, context: Context, config=None):
         if hasattr(super(), "__init__"):
@@ -44,7 +46,10 @@ class MarvelRivalsPlugin(Star):
         env_config.update(configured)
         self.source = CNDataSource(env=env_config)
         self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
-        db_path = os.getenv("MRCN_BINDINGS_DB", "data/marvel_rivals.sqlite3")
+        db_path = os.getenv("MRCN_BINDINGS_DB")
+        if not db_path:
+            data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
+            db_path = data_root / "plugin_data" / "astrbot_plugin_marvel_rivals" / "bindings.sqlite3"
         self.bindings = BindingStore(Path(db_path))
 
     def _qq_id(self, event: AstrMessageEvent) -> str:

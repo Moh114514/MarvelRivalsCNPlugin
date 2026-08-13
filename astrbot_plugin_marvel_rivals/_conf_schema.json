@@ -16,6 +16,8 @@
   },
   "MRCN_ACCESS_TOKEN": {
     "description": "Temporary access_token from the mini-program request header",
+    "hint": "敏感凭据：仅在受控的 AstrBot WebUI 中填写，不要截图、分享或提交 data/config 下的配置文件。Token 过期后需要更新。",
+    "obvious_hint": true,
     "type": "string",
     "default": ""
   },

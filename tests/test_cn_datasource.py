@@ -64,6 +64,21 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(Exception, "业务失败"):
                 await source.get_player("1")
 
+    async def test_private_profile_error_includes_permission_hint(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={
+                "code": 403,
+                "msg": "不允许查看该用户的游戏数据",
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            with self.assertRaisesRegex(
+                Exception,
+                "不允许查看该用户的游戏数据[\\s\\S]*漫威争锋小程序→战绩→设置[\\s\\S]*打开查询权限",
+            ):
+                await source.get_player("1")
+
     async def test_cn_response_field_names_are_normalized(self):
         responses = {
             "/api/game/player/loadData": {"data": {"name": "Moh233", "aid": 195963667, "level": 83}},

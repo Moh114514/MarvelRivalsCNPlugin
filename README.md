@@ -92,6 +92,10 @@ python -m marvel_rivals_bot.cli --env-file .env.capture --raw-output debug-respo
 
 将 `astrbot_plugin_marvel_rivals` 整个目录复制到 AstrBot 的插件目录，目录名保持为 `astrbot_plugin_marvel_rivals`，然后重载插件。该目录已包含核心包、`metadata.yaml`、`_conf_schema.json` 和插件内 `requirements.txt`，可独立安装。插件依赖 AstrBot 提供的 `astrbot.api`，不在普通单元测试中导入。
 
+在 AstrBot WebUI 的插件配置中至少填写 `MRCN_ACCESS_TOKEN`。默认接口地址、路径和请求模板已经内置；生产环境通常不应配置 mitmproxy 的 `MRCN_PROXY` 或 `MRCN_CA_CERT`。QQ 接入需要 AstrBot 已配置可用的 OneBot v11/aiocqhttp 适配器（例如 NapCat）。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`，插件升级不会覆盖。
+
+手动安装后应依次验证：插件无加载错误、`/漫威帮助` 可响应、`/战绩 <UID>` 可查询、`/绑定漫威 <UID>` 后省略 UID 仍可查询。发布到插件市场前，还需要为 `metadata.yaml` 填写真实的 HTTPS GitHub `repo` 地址，并从发布包中排除 `__pycache__`、`.env*`、抓包和调试响应。
+
 新增命令：
 
 ```text

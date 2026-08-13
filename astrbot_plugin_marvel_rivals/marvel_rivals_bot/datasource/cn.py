@@ -88,6 +88,8 @@ class CNDataSource(RivalsDataSource):
         "sort_hero": '{"matchSeason":"19","playerUid":{player_uid}}',
         "matches": '{"matchSeason":{"$eq":"19"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":10,"playerUid":{player_uid}}',
     }
+    PRIVATE_PROFILE_MESSAGE = "不允许查看该用户的游戏数据"
+    PRIVATE_PROFILE_HINT = "请前往“漫威争锋小程序→战绩→设置”打开查询权限。"
 
     def __init__(self, *, client: httpx.AsyncClient | None = None, env: Mapping[str, Any] | None = None):
         config = os.environ if env is None else env
@@ -271,13 +273,20 @@ class CNDataSource(RivalsDataSource):
         return role
 
     @staticmethod
+    def _business_error_message(payload: dict[str, Any], default: str = "业务请求失败") -> str:
+        message = str(payload.get("message", payload.get("msg", payload.get("error", default))))
+        if CNDataSource.PRIVATE_PROFILE_MESSAGE in message:
+            return f"{message}\n{CNDataSource.PRIVATE_PROFILE_HINT}"
+        return message
+
+    @staticmethod
     def _raise_for_business_error(payload: dict[str, Any]) -> None:
         code = payload.get("code", payload.get("errCode", payload.get("errorCode")))
         if code not in (None, 0, "0", 200, "200"):
-            message = payload.get("message", payload.get("msg", payload.get("error", "业务请求失败")))
+            message = CNDataSource._business_error_message(payload)
             raise DataSourceError(f"国服接口业务失败：{message}")
         if payload.get("success") is False or payload.get("error") is True:
-            message = payload.get("message", payload.get("msg", "业务请求失败"))
+            message = CNDataSource._business_error_message(payload)
             raise DataSourceError(f"国服接口业务失败：{message}")
 
     async def get_player(self, uid: str) -> PlayerStats:
