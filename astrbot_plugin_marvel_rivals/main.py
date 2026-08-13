@@ -10,7 +10,7 @@ try:
     from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from .qq_official import (
-        QQOfficialCardSender, build_capability_test_card, build_hero_card,
+        QQMenuClient, QQMenuError, QQOfficialCardSender, build_capability_test_card, build_hero_card,
         build_match_card, build_player_card, build_recent_card,
     )
     from .rendering import MatchImageRenderer
@@ -21,7 +21,7 @@ except ImportError:
     from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from qq_official import (
-        QQOfficialCardSender, build_capability_test_card, build_hero_card,
+        QQMenuClient, QQMenuError, QQOfficialCardSender, build_capability_test_card, build_hero_card,
         build_match_card, build_player_card, build_recent_card,
     )
     from rendering import MatchImageRenderer
@@ -42,13 +42,19 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
         return lambda cls: cls
 
     class _Filter:
+        class PermissionType:
+            ADMIN = "admin"
+
         def command(self, *_args, **_kwargs):
+            return lambda func: func
+
+        def permission_type(self, *_args, **_kwargs):
             return lambda func: func
 
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.8.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.9.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -95,10 +101,15 @@ class MarvelRivalsPlugin(Star):
             super().__init__(context)
         configured = dict(config or {})
         env_config = {key: value for key, value in os.environ.items() if key.startswith("MRCN_")}
+        env_config.update({key: value for key, value in os.environ.items() if key.startswith("QQ_BOT_")})
         env_config.update(configured)
         self.source = CNDataSource(env=env_config)
         self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
         self.qq_card_sender = QQOfficialCardSender()
+        self.qq_menu_client = QQMenuClient(
+            env_config.get("QQ_BOT_APP_ID", ""),
+            env_config.get("QQ_BOT_CLIENT_SECRET", ""),
+        )
         self.image_renderer = MatchImageRenderer(self.html_render)
         db_path = os.getenv("MRCN_BINDINGS_DB")
         if not db_path:
@@ -264,3 +275,27 @@ class MarvelRivalsPlugin(Star):
                 "QQ Official 富消息发送失败，已回退普通文本。\n"
                 "请确认当前适配器为 QQ Official，且机器人账号拥有 Markdown 与消息按钮权限。"
             )
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("同步漫威菜单")
+    async def sync_qq_menu(self, event: AstrMessageEvent):
+        """管理员命令：将漫威争锋快捷菜单完整同步到 QQ 单聊。"""
+        try:
+            result = await self.qq_menu_client.put_menu()
+        except QQMenuError as exc:
+            yield event.plain_result(str(exc))
+            return
+        yield event.plain_result(f"QQ 单聊快捷菜单同步成功，版本：{result.get('version', '-')}")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("查看漫威菜单")
+    async def show_qq_menu(self, event: AstrMessageEvent):
+        """管理员命令：查询 QQ 当前生效的全局单聊菜单。"""
+        try:
+            result = await self.qq_menu_client.get_menu()
+        except QQMenuError as exc:
+            yield event.plain_result(str(exc))
+            return
+        items = result.get("menu", {}).get("items", []) if isinstance(result.get("menu"), dict) else []
+        names = "、".join(str(item.get("name", "-")) for item in items if isinstance(item, dict)) or "未设置"
+        yield event.plain_result(f"QQ 单聊快捷菜单\n版本：{result.get('version', '-')}\n一级菜单：{names}")

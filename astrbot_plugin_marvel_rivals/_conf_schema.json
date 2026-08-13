@@ -1,4 +1,16 @@
 {
+  "QQ_BOT_APP_ID": {
+    "description": "QQ 开放平台机器人 AppID，仅用于管理全局单聊快捷菜单",
+    "type": "string",
+    "default": ""
+  },
+  "QQ_BOT_CLIENT_SECRET": {
+    "description": "QQ 开放平台机器人 ClientSecret，仅在服务端换取菜单 API access_token",
+    "hint": "敏感凭据：请仅在 AstrBot WebUI 中填写，不要提交到仓库、日志或聊天。",
+    "obvious_hint": true,
+    "type": "string",
+    "default": ""
+  },
   "MRCN_API_BASE_URL": {
     "description": "Official CN mini-program API base URL",
     "type": "string",

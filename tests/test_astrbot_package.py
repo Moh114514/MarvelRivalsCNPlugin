@@ -32,8 +32,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.8.0", metadata)
-        self.assertIn('"0.8.0"', main)
+        self.assertIn("version: 0.9.0", metadata)
+        self.assertIn('"0.9.0"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -54,7 +54,7 @@ class TestAstrBotPackage(unittest.TestCase):
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "/卡片测试", "S0", "S9.5", "英雄名称"):
+        for text in ("/绑定漫威", "/解绑漫威", "/战绩", "/最近", "/英雄", "/对局", "/卡片测试", "同步漫威菜单", "查看漫威菜单", "S0", "S9.5", "英雄名称"):
             self.assertIn(text, main)
 
     def test_httpx_dependency_is_declared(self):
