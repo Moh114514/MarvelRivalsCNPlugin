@@ -1,8 +1,16 @@
 import unittest
 
-from marvel_rivals_bot.hero_names import HERO_ID_MAP, format_hero_name, get_hero_name
+from marvel_rivals_bot.hero_names import HERO_ID_MAP, format_hero_name, get_hero_id, get_hero_name
 from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
-from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
+from marvel_rivals_bot.services.rivals import (
+    RivalsService,
+    format_hero,
+    format_match_detail,
+    format_matches,
+    format_player,
+    format_season_name,
+    parse_season_name,
+)
 
 
 class TestFormatters(unittest.TestCase):
@@ -22,15 +30,19 @@ class TestFormatters(unittest.TestCase):
     def test_hero_uses_careers_array(self):
         text = format_hero({"data": {"careers": [{
             "heroId": 1066,
-            "totalMatchCount": 10,
-            "totalMatchWinCount": 7,
-            "k": 186,
-            "d": 28,
-            "a": 24,
+            "totalMatchCount": 10.31,
+            "totalMatchWinCount": 6.79,
+            "totalPlayTime": 28737.34,
+            "k": 185.8,
+            "d": 28.2,
+            "a": 24.4,
         }]}})
         self.assertIn("英雄：红兜帽（1066）", text)
-        self.assertIn("胜率：70%", text)
+        self.assertIn("场次：10", text)
+        self.assertIn("胜场：7", text)
         self.assertIn("186 / 28 / 24", text)
+        self.assertIn("游玩时长：7.98 小时", text)
+        self.assertNotIn("10.3", text)
 
     def test_match_detail_uses_matches_and_match_players(self):
         text = format_match_detail({"data": {"matches": [{
@@ -54,9 +66,56 @@ class TestFormatters(unittest.TestCase):
     def test_player_top_heroes_use_chinese_names(self):
         text = format_player(PlayerStats(
             profile=PlayerProfile(uid="1", name="Tester"),
-            heroes=[HeroStat(hero_id="1066", play_time_seconds=60)],
+            heroes=[HeroStat(hero_id="1066", matches=10, wins=7, kills=186, play_time_seconds=60)],
+            season="18",
         ))
+        self.assertIn("（S9上半赛季的数据）", text)
         self.assertIn("红兜帽（1066）", text)
+        self.assertIn("出场 10 / 胜场 7 / 击败 186", text)
+        self.assertNotIn("时长", text)
+
+    def test_season_codes_map_to_half_seasons(self):
+        self.assertEqual(format_season_name(18), "S9上半赛季")
+        self.assertEqual(format_season_name("19"), "S9下半赛季")
+
+    def test_user_season_names_map_to_api_codes(self):
+        self.assertEqual(parse_season_name("S9上半赛季"), "18")
+        self.assertEqual(parse_season_name("s9下半赛季"), "19")
+        with self.assertRaisesRegex(Exception, "S9上半赛季"):
+            parse_season_name("18")
+
+    def test_chinese_hero_names_map_to_ids(self):
+        self.assertEqual(get_hero_id("蜘蛛侠"), 1036)
+        self.assertEqual(get_hero_id("潘妮帕克"), 1042)
+        with self.assertRaisesRegex(ValueError, "中文名称"):
+            get_hero_id("1036")
+
+    def test_bound_command_argument_positions(self):
+        from astrbot_plugin_marvel_rivals.main import MarvelRivalsPlugin
+
+        self.assertEqual(
+            MarvelRivalsPlugin._uid_and_season("S9上半赛季", ""),
+            ("", "S9上半赛季"),
+        )
+        self.assertEqual(
+            MarvelRivalsPlugin._uid_and_season("1287101468", "s9下半赛季"),
+            ("1287101468", "s9下半赛季"),
+        )
+
+
+class TestServiceTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_hero_name_and_season_are_translated_before_data_source_call(self):
+        class FakeSource:
+            default_season = "19"
+
+            async def get_hero(self, uid, hero_id, season):
+                self.call = (uid, hero_id, season)
+                return {"data": {"careers": [{"heroId": int(hero_id)}]}}
+
+        source = FakeSource()
+        service = RivalsService(source, cache_seconds=0)
+        await service.hero_text("1287101468", "蜘蛛侠", "s9上半赛季")
+        self.assertEqual(source.call, ("1287101468", "1036", "18"))
 
     def test_hero_map_is_complete_and_unknown_ids_have_fallback(self):
         self.assertEqual(len(HERO_ID_MAP), 53)

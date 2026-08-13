@@ -28,7 +28,7 @@
   },
   "MRCN_VERIFY_SSL": {
     "description": "Keep TLS verification enabled; disable only for local diagnosis",
-    "type": "boolean",
+    "type": "bool",
     "default": true
   },
   "MRCN_PROXY": {
@@ -38,7 +38,7 @@
   },
   "MRCN_TRUST_ENV": {
     "description": "Whether httpx should inherit HTTP_PROXY/HTTPS_PROXY from the process environment",
-    "type": "boolean",
+    "type": "bool",
     "default": false
   },
   "MRCN_TIMEOUT_SECONDS": {
@@ -50,6 +50,11 @@
     "description": "Cache duration for formatted query results",
     "type": "int",
     "default": 60
+  },
+  "MRCN_DEFAULT_SEASON": {
+    "description": "Default season number used when a command does not specify one",
+    "type": "int",
+    "default": 19
   },
   "MRCN_ROLE_PATH": {
     "description": "Resolve and validate a public role ID",
@@ -92,9 +97,9 @@
     "default": "/api/game/player/loadSummary"
   },
   "MRCN_HERO_BODY_TEMPLATE": {
-    "description": "Hero request JSON template. Use {hero_ids} and {player_uid} placeholders.",
+    "description": "Hero request JSON template. Use {hero_ids}, {season} and {player_uid} placeholders.",
     "type": "string",
-    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"19\",\"playerUid\":{player_uid}}"
+    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"playerUid\":{player_uid}}"
   },
   "MRCN_DATA_BODY_TEMPLATE": {
     "description": "loadData request JSON template. Use {player_uid}.",
@@ -102,19 +107,19 @@
     "default": "{\"playerUid\":{player_uid}}"
   },
   "MRCN_SUMMARY_BODY_TEMPLATE": {
-    "description": "Summary and recent-match request JSON template",
+    "description": "Summary request JSON template. Use {season} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":{\"$eq\":\"19\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10,\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":{\"$eq\":\"{season}\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10,\"playerUid\":{player_uid}}"
   },
   "MRCN_CAREER_BODY_TEMPLATE": {
-    "description": "Career request JSON template",
+    "description": "Career request JSON template. Use {season} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":\"19\",\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":\"{season}\",\"playerUid\":{player_uid}}"
   },
   "MRCN_SORT_HERO_BODY_TEMPLATE": {
-    "description": "Sorted heroes request JSON template",
+    "description": "Sorted heroes request JSON template. Use {season} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":\"19\",\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":\"{season}\",\"playerUid\":{player_uid}}"
   },
   "MRCN_SUMMARY_DETAIL_BODY_TEMPLATE": {
     "description": "Match detail request JSON template. Use {match_uid}.",
@@ -122,8 +127,8 @@
     "default": "{\"matchUids\":[\"{match_uid}\"]}"
   },
   "MRCN_MATCHES_BODY_TEMPLATE": {
-    "description": "Recent matches request JSON template",
+    "description": "Recent matches request JSON template. Use {season} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":{\"$eq\":\"19\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10,\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":{\"$eq\":\"{season}\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10,\"playerUid\":{player_uid}}"
   }
 }

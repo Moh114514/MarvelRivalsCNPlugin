@@ -12,6 +12,33 @@ from ..models import CareerSummary, HeroStat, PlayerProfile, PlayerStats, Recent
 from .base import DataSourceError, RivalsDataSource
 
 
+RANK_LEVEL_MAP = {
+    1: "青铜3",
+    2: "青铜2",
+    3: "青铜1",
+    4: "白银3",
+    5: "白银2",
+    6: "白银1",
+    7: "黄金3",
+    8: "黄金2",
+    9: "黄金1",
+    10: "铂金3",
+    11: "铂金2",
+    12: "铂金1",
+    13: "钻石3",
+    14: "钻石2",
+    15: "钻石1",
+    16: "大师3",
+    17: "大师2",
+    18: "大师1",
+    19: "天神3",
+    20: "天神2",
+    21: "天神1",
+    22: "永恒",
+    23: "万物之上",
+}
+
+
 def _number(data: Mapping[str, Any], *keys: str) -> int | float | None:
     for key in keys:
         value = data.get(key)
@@ -23,6 +50,11 @@ def _number(data: Mapping[str, Any], *keys: str) -> int | float | None:
             except (TypeError, ValueError):
                 continue
     return None
+
+
+def _count(data: Mapping[str, Any], *keys: str) -> int | None:
+    value = _number(data, *keys)
+    return round(value) if value is not None else None
 
 
 def _text(data: Mapping[str, Any], *keys: str, default: str = "") -> str:
@@ -44,21 +76,22 @@ def _first_mapping(value: Any) -> dict[str, Any]:
 
 
 def _rank_text(value: Any, season: str = "19") -> str:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, (str, Mapping)) or not value:
         return ""
     try:
-        seasons = json.loads(value)
+        seasons = json.loads(value) if isinstance(value, str) else value
         current = seasons.get(f"10010{season}") if isinstance(seasons, dict) else None
         rank = json.loads(current) if isinstance(current, str) else current
     except (json.JSONDecodeError, TypeError):
         return value
     if not isinstance(rank, dict):
         return ""
-    level = rank.get("level")
-    score = rank.get("rank_score")
+    level = _number(rank, "level")
+    score = _number(rank, "rank_score")
     if level is None:
         return ""
-    return f"等级 {level}" + (f"（{int(score)} 分）" if isinstance(score, (int, float)) else "")
+    rank_name = RANK_LEVEL_MAP.get(int(level), f"等级 {int(level)}")
+    return rank_name + (f"（{int(score)} 分）" if score is not None else "")
 
 
 class CNDataSource(RivalsDataSource):
@@ -82,12 +115,12 @@ class CNDataSource(RivalsDataSource):
 
     DEFAULT_BODY_TEMPLATES = {
         "data": '{"playerUid":{player_uid}}',
-        "summary": '{"matchSeason":{"$eq":"19"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":3,"playerUid":{player_uid}}',
+        "summary": '{"matchSeason":{"$eq":"{season}"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":3,"playerUid":{player_uid}}',
         "summary_detail": '{"matchUids":["{match_uid}"]}',
-        "career": '{"matchSeason":"19","playerUid":{player_uid}}',
-        "hero": '{"heroIdList":{hero_ids},"matchSeason":"19","playerUid":{player_uid}}',
-        "sort_hero": '{"matchSeason":"19","playerUid":{player_uid}}',
-        "matches": '{"matchSeason":{"$eq":"19"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":10,"playerUid":{player_uid}}',
+        "career": '{"matchSeason":"{season}","playerUid":{player_uid}}',
+        "hero": '{"heroIdList":{hero_ids},"matchSeason":"{season}","playerUid":{player_uid}}',
+        "sort_hero": '{"matchSeason":"{season}","playerUid":{player_uid}}',
+        "matches": '{"matchSeason":{"$eq":"{season}"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":10,"playerUid":{player_uid}}',
     }
     PRIVATE_PROFILE_MESSAGES = (
         "不允许查看该用户的游戏数据",
@@ -102,6 +135,7 @@ class CNDataSource(RivalsDataSource):
             raise DataSourceError("未配置 MRCN_API_BASE_URL，请先填写官方小程序接口前缀")
         self.base_url = base_url
         self.timeout = float(config.get("MRCN_TIMEOUT_SECONDS", "10"))
+        self.default_season = self._normalize_season(config.get("MRCN_DEFAULT_SEASON", "19"))
         self.debug = str(config.get("MRCN_DEBUG", "0")).lower() in {"1", "true", "yes"}
         verify_value = str(config.get("MRCN_VERIFY_SSL", "true")).lower()
         self.verify_ssl: bool | str = verify_value not in {"0", "false", "no"}
@@ -139,6 +173,11 @@ class CNDataSource(RivalsDataSource):
         for name, legacy in legacy_templates.items():
             if self.body_templates.get(name) == legacy:
                 self.body_templates[name] = self.DEFAULT_BODY_TEMPLATES[name]
+        for name in ("summary", "career", "hero", "sort_hero", "matches"):
+            template = self.body_templates.get(name, "")
+            self.body_templates[name] = template.replace('"matchSeason":"19"', '"matchSeason":"{season}"').replace(
+                '"$eq":"19"', '"$eq":"{season}"'
+            )
         for name in ("summary", "matches"):
             template = self.body_templates.get(name, "")
             if "{player_uid}" not in template and '"page"' in template:
@@ -147,6 +186,13 @@ class CNDataSource(RivalsDataSource):
                 template = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
                 self.body_templates[name] = template.replace('"__PLAYER_UID__"', "{player_uid}")
         self._client = client
+
+    @staticmethod
+    def _normalize_season(season: Any) -> str:
+        value = str(season).strip()
+        if not value.isdigit() or int(value) < 1 or int(value) > 99:
+            raise DataSourceError("赛季必须是 1 到 99 之间的数字")
+        return str(int(value))
 
     def _body(self, uid: str = "", **extra: Any) -> dict[str, Any]:
         try:
@@ -293,16 +339,19 @@ class CNDataSource(RivalsDataSource):
             message = CNDataSource._business_error_message(payload)
             raise DataSourceError(f"国服接口业务失败：{message}")
 
-    async def get_player(self, uid: str) -> PlayerStats:
+    async def get_player(self, uid: str, season: str | None = None) -> PlayerStats:
         uid = str(uid).strip()
         if not uid.isdigit():
             raise DataSourceError("UID 必须是数字")
+        season = self._normalize_season(season or self.default_season)
         role = await self.resolve_role(uid)
         response_uid = self._validate_response_uid(uid, role)
         data_payload, data, response_uid = await self._load_account_data(response_uid)
         responses = {"role": role, "data": data_payload}
         for name in ("summary", "career", "sort_hero"):
-            responses[name] = await self._post(self.paths[name], uid, body_template=self.body_templates[name])
+            responses[name] = await self._post(
+                self.paths[name], uid, body_template=self.body_templates[name], season=season
+            )
         summary = _first_mapping(responses["summary"].get("data", responses["summary"]))
         career = _first_mapping(responses["career"].get("data", responses["career"]))
         career_uid = self._response_uid(career)
@@ -314,7 +363,7 @@ class CNDataSource(RivalsDataSource):
             aid=response_uid,
             level=_number(data, "level"),
             club_team_name=_text(data, "clubTeamName", "clubName"),
-            rank_game_season=_rank_text(data.get("rankGameSeason")) or _text(data, "rankSeason", "rankName"),
+            rank_game_season=_rank_text(data.get("rankGameSeason"), season) or _text(data, "rankSeason", "rankName"),
         )
         # loadData contains the account aggregate in the observed response;
         # loadSummary is the paginated match list, not the aggregate.
@@ -335,7 +384,23 @@ class CNDataSource(RivalsDataSource):
             hero_damage=_number(source, "totalHeroDamage", "heroDamage"),
         )
         heroes = self._parse_heroes(responses["sort_hero"])
-        return PlayerStats(profile, career_summary, heroes, responses)
+        hero_ids = [int(hero.hero_id) for hero in heroes[:5] if hero.hero_id.isdigit()]
+        if hero_ids:
+            responses["hero_career"] = await self._post(
+                self.paths["hero"],
+                uid,
+                body_template=self.body_templates["hero"],
+                hero_ids=hero_ids,
+                season=season,
+            )
+            heroes = self._enrich_heroes(heroes, responses["hero_career"])
+        return PlayerStats(
+            profile=profile,
+            summary=career_summary,
+            heroes=heroes,
+            season=season,
+            raw=responses,
+        )
 
     async def get_summary_detail(self, uid: str) -> dict[str, Any]:
         match_uid = str(uid).strip()
@@ -347,15 +412,17 @@ class CNDataSource(RivalsDataSource):
             match_uid=match_uid,
         )
 
-    async def get_hero(self, uid: str, hero_id: str) -> dict[str, Any]:
+    async def get_hero(self, uid: str, hero_id: str, season: str | None = None) -> dict[str, Any]:
         uid, hero_id = str(uid).strip(), str(hero_id).strip()
         if not uid.isdigit() or not hero_id:
             raise DataSourceError("UID must be numeric and hero_id cannot be empty")
+        season = self._normalize_season(season or self.default_season)
         await self.validate_uid(uid)
         return await self._post(
             self.paths["hero"], uid,
             body_template=self.body_templates["hero"],
             hero_ids=[int(hero_id)] if hero_id.isdigit() else [hero_id],
+            season=season,
         )
 
     def _parse_heroes(self, payload: dict[str, Any]) -> list[HeroStat]:
@@ -367,34 +434,61 @@ class CNDataSource(RivalsDataSource):
         for item in items:
             if not isinstance(item, dict):
                 continue
-            matches = _number(item, "totalMatchCount", "matchCount", "matches")
-            wins = _number(item, "totalMatchWinCount", "winCount", "wins")
+            matches = _count(item, "totalMatchCount", "matchCount", "matches")
+            wins = _count(item, "totalMatchWinCount", "winCount", "wins")
             rate = _number(item, "winRate")
             if rate is None and matches and wins is not None:
                 rate = wins * 100 / matches
             hero_id = _text(item, "heroId", "id")
             result.append(HeroStat(
-                hero_id,
-                get_hero_name(hero_id, _text(item, "heroName", "name") or None),
-                matches,
-                rate,
-                _number(item, "totalPlayTime", "playTime"),
-                item,
+                hero_id=hero_id,
+                hero_name=get_hero_name(hero_id, _text(item, "heroName", "name") or None),
+                matches=matches,
+                wins=wins,
+                kills=_count(item, "k", "kills", "totalKill"),
+                win_rate=rate,
+                play_time_seconds=_number(item, "totalPlayTime", "playTime"),
+                raw=item,
             ))
         return result
 
-    async def get_recent_payload(self, uid: str) -> dict[str, Any]:
+    def _enrich_heroes(self, heroes: list[HeroStat], payload: dict[str, Any]) -> list[HeroStat]:
+        value = payload.get("data", payload)
+        careers = value.get("careers", []) if isinstance(value, dict) else []
+        if not isinstance(careers, list):
+            return heroes
+        details = {
+            _text(item, "heroId", "id"): item
+            for item in careers
+            if isinstance(item, dict) and _text(item, "heroId", "id")
+        }
+        for hero in heroes:
+            item = details.get(hero.hero_id)
+            if not item:
+                continue
+            hero.matches = _count(item, "totalMatchCount", "matchCount", "matches")
+            hero.wins = _count(item, "totalMatchWinCount", "winCount", "wins")
+            hero.kills = _count(item, "k", "kills", "totalKill")
+            if hero.matches and hero.wins is not None:
+                hero.win_rate = hero.wins * 100 / hero.matches
+            hero.raw = {**hero.raw, **item}
+        return heroes
+
+    async def get_recent_payload(self, uid: str, season: str | None = None) -> dict[str, Any]:
         uid = str(uid).strip()
         if not uid.isdigit():
             raise DataSourceError("UID must be numeric")
+        season = self._normalize_season(season or self.default_season)
         await self.validate_uid(uid)
-        return await self._post(self.paths["matches"], uid, body_template=self.body_templates["matches"])
+        return await self._post(
+            self.paths["matches"], uid, body_template=self.body_templates["matches"], season=season
+        )
 
-    async def get_recent_matches(self, uid: str) -> list[dict]:
+    async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
         uid = str(uid).strip()
         if not uid.isdigit():
             raise DataSourceError("UID 必须是数字")
-        payload = await self.get_recent_payload(uid)
+        payload = await self.get_recent_payload(uid, season)
         value = payload.get("data", payload)
         if isinstance(value, dict):
             value = value.get("matchInfo", value.get("matches", value.get("matchList", value.get("records", value.get("list", [])))))

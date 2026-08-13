@@ -11,10 +11,9 @@ class DataSourceError(RuntimeError):
 
 class RivalsDataSource(ABC):
     @abstractmethod
-    async def get_player(self, uid: str) -> PlayerStats:
+    async def get_player(self, uid: str, season: str | None = None) -> PlayerStats:
         raise NotImplementedError
 
     @abstractmethod
-    async def get_recent_matches(self, uid: str) -> list[dict]:
+    async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
         raise NotImplementedError
-

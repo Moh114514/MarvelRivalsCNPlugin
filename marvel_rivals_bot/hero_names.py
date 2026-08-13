@@ -60,6 +60,25 @@ HERO_ID_MAP: dict[int, str] = {
 }
 
 
+def _normalize_hero_name(name: str) -> str:
+    return "".join(str(name).strip().lower().replace("＆", "&").split()).replace("·", "").replace(".", "")
+
+
+HERO_NAME_ID_MAP: dict[str, int] = {
+    _normalize_hero_name(name): hero_id for hero_id, name in HERO_ID_MAP.items()
+}
+
+
+def get_hero_id(hero_name: str) -> int:
+    value = str(hero_name).strip()
+    if not value or value.isdigit():
+        raise ValueError("请直接输入英雄的中文名称，例如：蜘蛛侠")
+    hero_id = HERO_NAME_ID_MAP.get(_normalize_hero_name(value))
+    if hero_id is None:
+        raise ValueError(f"未找到英雄“{value}”，请检查并输入完整中文名称")
+    return hero_id
+
+
 def get_hero_name(hero_id: Any, fallback: str | None = None) -> str:
     try:
         normalized = int(hero_id)

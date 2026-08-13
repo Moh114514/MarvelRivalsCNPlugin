@@ -31,6 +31,8 @@ class HeroStat:
     hero_id: str
     hero_name: str = "未知英雄"
     matches: int | None = None
+    wins: int | None = None
+    kills: int | None = None
     win_rate: float | None = None
     play_time_seconds: float | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -41,6 +43,7 @@ class PlayerStats:
     profile: PlayerProfile
     summary: CareerSummary = field(default_factory=CareerSummary)
     heroes: list[HeroStat] = field(default_factory=list)
+    season: str = "19"
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 

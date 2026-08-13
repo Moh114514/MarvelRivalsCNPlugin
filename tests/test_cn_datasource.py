@@ -3,7 +3,7 @@ import unittest
 
 import httpx
 
-from marvel_rivals_bot.datasource.cn import CNDataSource
+from marvel_rivals_bot.datasource.cn import CNDataSource, _rank_text
 from marvel_rivals_bot.models import PlayerStats
 
 
@@ -21,6 +21,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                 "/api/game/player/loadSummary": {"data": {"totalMatchCount": 20, "totalMatchWinCount": 12, "k": 100, "d": 50, "a": 80}},
                 "/api/game/player/loadCareer": {"data": {}},
                 "/api/game/player/loadSortHero": {"data": {"heroes": [{"heroId": "1", "heroName": "月光骑士", "matchCount": 8, "winCount": 5}] }},
+                "/api/game/player/loadHeroCareer": {"data": {"careers": [{"heroId": 1, "totalMatchCount": 8, "totalMatchWinCount": 5, "k": 42}]}},
             }
             return httpx.Response(200, json=responses[request.url.path])
 
@@ -32,6 +33,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.profile.name, "Noir")
         self.assertEqual(stats.summary.win_rate, 60)
         self.assertEqual(stats.heroes[0].hero_name, "月光骑士")
+        self.assertEqual(stats.heroes[0].kills, 42)
         self.assertEqual(calls[0][1], {"roleId": "195963667"})
         self.assertEqual(calls[1][1], {"aid": "195963667", "zoneId": 16001})
 
@@ -97,6 +99,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             "/api/game/player/loadSummary": {"data": {"matchInfo": []}},
             "/api/game/player/loadCareer": {"data": {"totalWinCount": 14, "totalMatchCount": 27, "k": 386, "d": 117, "a": 284}},
             "/api/game/player/loadSortHero": {"data": {"heros": [{"heroId": 1066, "totalPlayTime": 4338.3}]}},
+            "/api/game/player/loadHeroCareer": {"data": {"careers": [{"heroId": 1066, "totalMatchCount": 10, "totalMatchWinCount": 7, "k": 186}]}},
         }
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -112,6 +115,45 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.heroes[0].hero_id, "1066")
         self.assertEqual(stats.heroes[0].hero_name, "红兜帽")
         self.assertEqual(stats.heroes[0].play_time_seconds, 4338.3)
+        self.assertEqual(stats.heroes[0].matches, 10)
+        self.assertEqual(stats.heroes[0].wins, 7)
+        self.assertEqual(stats.heroes[0].kills, 186)
+
+    async def test_historical_season_is_sent_and_rank_is_mapped(self):
+        calls = []
+        rank_seasons = {"1001018": json.dumps({"level": 14, "rank_score": 4411.2})}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                return httpx.Response(200, json={"data": {"roleId": 1287101468}})
+            body = json.loads(request.content)
+            calls.append((request.url.path, body))
+            if request.url.path.endswith("/loadData"):
+                data = {"aid": 1287101468, "rankGameSeason": json.dumps(rank_seasons)}
+            elif request.url.path.endswith("/loadSortHero"):
+                data = {"heros": [{"heroId": 1066}]}
+            elif request.url.path.endswith("/loadHeroCareer"):
+                data = {"careers": [{"heroId": 1066, "totalMatchCount": 9, "totalMatchWinCount": 6, "k": 123}]}
+            else:
+                data = {}
+            return httpx.Response(200, json={"data": data})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            stats = await source.get_player("1287101468", "18")
+
+        self.assertEqual(stats.season, "18")
+        self.assertEqual(stats.profile.rank_game_season, "钻石2（4411 分）")
+        self.assertEqual(stats.heroes[0].kills, 123)
+        for path, body in calls:
+            if not path.endswith("/loadData"):
+                match_season = body["matchSeason"]
+                self.assertEqual(match_season.get("$eq") if isinstance(match_season, dict) else match_season, "18")
+
+    def test_rank_level_mapping(self):
+        payload = json.dumps({"1001019": json.dumps({"level": 1}), "1001018": json.dumps({"level": 14})})
+        self.assertEqual(_rank_text(payload, "19"), "青铜3")
+        self.assertEqual(_rank_text(payload, "18"), "钻石2")
 
     async def test_response_rejects_different_requested_uid(self):
         calls = []
