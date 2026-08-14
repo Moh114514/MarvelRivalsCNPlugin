@@ -24,6 +24,69 @@ These rules apply to the entire repository.
 - Do not disable TLS verification or route production requests through mitmproxy by default.
 - Maintain compatibility with existing configuration where practical, especially old request templates.
 
+## Meta / Skin / Rank Ecosystem Rules
+
+The planning document `docs/MarvelRivalsCNPlugin_Meta_功能详细开发规划.md` is the design baseline for the future global Meta, skin, and rank-ecosystem features. These rules record the project constraints; they do not authorize implementation of a future phase by themselves. Implement only the phase explicitly requested by the user.
+
+### Scope And Boundaries
+
+- Keep the existing player-data chain unchanged: `CNDataSource` -> `RivalsService` -> player results.
+- Add global Meta, skin, and rank-population capabilities as separate domains, with separate providers, services, models, and cache policies. Do not add `get_global_hero_stats()`, `get_skins()`, or `get_rank_population()` to `RivalsDataSource`.
+- The first Meta delivery is data models, rank rules, calculation, source validation, memory/disk/stale cache, service, text formatter, commands, and tests. Do not include image rendering, skin image downloads, rank population, Tier, maps, or Team-Up unless that phase is explicitly requested.
+- Keep stable ViewModels (`HeroMetaBoard`, `HeroMetaResult`, `SkinViewModel`, and `RankDistribution`) between services and presentation. Text output is required as a fallback; do not create empty renderer pages or placeholder methods that fail at runtime merely to reserve a path.
+- Use the staged delivery order from the planning baseline: Meta Core, Meta text commands, Skin Core, Rank Population Core, Rendering Integration, then Skin Asset Cache. Keep each stage independently testable and reversible.
+
+### Meta Architecture And Ownership
+
+- Put Meta code under `marvel_rivals_bot/meta/`; keep source abstractions separate for `RivalsMeta`, skin catalog, skin usage, and rank population. Do not create a catch-all `ThirdPartySource`.
+- `RivalsMeta` URLs may appear only in the `RivalsMetaSource` provider. The current default is `https://rivalsmeta.com/api/heroes/stats`, but base URL and request templates remain configurable.
+- `MetaService` owns season/rank parsing, rank aggregation, statistical calculations, sorting, top-N selection, ViewModel creation, and cache fallback. It must not own HTTP, HTML, image rendering, or QQ transport.
+- Construct sources and services from the plugin integration boundary (`main.py`); do not instantiate them ad hoc in business modules. Derive one shared plugin data root from `get_astrbot_data_path()` and inject it into the relevant components.
+- Reuse the existing hero-name mapping and season parsing helpers. Do not create a second RivalsMeta hero map or duplicate season-name conversion logic. Unknown hero IDs must remain queryable as an explicit fallback such as `未知英雄（12345）`.
+
+### Third-Party API Safety
+
+- Continue using the existing `httpx` dependency. Do not add `requests` or `aiohttp` for Meta providers. Use bounded timeouts, `follow_redirects=True`, and `trust_env=False` unless the project explicitly changes this policy.
+- Validate every upstream payload before calculation: top-level object, season, hero/bans collections, rank buckets, and numeric fields. Safely coerce integer-like values (`1020`, `1020.0`, and `"1020"`), but reject fractional values such as `1020.5` with an explicit `MetaSchemaError`.
+- Preserve unconsumed upstream fields in the raw payload where useful for future work, but do not expose `maps` or `teamups` in the first Meta feature.
+- Retry at most once, only for transient 502/503/504 responses, connection resets, or timeouts. Do not automatically retry 400/404, and do not use multi-round exponential retry loops.
+- CI and normal unit tests must not access the real third-party service; use `httpx.MockTransport`. A live/manual parity check is separate and must never expose tokens, cookies, authorization headers, proxy credentials, or full raw responses.
+- Log source, season, cache state, status, and concise schema-error details only. Never log the complete upstream JSON or sensitive request headers.
+
+### Rank And Statistical Semantics
+
+- Use the Chinese server labels and explicit game order: `1 青铜`, `2 白银`, `3 黄金`, `4 白金`, `5 钻石`, `6 大师`, `9 天神`, `7 永恒`, `8 万物之上`. Never rely on numeric sorting. User-facing output must use `大师` and `万物之上`, not `宗师` or `至高无上`; compatibility aliases may be accepted only when they normalize to the official labels.
+- Support explicit `All Ranks` and composite groups such as `钻石+`, `大师+`, `天神+`, and `永恒+`. Aggregate raw counts first and calculate percentages afterward; never average percentages from separate ranks.
+- `rank=0` may remain in raw payloads for diagnostics, but is ignored by the v1 business layer, user queries, All Ranks aggregation, and rendering.
+- Use the confirmed formulas: `win_rate = wr_wins / wr_matches * 100`, `pick_rate = matches / (sum(raw matches) / 6) * 100`, and `ban_rate = bans / (sum(raw bans) / 2) * 100`. Protect zero denominators without producing exceptions.
+- Calculate Pick/Ban denominators before filtering rows with missing/zero hero IDs. Such rows are not displayed but still affect denominators. Unknown valid hero IDs use explicit name fallbacks instead of breaking the entire board.
+- Distinguish a missing bans bucket (`ban_rate=None`, rendered as `—`) from an existing bucket where a hero has no ban row (`0%`). Never silently convert unavailable Ban data to zero.
+- Complete all calculations before sorting. For Ban-rate sorting, `None` values go last and must not be converted to zero.
+
+### Cache And Stale Fallback
+
+- Meta requests use memory cache plus disk cache plus stale fallback. Cache the season payload once; rank selection and sorting are local and must not create duplicate per-rank remote caches.
+- Default Hero Meta TTLs are 600 seconds fresh and 86400 seconds stale, configurable through `_conf_schema.json`. Cache files belong under `data/plugin_data/astrbot_plugin_marvel_rivals/meta/`, never under source-controlled `rendering/assets/`.
+- Use only the first-phase Meta settings until their consumers exist: `MRCN_META_ENABLED`, `MRCN_RIVALSMETA_BASE_URL`, `MRCN_META_TIMEOUT_SECONDS`, `MRCN_META_CACHE_SECONDS`, and `MRCN_META_STALE_SECONDS`; do not add unused skin or rank-population settings early.
+- Cache envelopes must include a `schema_version`, source, season, source timestamp, fetch time, and payload. A schema mismatch or damaged JSON is discarded with a warning and refetched; it must not prevent plugin startup.
+- On an upstream failure, return usable stale data with `stale=True` when available; otherwise raise a typed source error and return a concise Simplified Chinese user-safe message. User-facing Meta output must identify the source, source timestamp, and stale status.
+- If `MRCN_META_ENABLED=false`, do not create the third-party HTTP source. Keep the command behavior explicit, for example `当前未启用英雄环境功能`, if commands remain registered.
+
+### Skin And Rank-Population Boundaries
+
+- Keep `SkinCatalogSource` and `SkinUsageSource` independent. A skin key is `(hero_id, skin_id)`; `skin_id` alone is never a global key.
+- The Nuxt/devalue payload decoder is generic and must not contain hero, skin, or provider-specific business assumptions. Seeing a skin in match samples does not prove it is the complete game catalog.
+- Do not infer rank population from hero Meta. Rank population requires an independent provider and must describe the scope as `第三方已追踪玩家样本` unless authoritative full-population data is actually available. Do not label it as全服人数、全球总人数、官方人口, or equivalent.
+- Do not implement Tier algorithms, map/team-up features, or skin image downloads before their dedicated phase and evidence review.
+
+### Commands, Documentation, And Tests
+
+- The first text command set is `/英雄环境`, `/英雄排行`, and `/英雄统计`. Parse season, rank, sort key, and hero name independently of fixed argument order where AstrBot permits it; keep command docs, examples, help text, and tests synchronized.
+- Text formatters consume ViewModels rather than raw provider payloads. Later renderers must consume the same ViewModels and must never recalculate rates, aggregate ranks, or parse source payloads; this guarantees text/image numerical parity.
+- Update `README.md`, help text, and `CHANGELOG.md` when the feature is shipped. Document RivalsMeta as a third-party source, its update/cache behavior, supported seasons/ranks, and the non-official nature of the statistics.
+- Add tests for rank labels/order and aliases; all calculation edge cases; schema/type failures; MockTransport HTTP behavior; memory/disk/stale cache paths; damaged or version-mismatched cache; command parsing/output; source timestamp; stale messaging; and the rank-population disclaimer.
+- For real-data acceptance, compare at least 5 heroes, 3 single ranks, and 2 seasons against the upstream page when feasible: Matches must match exactly, and percentage values must stay within 0.01 percentage point. Do not claim historical-season or endpoint support from mocks alone.
+
 ## User-Facing Behavior
 
 - Bot output and user-safe errors are written in Simplified Chinese.
