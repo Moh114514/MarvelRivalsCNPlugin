@@ -9,16 +9,16 @@ except ImportError:
     from marvel_rivals_bot.game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
     from marvel_rivals_bot.hero_names import format_hero_name
 
-from ..components import empty_state, metric_grid, page_header, page_shell, player_row, team_panel
-from ..formatters import escape_text, extract_first_match, format_duration, format_number, format_timestamp
+from ..components import empty_state, metric_grid, page_header, page_shell, player_row, section_title, team_panel
+from ..formatters import extract_first_match, format_duration, format_number, format_timestamp
 
 
 def build_match_detail_html(payload: dict) -> str:
     match = extract_first_match(payload)
     if not match:
-        title, overview, body = "对局详情", "", empty_state("暂无对局数据")
+        title_cn, overview, body = "暂无对局数据", "", empty_state("暂无对局数据")
     else:
-        title = format_match_map(match.get("matchMapId"))
+        title_cn = format_match_map(match.get("matchMapId"))
         mode = get_map_mode(match.get("matchMapId")) or format_play_mode(match.get("playModeId"))
         overview = metric_grid((
             ("队列", format_queue(match.get("gameModeId"), match.get("playModeId"))),
@@ -31,6 +31,7 @@ def build_match_detail_html(payload: dict) -> str:
             {player.get("camp") for player in players if isinstance(player, dict) and player.get("camp") is not None},
             key=lambda value: str(value),
         ) if isinstance(players, list) else []
+        winner_side = match.get("matchWinnerSide")
         teams = []
         for camp in camps:
             members = []
@@ -38,8 +39,8 @@ def build_match_detail_html(payload: dict) -> str:
                 if not isinstance(player, dict) or player.get("camp") != camp:
                     continue
                 members.append(player_row(
-                    name=escape_text(player.get("nickName", player.get("playerUid", "-"))),
-                    hero=escape_text(format_hero_name(player.get("curHeroId"))),
+                    name=player.get("nickName", player.get("playerUid", "-")),
+                    hero=format_hero_name(player.get("curHeroId")),
                     stats="/".join(format_number(player, key) for key in ("k", "d", "a")),
                     extra=(
                         f"伤害 {format_number(player, 'totalHeroDamage')} · "
@@ -47,12 +48,13 @@ def build_match_detail_html(payload: dict) -> str:
                         f"承伤 {format_number(player, 'totalDamageTaken')}"
                     ),
                 ))
-            teams.append(team_panel(escape_text(camp), "".join(members)))
-        body = f'<section class="teams">{"".join(teams)}</section>' if teams else empty_state("暂无玩家明细")
+            teams.append(team_panel(camp, "".join(members), winner_side=winner_side))
+        body = (
+            '<section class="mr-section">'
+            + section_title("对局阵容", "TEAM REPORT")
+            + f'<div class="mr-team-list">{"".join(teams)}</div></section>'
+        ) if teams else empty_state("暂无玩家明细")
     match_uid = match.get("matchUid", "-") if match else "-"
-    content = page_header(
-        escape_text(title),
-        f'{escape_text(format_timestamp(match.get("matchTimeStamp")) if match else "")} · matchUid {escape_text(match_uid)}',
-        "对局详情",
-    ) + f"{overview}{body}"
-    return page_shell(content)
+    subtitle = f'{format_timestamp(match.get("matchTimeStamp")) if match else ""} · matchUid {match_uid}'
+    content = page_header("MATCH REPORT", subtitle, "对局详情", title_cn=title_cn) + overview + body
+    return page_shell(content, watermark="MATCH REPORT")
