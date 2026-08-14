@@ -10,6 +10,7 @@ except ImportError:
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
 
 from .pages import (
+    build_help_html,
     build_hero_query_html,
     build_match_detail_html,
     build_player_stats_html,
@@ -34,6 +35,9 @@ class RivalsImageRenderer:
 
     async def hero(self, result: HeroQueryResult) -> str:
         return await self._html_render(build_hero_query_html(result), {}, options=PNG_OPTIONS)
+
+    async def help(self, help_text: str) -> str:
+        return await self._html_render(build_help_html(help_text), {}, options=PNG_OPTIONS)
 
 
 # Keep the old public name stable while callers migrate to the semantic name.

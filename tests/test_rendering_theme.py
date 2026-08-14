@@ -1,6 +1,7 @@
 import unittest
 
 from rendering.pages.hero import build_hero_query_html
+from rendering.pages.help import build_help_html
 from rendering.pages.match_detail import build_match_detail_html
 from rendering.pages.player import build_player_stats_html
 from rendering.pages.recent import build_recent_matches_html
@@ -16,12 +17,35 @@ class TestRenderingTheme(unittest.TestCase):
         self.assertTrue(LIST_FRAME_URI.startswith("data:image/png;base64,"))
         self.assertIn("background-image:url(\"data:image/png;base64,", STYLE)
 
+    def test_help_page_uses_the_shared_visual_shell(self):
+        html = build_help_html("""漫威争锋国服查询 | 指令帮助
+
+/帮助
+显示完整指令帮助
+
+/战绩 [UID] [赛季]
+查询综合战绩
+
+已绑定账号可省略 UID。""")
+        for marker in (
+            "COMMAND GUIDE",
+            "指令帮助",
+            "/帮助",
+            "/战绩 [UID] [赛季]",
+            'class="mr-command-list"',
+            'class="mr-help-note"',
+            'data-watermark="COMMAND GUIDE"',
+        ):
+            self.assertIn(marker, html)
+        self.assertNotIn("<script>", html)
+
     def test_shared_theme_exposes_visual_tokens_and_decorations(self):
         for token in ("--mr-yellow", "--mr-purple", "--mr-paper", "--mr-cyan", "--mr-red", "--mr-panel"):
             self.assertIn(token, STYLE)
         for feature in (
             ".mr-page__background", ".mr-page__slash", ".mr-header__nameplate",
-            ".mr-hero-row__index", "data-watermark", "clip-path", "@media (max-width:520px)",
+            ".mr-hero-row__index", "grid-auto-flow:column", "grid-template-rows:repeat(5,minmax(0,auto))",
+            "data-watermark", "clip-path", "@media (max-width:520px)",
         ):
             self.assertIn(feature, STYLE)
 

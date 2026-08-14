@@ -86,8 +86,24 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await renderer.hero(hero), "rendered.png")
         self.assertIn("蜘蛛侠", html_render.await_args.args[0])
+        self.assertEqual(await renderer.help(MarvelRivalsPlugin.HELP_TEXT), "rendered.png")
+        self.assertIn("COMMAND GUIDE", html_render.await_args.args[0])
         for call in html_render.await_args_list:
             self.assertTrue(call.kwargs["options"]["full_page"])
+
+    async def test_help_sends_themed_image_on_qq_official(self):
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.image_renderer = SimpleNamespace(help=AsyncMock(return_value="https://example.com/help.png"))
+        plugin.qq_card_sender = QQOfficialCardSender()
+        event = FakeEvent()
+
+        results = [item async for item in plugin.help(event)]
+
+        self.assertEqual(results, [])
+        event.bot.api.post_group_file.assert_awaited_once_with(
+            group_openid="group-1", file_type=1,
+            url="https://example.com/help.png", srv_send_msg=False,
+        )
 
     def test_player_html_fills_viewport_and_computes_missing_win_rate(self):
         stats = PlayerStats(

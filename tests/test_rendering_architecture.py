@@ -6,12 +6,14 @@ from rendering.cards import _PNG_OPTIONS, _STYLE
 from rendering.components import metric_grid, page_shell
 from rendering.formatters import escape_text
 from rendering.pages import (
+    build_help_html,
     build_hero_query_html,
     build_match_detail_html,
     build_player_stats_html,
     build_recent_matches_html,
 )
 from rendering.pages.hero import build_hero_query_html as hero_page
+from rendering.pages.help import build_help_html as help_page
 from rendering.pages.match_detail import build_match_detail_html as match_page
 from rendering.pages.player import build_player_stats_html as player_page
 from rendering.pages.recent import build_recent_matches_html as recent_page
@@ -21,6 +23,7 @@ from rendering.theme import STYLE
 
 class TestRenderingArchitecture(unittest.TestCase):
     def test_public_rendering_exports_point_to_page_modules(self):
+        self.assertIs(build_help_html, help_page)
         self.assertIs(build_hero_query_html, hero_page)
         self.assertIs(build_match_detail_html, match_page)
         self.assertIs(build_player_stats_html, player_page)
@@ -58,6 +61,9 @@ class TestRenderingAdapter(unittest.IsolatedAsyncioTestCase):
             "animations": "disabled",
             "caret": "hide",
         })
+
+        self.assertEqual(await renderer.help("/帮助\n显示完整指令帮助"), "rendered.png")
+        self.assertIn("COMMAND GUIDE", html_render.await_args.args[0])
 
 
 if __name__ == "__main__":

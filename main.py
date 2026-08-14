@@ -49,7 +49,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.13.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.13.2", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -167,7 +167,18 @@ class MarvelRivalsPlugin(Star):
     @filter.command("帮助")
     async def help(self, event: AstrMessageEvent):
         """显示漫威争锋查询插件的完整指令帮助。"""
-        yield event.plain_result(self.HELP_TEXT)
+        try:
+            image_url = await self.image_renderer.help(self.HELP_TEXT)
+        except Exception as exc:
+            if logger:
+                logger.warning(f"帮助图片渲染失败，回退普通文本：{exc}")
+            yield event.plain_result(self.HELP_TEXT)
+            return
+        if self.qq_card_sender.supports(event):
+            if not await self._send_image(event, image_url):
+                yield event.plain_result(self.HELP_TEXT)
+        else:
+            yield event.image_result(image_url)
 
     @filter.command("漫威帮助")
     async def help_legacy(self, event: AstrMessageEvent):
