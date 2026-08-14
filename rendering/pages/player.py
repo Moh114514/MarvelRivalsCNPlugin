@@ -43,12 +43,21 @@ def build_player_stats_html(stats: PlayerStats) -> str:
         ))
     body = f'<div class="mr-hero-list">{"".join(heroes)}</div>' if heroes else empty_state("暂无常用英雄数据")
     rank = profile.rank_game_season or "暂无段位"
+    rank_name, rank_score = rank, ""
+    if "（" in rank:
+        rank_name, rank_score = rank.split("（", 1)
+        rank_score = rank_score.rstrip("）")
+    meta_items = [("段位", rank_name)]
+    if rank_score:
+        meta_items.append(("积分", rank_score))
+    meta_items.extend((("等级", f"LV.{profile.level}"), ("UID", profile.uid)))
     content = (
         page_header(
             "PLAYER PROFILE",
-            f"UID {profile.uid} · 等级 {profile.level} · {rank}",
+            "",
             format_season_name(stats.season),
             title_cn=profile.name,
+            meta_items=meta_items,
         )
         + overview
         + '<section class="mr-section">'

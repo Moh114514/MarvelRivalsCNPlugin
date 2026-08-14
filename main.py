@@ -11,8 +11,7 @@ try:
     from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from .qq_official import (
-        QQOfficialCardSender, build_capability_test_card, build_hero_card,
-        build_match_card, build_player_card, build_recent_card,
+        QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
     from .rendering import MatchImageRenderer
 except ImportError:
@@ -24,8 +23,7 @@ except ImportError:
     from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from qq_official import (
-        QQOfficialCardSender, build_capability_test_card, build_hero_card,
-        build_match_card, build_player_card, build_recent_card,
+        QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
     from rendering import MatchImageRenderer
 
@@ -51,7 +49,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.12.5", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.13.2", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -120,6 +118,17 @@ class MarvelRivalsPlugin(Star):
                 logger.warning(f"QQ Official 富消息构建或发送失败，回退普通文本：{exc}")
             return False
 
+    async def _send_image(self, event: AstrMessageEvent, image_url: str) -> bool:
+        if not self.qq_card_sender.supports(event):
+            return False
+        try:
+            await self.qq_card_sender.send_image(event, image_url)
+            return True
+        except Exception as exc:
+            if logger:
+                logger.warning(f"QQ Official 图片发送失败，回退普通文本：{exc}")
+            return False
+
     @staticmethod
     def _uid_and_season(uid: str, season: str) -> tuple[str, str]:
         uid, season = uid.strip(), season.strip()
@@ -146,12 +155,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_player(stats))
                 return
             if self.qq_card_sender.supports(event):
-                try:
-                    card = replace(build_player_card(stats), image_url=image_url)
-                    await self.qq_card_sender.send(event, card, image_only=True)
-                except Exception as exc:
-                    if logger:
-                        logger.warning(f"QQ Official 战绩图片发送失败，回退普通文本：{exc}")
+                if not await self._send_image(event, image_url):
                     yield event.plain_result(format_player(stats))
             else:
                 yield event.image_result(image_url)
@@ -163,7 +167,18 @@ class MarvelRivalsPlugin(Star):
     @filter.command("帮助")
     async def help(self, event: AstrMessageEvent):
         """显示漫威争锋查询插件的完整指令帮助。"""
-        yield event.plain_result(self.HELP_TEXT)
+        try:
+            image_url = await self.image_renderer.help(self.HELP_TEXT)
+        except Exception as exc:
+            if logger:
+                logger.warning(f"帮助图片渲染失败，回退普通文本：{exc}")
+            yield event.plain_result(self.HELP_TEXT)
+            return
+        if self.qq_card_sender.supports(event):
+            if not await self._send_image(event, image_url):
+                yield event.plain_result(self.HELP_TEXT)
+        else:
+            yield event.image_result(image_url)
 
     @filter.command("漫威帮助")
     async def help_legacy(self, event: AstrMessageEvent):
@@ -275,7 +290,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_hero(result.payload, result.season))
                 return
             if self.qq_card_sender.supports(event):
-                if not await self._send_card(event, build_hero_card, result, image_url=image_url):
+                if not await self._send_image(event, image_url):
                     yield event.plain_result(format_hero(result.payload, result.season))
             else:
                 yield event.image_result(image_url)
@@ -301,12 +316,7 @@ class MarvelRivalsPlugin(Star):
                 yield event.plain_result(format_match_detail(payload))
                 return
             if self.qq_card_sender.supports(event):
-                try:
-                    card = replace(build_match_card(payload), image_url=image_url)
-                    await self.qq_card_sender.send(event, card, image_only=True)
-                except Exception as exc:
-                    if logger:
-                        logger.warning(f"QQ Official 对局详情图片发送失败，回退普通文本：{exc}")
+                if not await self._send_image(event, image_url):
                     yield event.plain_result(format_match_detail(payload))
             else:
                 yield event.image_result(image_url)

@@ -27,6 +27,10 @@ REQUIRED_FILES = (
     "LICENSE",
 )
 RUNTIME_DIRECTORIES = ("marvel_rivals_bot", "qq_official", "rendering")
+RUNTIME_ASSETS = frozenset({
+    "rendering/assets/part-news-bg_ac16ec22.png",
+    "rendering/assets/list-l_8a1441f6.png",
+})
 FORBIDDEN_PARTS = {
     ".git",
     ".github",
@@ -119,7 +123,7 @@ def _release_files(root: Path) -> list[Path]:
                 continue
             if any(part.startswith(".") for part in relative.parts):
                 raise ValueError(f"运行目录包含禁止路径: {relative}")
-            if path.suffix not in RUNTIME_SUFFIXES:
+            if path.suffix not in RUNTIME_SUFFIXES and relative.as_posix() not in RUNTIME_ASSETS:
                 raise ValueError(f"运行目录包含未允许的文件类型: {relative}")
             files.append(path)
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())

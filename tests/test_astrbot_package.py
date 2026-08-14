@@ -37,8 +37,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.12.5", metadata)
-        self.assertIn('"0.12.5"', main)
+        self.assertIn("version: 0.13.2", metadata)
+        self.assertIn('"0.13.2"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -85,7 +85,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.12.5")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.13.2")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"
@@ -132,7 +132,9 @@ class TestAstrBotPackage(unittest.TestCase):
                 names = set(archive.namelist())
             self.assertIn("LICENSE", names)
             self.assertNotIn("tests", {Path(name).parts[0] for name in names})
-            self.assertTrue(all(Path(name).suffix in {"", ".py", ".json", ".yaml", ".txt", ".md"} for name in names))
+            self.assertTrue(all(Path(name).suffix in {"", ".py", ".json", ".yaml", ".txt", ".md", ".png"} for name in names))
+            self.assertIn("rendering/assets/part-news-bg_ac16ec22.png", names)
+            self.assertIn("rendering/assets/list-l_8a1441f6.png", names)
         finally:
             for path in sorted(temp_dir.rglob("*"), reverse=True):
                 if path.is_file():

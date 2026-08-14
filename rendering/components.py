@@ -28,14 +28,34 @@ def page_header(
     badge: str,
     *,
     title_cn: str = "",
-    eyebrow: str = "MR // CN DATA",
+    eyebrow: str = "MR // DATA",
+    meta_items: Iterable[tuple[str, Any]] | None = None,
 ) -> str:
+    nameplate = (
+        '<div class="mr-header__nameplate">'
+        f'<strong class="mr-header__title-cn">{escape_text(title_cn)}</strong>'
+        '</div>'
+        if title_cn else ""
+    )
+    if meta_items:
+        meta_parts = []
+        for label, value in meta_items:
+            modifier = " mr-header__meta-item--uid" if str(label).upper() == "UID" else ""
+            meta_parts.append(
+                f'<div class="mr-header__meta-item{modifier}">'
+                f'<span class="mr-header__meta-label">{escape_text(label)}</span>'
+                f'<strong class="mr-header__meta-value">{escape_text(value)}</strong>'
+                '</div>'
+            )
+        meta = '<div class="mr-header__meta-grid">' + "".join(meta_parts) + '</div>'
+    else:
+        meta = f'<div class="mr-header__meta">{escape_text(subtitle)}</div>'
     return (
         '<header class="mr-header"><div class="mr-header__copy">'
         f'<div class="mr-header__eyebrow">{escape_text(eyebrow)}</div>'
         f'<h1 class="mr-header__title">{escape_text(title)}</h1>'
-        f'<div class="mr-header__title-cn">{escape_text(title_cn)}</div>'
-        f'<div class="mr-header__meta">{escape_text(subtitle)}</div>'
+        f'{nameplate}'
+        f'{meta}'
         f'</div><div class="mr-season">{escape_text(badge)}</div></header>'
     )
 
@@ -68,9 +88,12 @@ def section_title(title: str, kicker: str = "SECTION") -> str:
 def hero_row(index: int, title: str, summary: str, duration: str) -> str:
     return (
         '<article class="mr-hero-row">'
-        f'<div class="mr-hero-row__title">{index}. {escape_text(title)}</div>'
+        f'<span class="mr-hero-row__index">{index:02d}</span>'
+        '<div class="mr-hero-row__body">'
+        f'<div class="mr-hero-row__title">{escape_text(title)}</div>'
         f'<div class="mr-hero-row__meta">{escape_text(summary)}</div>'
         f'<div class="mr-hero-row__meta">{escape_text(duration)}</div>'
+        '</div>'
         '</article>'
     )
 
@@ -144,10 +167,10 @@ def empty_state(message: str) -> str:
     )
 
 
-def footer(content: str = "RIVALS IMAGE SYSTEM // CN DATA") -> str:
+def footer(content: str = "数据页") -> str:
     return (
         '<footer class="mr-footer">'
-        '<span>MR // CN DATA</span>'
+        '<span>漫威争锋</span>'
         f'<span>{escape_text(content)}</span>'
         '</footer>'
     )

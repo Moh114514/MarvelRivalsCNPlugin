@@ -1,12 +1,9 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from main import MarvelRivalsPlugin
-from qq_official.cards import (
-    build_capability_test_card, build_hero_card, build_match_card,
-    build_player_card, build_recent_card,
-)
+from qq_official.cards import build_capability_test_card, build_recent_card
 from qq_official.sender import QQOfficialCardSender
 from rendering import (
     MatchImageRenderer, build_hero_query_html, build_match_detail_html,
@@ -44,25 +41,6 @@ class FakeEvent:
 
 
 class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
-    def test_player_card_contains_navigation_and_hero_commands(self):
-        card = build_player_card(PlayerStats(
-            profile=PlayerProfile(uid="123", name="Player*One", level=80, rank_game_season="钻石2（4411 分）"),
-            summary=CareerSummary(matches=43, wins=22, kills=787, deaths=297, assists=427, win_rate=51.2),
-            heroes=[HeroStat(hero_id="1036", hero_name="蜘蛛侠", matches=37, wins=21, kills=492)],
-            season="19",
-        ))
-        self.assertEqual(card.markdown, "")
-        commands = [button.data for row in card.rows for button in row]
-        self.assertIn("/最近对局 123 S9.5", commands)
-        self.assertIn("/英雄数据 蜘蛛侠 123 S9.5", commands)
-
-        unknown = build_player_card(PlayerStats(
-            profile=PlayerProfile(uid="123", name="Tester"),
-            heroes=[HeroStat(hero_id=None, hero_name="Unknown Hero")],
-            season="19",
-        ))
-        self.assertFalse(any(button.data.startswith("/英雄 ") for row in unknown.rows for button in row))
-
     def test_recent_card_has_match_detail_buttons_within_qq_limit(self):
         matches = [{
             "matchUid": f"match-{index}",
@@ -81,30 +59,6 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             [button.data for row in card.rows for button in row],
             ["/对局详情 m-1", "/对局详情 m-2"],
         )
-
-    def test_hero_and_match_cards_include_navigation_and_teams(self):
-        hero = build_hero_card(HeroQueryResult(
-            uid="123", hero_id="1036", hero_name="蜘蛛侠", season="19",
-            payload={"data": {"careers": [{"heroId": 1036, "totalMatchCount": 37, "totalMatchWinCount": 21, "k": 492}]}},
-        ))
-        self.assertIn("蜘蛛侠", hero.markdown)
-        self.assertEqual(hero.rows[0][0].data, "/英雄数据 蜘蛛侠 123 S9.5")
-
-        match = build_match_card({"data": {"matches": [{
-            "matchUid": "m-1", "matchMapId": 1413, "gameModeId": 2, "playModeId": 0,
-            "matchWinnerSide": 1, "matchPlayers": [
-                {"camp": 1, "isWin": 1, "nickName": "A", "curHeroId": 1036, "k": 10, "d": 2, "a": 3},
-                {"camp": 2, "isWin": 0, "nickName": "B", "curHeroId": 1066, "k": 5, "d": 6, "a": 1},
-            ],
-        }]}})
-        self.assertEqual(match.markdown, "")
-        self.assertEqual(match.rows[0][0].data, "/对局详情 m-1")
-
-        mixed_camps = build_match_card({"data": {"matches": [{
-            "matchUid": None,
-            "matchPlayers": [{"camp": 1}, {"camp": "2"}],
-        }]}})
-        self.assertEqual(mixed_camps.rows, [])
 
     async def test_image_renderer_builds_recent_and_detail_cards(self):
         html_render = AsyncMock(return_value="rendered.png")
@@ -132,8 +86,24 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await renderer.hero(hero), "rendered.png")
         self.assertIn("蜘蛛侠", html_render.await_args.args[0])
+        self.assertEqual(await renderer.help(MarvelRivalsPlugin.HELP_TEXT), "rendered.png")
+        self.assertIn("COMMAND GUIDE", html_render.await_args.args[0])
         for call in html_render.await_args_list:
             self.assertTrue(call.kwargs["options"]["full_page"])
+
+    async def test_help_sends_themed_image_on_qq_official(self):
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.image_renderer = SimpleNamespace(help=AsyncMock(return_value="https://example.com/help.png"))
+        plugin.qq_card_sender = QQOfficialCardSender()
+        event = FakeEvent()
+
+        results = [item async for item in plugin.help(event)]
+
+        self.assertEqual(results, [])
+        event.bot.api.post_group_file.assert_awaited_once_with(
+            group_openid="group-1", file_type=1,
+            url="https://example.com/help.png", srv_send_msg=False,
+        )
 
     def test_player_html_fills_viewport_and_computes_missing_win_rate(self):
         stats = PlayerStats(
@@ -150,7 +120,8 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn('class="mr-page__background"', html)
         self.assertIn('class="mr-metric__value">51.9%', html)
         self.assertIn('class="mr-metric__value">386/117/284', html)
-        self.assertIn("10. 英雄10", html)
+        self.assertIn('class="mr-hero-row__index">10</span>', html)
+        self.assertIn("英雄10", html)
 
     def test_image_html_escapes_untrusted_values(self):
         html = build_recent_matches_html("<script>{{danger}}</script>", "19", [])
@@ -200,15 +171,6 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("keyboard", media_payload)
         self.assertEqual(media_payload["msg_seq"], 2)
 
-    def test_player_card_builder_has_no_markdown_text(self):
-        card = build_player_card(PlayerStats(
-            profile=PlayerProfile(uid="123", name="Tester"),
-            heroes=[HeroStat(hero_id="1036", hero_name="蜘蛛侠")],
-            season="19",
-        ))
-        self.assertEqual(card.markdown, "")
-        self.assertTrue(card.rows)
-
     def test_c2c_markdown_does_not_add_group_mention(self):
         payload = QQOfficialCardSender.build_payload(FakeEvent(group=False), build_capability_test_card())
         self.assertFalse(payload["markdown"]["content"].startswith("<@"))
@@ -254,7 +216,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("matchUid：m-1", results[0][1])
         event.bot.api.post_group_message.assert_not_awaited()
 
-    async def test_match_query_sends_image_only_without_buttons(self):
+    async def test_match_query_sends_image_without_buttons(self):
         payload = {"data": {"matches": [{"matchUid": "m-1", "matchPlayers": []}]}}
 
         class FakeService:
@@ -319,6 +281,21 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["openid"], "user-1")
         self.assertIn("keyboard", kwargs)
 
+    async def test_send_image_uses_direct_c2c_media_message(self):
+        event = FakeEvent(group=False)
+        await QQOfficialCardSender().send_image(event, "https://example.com/result.png")
+        event.bot.api.post_c2c_file.assert_awaited_once_with(
+            openid="user-1", file_type=1,
+            url="https://example.com/result.png", srv_send_msg=False,
+        )
+        event.post_c2c_message.assert_awaited_once()
+        kwargs = event.post_c2c_message.await_args.kwargs
+        self.assertEqual(kwargs["openid"], "user-1")
+        self.assertEqual(kwargs["msg_type"], 7)
+        self.assertEqual(kwargs["msg_seq"], 1)
+        self.assertNotIn("markdown", kwargs)
+        self.assertNotIn("keyboard", kwargs)
+
     async def test_card_test_falls_back_on_non_qq_platform(self):
         plugin = object.__new__(MarvelRivalsPlugin)
         plugin.qq_card_sender = QQOfficialCardSender()
@@ -345,7 +322,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0][0], "text")
         self.assertIn("Markdown 与消息按钮权限", results[0][1])
 
-    async def test_player_query_sends_card_and_api_failure_falls_back_same_data(self):
+    async def test_player_query_sends_image_and_api_failure_falls_back_same_data(self):
         stats = PlayerStats(profile=PlayerProfile(uid="123", name="Tester"), season="19")
 
         class FakeService:
@@ -380,15 +357,31 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Tester", results[0][1])
         self.assertEqual(plugin.service.calls, 2)
 
-        with patch(
-            "main.build_player_card",
-            side_effect=ValueError("unexpected response shape"),
-        ):
-            results = [item async for item in plugin._query(FakeEvent(), "123", "S9.5")]
-        self.assertEqual(results[0][0], "text")
-        self.assertIn("Tester", results[0][1])
-        self.assertEqual(plugin.service.calls, 3)
+    async def test_hero_query_sends_image_without_navigation_card(self):
+        result = HeroQueryResult(
+            uid="123", hero_id="1036", hero_name="蜘蛛侠", season="19",
+            payload={"data": {"careers": [{"totalMatchCount": 1}]}},
+        )
 
+        class FakeService:
+            async def get_hero_stats(self, uid, hero_name, season):
+                return result
+
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.service = FakeService()
+        plugin.bindings = SimpleNamespace(get=lambda _qq: None)
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(hero=AsyncMock(return_value="https://example.com/hero.png"))
+        event = FakeEvent()
+
+        results = [item async for item in plugin.hero(event, "蜘蛛侠", "123", "S9.5")]
+        self.assertEqual(results, [])
+        event.bot.api.post_group_file.assert_awaited_once()
+        media_payload = event.bot.api.post_group_message.await_args.kwargs
+        self.assertEqual(media_payload["msg_type"], 7)
+        self.assertEqual(media_payload["msg_seq"], 1)
+        self.assertNotIn("markdown", media_payload)
+        self.assertNotIn("keyboard", media_payload)
 
 if __name__ == "__main__":
     unittest.main()
