@@ -38,13 +38,16 @@ def page_header(
         if title_cn else ""
     )
     if meta_items:
-        meta = '<div class="mr-header__meta-grid">' + "".join(
-            '<div class="mr-header__meta-item">'
-            f'<span class="mr-header__meta-label">{escape_text(label)}</span>'
-            f'<strong class="mr-header__meta-value">{escape_text(value)}</strong>'
-            '</div>'
-            for label, value in meta_items
-        ) + '</div>'
+        meta_parts = []
+        for label, value in meta_items:
+            modifier = " mr-header__meta-item--uid" if str(label).upper() == "UID" else ""
+            meta_parts.append(
+                f'<div class="mr-header__meta-item{modifier}">'
+                f'<span class="mr-header__meta-label">{escape_text(label)}</span>'
+                f'<strong class="mr-header__meta-value">{escape_text(value)}</strong>'
+                '</div>'
+            )
+        meta = '<div class="mr-header__meta-grid">' + "".join(meta_parts) + '</div>'
     else:
         meta = f'<div class="mr-header__meta">{escape_text(subtitle)}</div>'
     return (

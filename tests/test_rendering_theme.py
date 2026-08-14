@@ -4,11 +4,18 @@ from rendering.pages.hero import build_hero_query_html
 from rendering.pages.match_detail import build_match_detail_html
 from rendering.pages.player import build_player_stats_html
 from rendering.pages.recent import build_recent_matches_html
+from rendering.asset_loader import APPROVED_ASSETS, LIST_FRAME_URI, PART_NEWS_BACKGROUND_URI
 from rendering.theme import STYLE
 from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, PlayerProfile, PlayerStats
 
 
 class TestRenderingTheme(unittest.TestCase):
+    def test_approved_visual_assets_are_available_to_the_theme(self):
+        self.assertEqual(len(APPROVED_ASSETS), 2)
+        self.assertTrue(PART_NEWS_BACKGROUND_URI.startswith("data:image/png;base64,"))
+        self.assertTrue(LIST_FRAME_URI.startswith("data:image/png;base64,"))
+        self.assertIn("background-image:url(\"data:image/png;base64,", STYLE)
+
     def test_shared_theme_exposes_visual_tokens_and_decorations(self):
         for token in ("--mr-yellow", "--mr-purple", "--mr-paper", "--mr-cyan", "--mr-red", "--mr-panel"):
             self.assertIn(token, STYLE)
@@ -37,6 +44,7 @@ class TestRenderingTheme(unittest.TestCase):
             'class="mr-hero-list"',
             'class="mr-header__nameplate"',
             'class="mr-header__meta-grid"',
+            'class="mr-header__meta-item mr-header__meta-item--uid"',
             'class="mr-hero-row__index">01</span>',
             'class="mr-footer"',
             'data-watermark="PLAYER PROFILE"',

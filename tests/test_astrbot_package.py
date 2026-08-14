@@ -132,7 +132,9 @@ class TestAstrBotPackage(unittest.TestCase):
                 names = set(archive.namelist())
             self.assertIn("LICENSE", names)
             self.assertNotIn("tests", {Path(name).parts[0] for name in names})
-            self.assertTrue(all(Path(name).suffix in {"", ".py", ".json", ".yaml", ".txt", ".md"} for name in names))
+            self.assertTrue(all(Path(name).suffix in {"", ".py", ".json", ".yaml", ".txt", ".md", ".png"} for name in names))
+            self.assertIn("rendering/assets/part-news-bg_ac16ec22.png", names)
+            self.assertIn("rendering/assets/list-l_8a1441f6.png", names)
         finally:
             for path in sorted(temp_dir.rglob("*"), reverse=True):
                 if path.is_file():
