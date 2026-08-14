@@ -51,6 +51,36 @@
     "type": "int",
     "default": 60
   },
+  "MRCN_META_ENABLED": {
+    "description": "Enable third-party global hero Meta queries",
+    "type": "bool",
+    "default": true
+  },
+  "MRCN_RIVALSMETA_BASE_URL": {
+    "description": "RivalsMeta base URL for global hero statistics",
+    "type": "string",
+    "default": "https://rivalsmeta.com"
+  },
+  "MRCN_RIVALSMETA_HERO_STATS_PATH": {
+    "description": "RivalsMeta hero statistics endpoint path",
+    "type": "string",
+    "default": "/api/heroes/stats"
+  },
+  "MRCN_META_TIMEOUT_SECONDS": {
+    "description": "HTTP timeout for RivalsMeta requests",
+    "type": "float",
+    "default": 10
+  },
+  "MRCN_META_CACHE_SECONDS": {
+    "description": "Fresh cache duration for global hero Meta data",
+    "type": "int",
+    "default": 600
+  },
+  "MRCN_META_STALE_SECONDS": {
+    "description": "Maximum stale fallback duration for global hero Meta data",
+    "type": "int",
+    "default": 86400
+  },
   "MRCN_ASSET_CACHE_DIR": {
     "description": "Optional runtime asset cache directory; empty uses AstrBot plugin_data",
     "type": "string",

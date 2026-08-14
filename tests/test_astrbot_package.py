@@ -26,6 +26,11 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertEqual(schema["MRCN_ASSET_REFRESH_DAYS"]["default"], 30)
         self.assertEqual(schema["MRCN_ASSET_MAX_CONCURRENCY"]["default"], 4)
         self.assertEqual(schema["MRCN_ASSET_TIMEOUT_SECONDS"]["default"], 10)
+        self.assertTrue(schema["MRCN_META_ENABLED"]["default"])
+        self.assertEqual(schema["MRCN_RIVALSMETA_BASE_URL"]["default"], "https://rivalsmeta.com")
+        self.assertEqual(schema["MRCN_META_TIMEOUT_SECONDS"]["default"], 10)
+        self.assertEqual(schema["MRCN_META_CACHE_SECONDS"]["default"], 600)
+        self.assertEqual(schema["MRCN_META_STALE_SECONDS"]["default"], 86400)
         self.assertNotIn("MRCN_CARD_ENABLED", schema)
         self.assertNotIn("MRCN_CARD_THEME", schema)
         self.assertNotIn("MRCN_CARD_FALLBACK_TEXT", schema)
@@ -41,8 +46,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.13.3", metadata)
-        self.assertIn('"0.13.3"', main)
+        self.assertIn("version: 0.14.0", metadata)
+        self.assertIn('"0.14.0"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -67,7 +72,10 @@ class TestAstrBotPackage(unittest.TestCase):
 
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for text in ("/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试", "S0", "S9.5", "英雄名称"):
+        for text in (
+            "/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试",
+            "/英雄环境", "/英雄排行", "/英雄统计", "S0", "S9.5", "英雄名称",
+        ):
             self.assertIn(text, main)
         self.assertIn("/帮助\n显示完整指令帮助\n\n/绑定账号 <UID>\n", main)
 
@@ -75,9 +83,10 @@ class TestAstrBotPackage(unittest.TestCase):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for command in (
             "帮助", "漫威帮助", "绑定账号", "绑定漫威", "解绑账号", "解绑漫威",
-            "最近对局", "最近", "英雄数据", "英雄", "对局详情", "对局",
+            "最近对局", "最近", "英雄数据", "英雄", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计",
         ):
             self.assertIn(f'@filter.command("{command}")', main)
+        self.assertNotIn('@filter.command("help")', main)
 
     def test_httpx_dependency_is_declared(self):
         requirements = (PLUGIN_DIR / "requirements.txt").read_text(encoding="utf-8")
@@ -89,7 +98,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.13.3")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.0")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

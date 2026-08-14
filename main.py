@@ -10,6 +10,11 @@ try:
     from .marvel_rivals_bot.services.rivals import RivalsService
     from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
+    from .marvel_rivals_bot.meta.commands import MetaCommandError, parse_meta_command_args
+    from .marvel_rivals_bot.meta.errors import MetaDataSourceError
+    from .marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_single_hero_meta
+    from .marvel_rivals_bot.meta.service import MetaService
+    from .marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
     from .qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -22,6 +27,11 @@ except ImportError:
     from marvel_rivals_bot.services.rivals import RivalsService
     from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
+    from marvel_rivals_bot.meta.commands import MetaCommandError, parse_meta_command_args
+    from marvel_rivals_bot.meta.errors import MetaDataSourceError
+    from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_single_hero_meta
+    from marvel_rivals_bot.meta.service import MetaService
+    from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
     from qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -49,7 +59,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.13.3", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -80,7 +90,16 @@ class MarvelRivalsPlugin(Star):
 /卡片测试
 测试 QQ 卡片能力
 
-已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
+/英雄环境 [段位] [赛季]
+查询全局英雄环境（默认全段位、胜率排序）
+
+/英雄排行 <胜率|选取率|Ban率|场次> [段位] [赛季]
+按指定指标查询英雄排行
+
+/英雄统计 <英雄名称> [段位] [赛季]
+查询单个英雄的全局环境数据
+
+段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
     def __init__(self, context: Context, config=None):
         if hasattr(super(), "__init__"):
@@ -120,6 +139,27 @@ class MarvelRivalsPlugin(Star):
         if not db_path:
             db_path = plugin_data_root / "bindings.sqlite3"
         self.bindings = BindingStore(Path(db_path))
+        self.meta_enabled = str(env_config.get("MRCN_META_ENABLED", "true")).lower() not in {"0", "false", "no", "off"}
+        self.meta_source = None
+        self.meta_service = None
+        if self.meta_enabled:
+            try:
+                fresh_seconds = float(env_config.get("MRCN_META_CACHE_SECONDS", "600"))
+                stale_seconds = float(env_config.get("MRCN_META_STALE_SECONDS", "86400"))
+                if stale_seconds < fresh_seconds:
+                    stale_seconds = fresh_seconds
+                self.meta_source = RivalsMetaSource(env=env_config)
+                self.meta_service = MetaService(
+                    self.meta_source,
+                    cache_root=plugin_data_root,
+                    fresh_seconds=fresh_seconds,
+                    stale_seconds=stale_seconds,
+                    default_season=str(env_config.get("MRCN_DEFAULT_SEASON", "19")),
+                )
+            except (MetaDataSourceError, TypeError, ValueError) as exc:
+                self.meta_enabled = False
+                if logger:
+                    logger.warning(f"Meta 功能初始化失败，将保持关闭：{exc}")
 
     def _qq_id(self, event: AstrMessageEvent) -> str:
         return str(event.get_sender_id())
@@ -351,6 +391,72 @@ class MarvelRivalsPlugin(Star):
         """兼容旧版 /对局 指令。"""
         async for result in self.match_detail(event, match_uid):
             yield result
+
+    def _meta_unavailable(self) -> str:
+        return "当前未启用英雄环境功能"
+
+    @filter.command("英雄环境")
+    async def hero_meta(self, event: AstrMessageEvent, arg1: str = "", arg2: str = "", arg3: str = ""):
+        """查询指定赛季和段位的全局英雄环境。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_meta_command_args(arg1, arg2, arg3)
+            board = await self.meta_service.get_hero_meta_board(
+                season=args.season,
+                rank=args.rank,
+                sort_by=args.sort_by,
+                limit=10,
+            )
+            yield event.plain_result(format_hero_meta_board(board))
+        except (MetaCommandError, MetaDataSourceError, ValueError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("英雄排行")
+    async def hero_meta_rank(self, event: AstrMessageEvent, arg1: str = "", arg2: str = "", arg3: str = ""):
+        """按胜率、选取率、Ban率或场次查询英雄排行。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_meta_command_args(arg1, arg2, arg3)
+            board = await self.meta_service.get_hero_meta_board(
+                season=args.season,
+                rank=args.rank,
+                sort_by=args.sort_by,
+                limit=10,
+            )
+            yield event.plain_result(format_hero_meta_board(board))
+        except (MetaCommandError, MetaDataSourceError, ValueError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+
+    @filter.command("英雄统计")
+    async def hero_meta_stats(self, event: AstrMessageEvent, hero_name: str = "", arg2: str = "", arg3: str = ""):
+        """使用中文英雄名称查询全局环境统计。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_meta_command_args(hero_name, arg2, arg3, require_hero=True)
+            board = await self.meta_service.get_single_hero_meta_board(
+                args.hero_name or "",
+                season=args.season,
+                rank=args.rank,
+            )
+            result = board.heroes[0]
+            yield event.plain_result(
+                format_single_hero_meta(
+                    result,
+                    season_label=board.season_label,
+                    rank_label=board.rank_label,
+                    source=board.source,
+                    source_timestamp=board.source_timestamp,
+                    stale=board.stale,
+                )
+            )
+        except (MetaCommandError, MetaDataSourceError, ValueError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
 
     @filter.command("卡片测试")
     async def card_test(self, event: AstrMessageEvent):

@@ -1,4 +1,3 @@
 """Marvel Rivals CN query service."""
 
-__all__ = ["datasource", "models", "services", "storage"]
-
+__all__ = ["datasource", "meta", "models", "services", "storage"]
