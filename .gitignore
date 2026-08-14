@@ -40,3 +40,6 @@ tmp*/
 Thumbs.db
 dist/*.zip
 astrbot_plugin_marvel_rivals.zip
+
+# Local-only maintenance documentation
+docs/release-manual.local.md
