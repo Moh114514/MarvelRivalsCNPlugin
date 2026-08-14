@@ -13,7 +13,7 @@ try:
     from .qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
-    from .rendering import MatchImageRenderer
+    from .rendering import AssetManager, MatchImageRenderer
 except ImportError:
     # AstrBot also supports loading a plugin's main.py with its directory on
     # sys.path instead of importing it as a package.
@@ -25,7 +25,7 @@ except ImportError:
     from qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
-    from rendering import MatchImageRenderer
+    from rendering import AssetManager, MatchImageRenderer
 
 try:
     from astrbot.api import logger
@@ -49,7 +49,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.13.2", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.13.3", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -92,10 +92,33 @@ class MarvelRivalsPlugin(Star):
         self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
         self.qq_card_sender = QQOfficialCardSender()
         self.image_renderer = MatchImageRenderer(self.html_render)
+        data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
+        plugin_data_root = data_root / "plugin_data" / "astrbot_plugin_marvel_rivals"
+        asset_root = env_config.get("MRCN_ASSET_CACHE_DIR") or plugin_data_root / "assets"
+        verify_value = str(env_config.get("MRCN_VERIFY_SSL", "true")).lower()
+        verify_ssl: bool | str = verify_value not in {"0", "false", "no"}
+        ca_cert = str(env_config.get("MRCN_CA_CERT", "")).strip()
+        if ca_cert:
+            verify_ssl = ca_cert
+        self.asset_manager = AssetManager(
+            asset_root,
+            timeout_seconds=float(
+                env_config.get(
+                    "MRCN_ASSET_TIMEOUT_SECONDS",
+                    env_config.get("MRCN_TIMEOUT_SECONDS", "10"),
+                )
+            ),
+            refresh_days=float(env_config.get("MRCN_ASSET_REFRESH_DAYS", "30")),
+            max_concurrency=int(env_config.get("MRCN_ASSET_MAX_CONCURRENCY", "4")),
+            verify_ssl=verify_ssl,
+            proxy=str(env_config.get("MRCN_PROXY", "")).strip() or None,
+            trust_env=str(env_config.get("MRCN_TRUST_ENV", "false")).lower() in {"1", "true", "yes"},
+        )
+        if not self.asset_manager.available and logger:
+            logger.warning("英雄素材缓存目录不可用，图片功能将回退 CSS-only")
         db_path = os.getenv("MRCN_BINDINGS_DB")
         if not db_path:
-            data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
-            db_path = data_root / "plugin_data" / "astrbot_plugin_marvel_rivals" / "bindings.sqlite3"
+            db_path = plugin_data_root / "bindings.sqlite3"
         self.bindings = BindingStore(Path(db_path))
 
     def _qq_id(self, event: AstrMessageEvent) -> str:

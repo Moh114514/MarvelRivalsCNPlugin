@@ -154,6 +154,12 @@ MRCN_DATA_BODY_TEMPLATE={"aid":{player_uid},"zoneId":16001}
 
 QQ Official 查询和 `/帮助` 会生成统一视觉的信息图片；只有 `/最近对局` 会附带用于选择单局的卡片按钮。其他查询不再发送无意义的 Markdown 或导航按钮；不支持富消息或发送失败时会回退为图片/普通文本。群聊中会自动 @ 命令发起者。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`。
 
+### 运行时图片缓存
+
+英雄图片采用本地 Asset Cache：默认保存到 `data/plugin_data/astrbot_plugin_marvel_rivals/assets/`，不会写入插件源码目录，也不会进入 Release ZIP。插件启动不会同步等待图片下载；当后续接入已确认的英雄图片 URL 后，可由后台预热，查询时则优先读取本地缓存，缺失时懒加载，失败时继续使用 CSS-only 页面。
+
+缓存由 `rendering/assets.py` 的 `AssetManager` 管理，维护 `manifest.json`，支持 URL 变化检测、30 天重新校验、ETag/Last-Modified 条件请求、最多 4 路并发预热和原子文件写入。详细边界、配置项和维护接口见 [`docs/asset-cache.md`](docs/asset-cache.md)。
+
 ## 本地验证
 
 本地 CLI 使用 `.env.capture`，不会读取 AstrBot WebUI 中的配置：

@@ -74,6 +74,7 @@ The following is the approved planning boundary for the future Marvel Rivals vis
 
 - Visual System v1.1 uses a restrained Marvel Rivals editorial direction: a quiet cold blue-gray field is the default (`#E1E5F1` family), purple carries the main text and structural emphasis (`#2F205B` primary, `#6842B4` accent), and warm yellow near `#FBDC2B` is reserved for edges, priority states, and small separators. Cyan is not a standard content color; muted red remains reserved for loss/danger cues.
 - The current approved visual assets are `rendering/assets/part-news-bg_ac16ec22.png` and `rendering/assets/list-l_8a1441f6.png`, used only through `rendering/asset_loader.py` with a CSS fallback. Do not add additional background JPG/PNG, official hero art, map art, custom fonts, or assets without a separate licensing and packaging review.
+- Runtime remote image caching is implemented in `rendering/assets.py` through `AssetManager`. Cache files belong under AstrBot `data/plugin_data/astrbot_plugin_marvel_rivals/assets/`, never in the source tree or release ZIP. Do not guess an unstable image endpoint; only pass through image URLs observed in confirmed API responses. Warmup is optional and must never block plugin startup or make CSS-only rendering unavailable.
 - Centralize theme tokens and shared CSS in `rendering/theme.py`; pages must use theme variables instead of scattered hard-coded colors.
 - Keep the center visually quiet. Concentrate yellow and geometric decoration at the top/bottom edges, corners, and local separators; never let large bands or diagonal planes cross the main content. Background geometry should use low-contrast, irregular pointed facets with a few focal convergence points and varied widths, not repeated parallel parallelograms. Large regions should have no radius, and decorative watermarks should remain invisible.
 - The shared Header must make the subject primary: render `title_cn` as a dark nameplate with light text and a yellow edge/offset, while the English page type remains a weak eyebrow/title. Keep the season badge, but remove redundant labels such as `SUBJECT` and avoid an isolated `MR // DATA` block competing with the subject.
@@ -90,6 +91,7 @@ The following is the approved planning boundary for the future Marvel Rivals vis
 - Visual changes require manual screenshots with fixed player/recent/hero/match fixtures on both PC QQ and mobile QQ. Mocked `html_render` tests do not replace visual acceptance; the acceptance checklist must explicitly review name contrast, mobile text scale, quiet center space, edge-only decoration, and absence of dashboard-like filler.
 - Do not change the API, capture mechanism, token, season mapping, hero-ID mapping, UID binding, database, command names, or recent-ten-match business logic as part of this visual work.
 - Do not add Pillow, Playwright, or new runtime dependencies. Keep the approved PNG assets in the explicit release allowlist and keep the archive under the existing size budget.
+- Asset downloads must use the existing `httpx` dependency, a bounded concurrency limit, recognizable image signature validation, conditional revalidation where available, and atomic replacement. Never forward `access_token`, cookies, or authorization headers to image CDNs by default.
 
 ### Delivery Order
 
@@ -98,4 +100,4 @@ The following is the approved planning boundary for the future Marvel Rivals vis
 3. PR3: add a semantic `QQOfficialCardSender.send_image()` API and clean up image-only card builders while retaining recent-match buttons.
 4. The approved asset slice is now delivered with the asset loader, CSS fallback, release allowlist, packaging tests, and size budget checks; future asset additions still require a separate licensing review.
 
-The current release target is `v0.13.1`; when shipped behavior changes again, synchronize `metadata.yaml`, `main.py`, and `pyproject.toml` and run the release checks.
+The current release target is `v0.13.3`; when shipped behavior changes again, synchronize `metadata.yaml`, `main.py`, and `pyproject.toml` and run the release checks.

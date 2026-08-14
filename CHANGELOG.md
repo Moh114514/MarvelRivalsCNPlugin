@@ -2,6 +2,12 @@
 
 本项目遵循 SemVer。`0.x` 版本仍可能调整 API 适配和配置，但会尽量保持已有命令与绑定数据兼容。
 
+## [0.13.3] - 2026-08-14
+
+- 新增运行时 `AssetManager` 图片缓存基础设施：支持 manifest、懒加载、可选预热、条件校验、并发限制、原子写入和 Data URI。
+- 图片缓存默认保存到 AstrBot `data/plugin_data/astrbot_plugin_marvel_rivals/assets/`，初始化和预热失败不会阻塞插件启动，发布包不包含运行时缓存。
+- 同步 README、Asset Cache 设计文档、配置 schema 和 `.env.example`。
+
 ## [0.13.2] - 2026-08-14
 
 - 统一有序双列列表的编号方向：第一列从上到下显示 01～05，第二列显示 06～10，覆盖常用英雄和最近对局。
