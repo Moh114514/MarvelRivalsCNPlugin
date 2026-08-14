@@ -146,8 +146,10 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("width:100vw", html)
         self.assertNotIn("width:1040px", html)
         self.assertNotIn("路", html)
-        self.assertIn("胜率</span><b>51.9%", html)
-        self.assertIn("K / D / A</span><b>386/117/284", html)
+        self.assertIn('class="mr-page"', html)
+        self.assertIn('class="mr-page__background"', html)
+        self.assertIn('class="mr-metric__value">51.9%', html)
+        self.assertIn('class="mr-metric__value">386/117/284', html)
         self.assertIn("10. 英雄10", html)
 
     def test_image_html_escapes_untrusted_values(self):
