@@ -22,6 +22,10 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertEqual(schema["MRCN_ACCESS_TOKEN"]["default"], "")
         self.assertTrue(schema["MRCN_ACCESS_TOKEN"]["obvious_hint"])
         self.assertEqual(schema["MRCN_DEFAULT_SEASON"]["default"], 19)
+        self.assertEqual(schema["MRCN_ASSET_CACHE_DIR"]["default"], "")
+        self.assertEqual(schema["MRCN_ASSET_REFRESH_DAYS"]["default"], 30)
+        self.assertEqual(schema["MRCN_ASSET_MAX_CONCURRENCY"]["default"], 4)
+        self.assertEqual(schema["MRCN_ASSET_TIMEOUT_SECONDS"]["default"], 10)
         self.assertNotIn("MRCN_CARD_ENABLED", schema)
         self.assertNotIn("MRCN_CARD_THEME", schema)
         self.assertNotIn("MRCN_CARD_FALLBACK_TEXT", schema)
@@ -37,8 +41,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.13.2", metadata)
-        self.assertIn('"0.13.2"', main)
+        self.assertIn("version: 0.13.3", metadata)
+        self.assertIn('"0.13.3"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -85,7 +89,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.13.2")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.13.3")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

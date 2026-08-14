@@ -51,6 +51,26 @@
     "type": "int",
     "default": 60
   },
+  "MRCN_ASSET_CACHE_DIR": {
+    "description": "Optional runtime asset cache directory; empty uses AstrBot plugin_data",
+    "type": "string",
+    "default": ""
+  },
+  "MRCN_ASSET_REFRESH_DAYS": {
+    "description": "Revalidation interval for cached remote images",
+    "type": "float",
+    "default": 30
+  },
+  "MRCN_ASSET_MAX_CONCURRENCY": {
+    "description": "Maximum concurrent asset downloads during warmup",
+    "type": "int",
+    "default": 4
+  },
+  "MRCN_ASSET_TIMEOUT_SECONDS": {
+    "description": "Timeout for one remote asset download in seconds",
+    "type": "float",
+    "default": 10
+  },
   "MRCN_DEFAULT_SEASON": {
     "description": "Default season number used when a command does not specify one",
     "type": "int",

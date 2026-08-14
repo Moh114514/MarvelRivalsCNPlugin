@@ -5,6 +5,7 @@ from .pages import (
     build_player_stats_html,
     build_recent_matches_html,
 )
+from .assets import AssetManager, AssetRecord
 from .renderer import MatchImageRenderer, RivalsImageRenderer
 
 __all__ = [
@@ -15,4 +16,6 @@ __all__ = [
     "build_match_detail_html",
     "build_player_stats_html",
     "build_recent_matches_html",
+    "AssetManager",
+    "AssetRecord",
 ]
