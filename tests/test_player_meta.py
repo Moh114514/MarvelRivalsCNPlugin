@@ -121,6 +121,19 @@ class TestPlayerMetaCommandArgs(unittest.TestCase):
         self.assertEqual(args.season, "S9.5")
         self.assertEqual(args.minimum_matches, 25)
 
+    def test_uid_and_season_are_order_independent(self):
+        args = parse_player_meta_args("S9.5", "1287101468", allow_uid=True)
+        self.assertEqual(args.season, "S9.5")
+        self.assertEqual(args.uid, "1287101468")
+
+    def test_signature_accepts_uid_and_minimum_matches(self):
+        args = parse_player_meta_args(
+            "1287101468", "50", allow_uid=True, allow_minimum_matches=True
+        )
+        self.assertEqual(args.uid, "1287101468")
+        self.assertEqual(args.minimum_matches, 50)
+        self.assertTrue(args.minimum_matches_provided)
+
     def test_environment_rejects_numeric_minimum_matches(self):
         with self.assertRaises(ValueError):
             parse_player_meta_args("25")

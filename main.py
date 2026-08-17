@@ -85,7 +85,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.7", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.8", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -132,13 +132,13 @@ class MarvelRivalsPlugin(Star):
 
     HELP_TEXT += """
 
-/我的环境 [赛季]
+/我的环境 [UID] [赛季]
 根据已绑定账号的当前段位，查看同段位英雄环境
 
-/我的英雄池 [赛季]
+/我的英雄池 [UID] [赛季]
 按快速与竞技总场次查看英雄池，并核对竞技表现
 
-/我的绝活 [赛季] [最低总场次]
+/我的绝活 [UID] [赛季] [最低总场次]
 查看满足总场次、竞技场次和同段位表现要求的英雄；可用数字参数调整最低总场次，默认 20
 """
 
@@ -645,16 +645,16 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的环境")
     async def my_environment(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """根据已绑定账号的当前段位查询同段位英雄环境。"""
+        """根据 UID 或已绑定账号的当前段位查询同段位英雄环境。"""
         if self.player_meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
-        uid = self._bound_uid(event)
-        if not uid:
-            yield event.plain_result("请先使用 /绑定账号 <UID>")
-            return
         try:
-            args = parse_player_meta_args(arg1, arg2)
+            args = parse_player_meta_args(arg1, arg2, allow_uid=True)
+            uid = args.uid or self._bound_uid(event)
+            if not uid:
+                yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
+                return
             profile = await self.player_meta_service.get_player_environment(uid, season=args.season)
             fallback = format_player_environment(profile)
             try:
@@ -676,16 +676,16 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的英雄池")
     async def my_hero_pool(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """对比已绑定账号常用英雄与同段位 Meta。"""
+        """对比 UID 或已绑定账号的常用英雄与同段位 Meta。"""
         if self.player_meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
-        uid = self._bound_uid(event)
-        if not uid:
-            yield event.plain_result("请先使用 /绑定账号 <UID>")
-            return
         try:
-            args = parse_player_meta_args(arg1, arg2)
+            args = parse_player_meta_args(arg1, arg2, allow_uid=True)
+            uid = args.uid or self._bound_uid(event)
+            if not uid:
+                yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
+                return
             profile = await self.player_meta_service.get_player_hero_pool(uid, season=args.season)
             fallback = format_player_hero_pool(profile)
             try:
@@ -711,14 +711,16 @@ class MarvelRivalsPlugin(Star):
         if self.player_meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
-        uid = self._bound_uid(event)
-        if not uid:
-            yield event.plain_result("请先使用 /绑定账号 <UID>")
-            return
         try:
-            args = parse_player_meta_args(arg1, arg2, allow_minimum_matches=True)
+            args = parse_player_meta_args(
+                arg1, arg2, allow_minimum_matches=True, allow_uid=True
+            )
+            uid = args.uid or self._bound_uid(event)
+            if not uid:
+                yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
+                return
             signature_kwargs = {"season": args.season}
-            if any(str(part).strip().isdigit() for part in (arg1, arg2)):
+            if args.minimum_matches_provided:
                 signature_kwargs["minimum_matches"] = args.minimum_matches
             profile = await self.player_meta_service.get_player_signature(uid, **signature_kwargs)
             fallback = format_player_signature(profile)

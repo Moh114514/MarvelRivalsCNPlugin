@@ -55,6 +55,27 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0][0], "text")
         self.assertIn("绑定账号", result[0][1])
 
+    async def test_meta_commands_accept_explicit_uid_without_binding(self):
+        plugin = plugin_with(bound_uid=None)
+        event = FakeEvent()
+
+        environment = [item async for item in plugin.my_environment(event, "1287101468", "S9.5")]
+        pool = [item async for item in plugin.my_hero_pool(event, "S9.5", "uid=1287101468")]
+        signature = [item async for item in plugin.my_signature(event, "1287101468", "50 S9.5")]
+
+        self.assertEqual(environment, [("image", "environment.png")])
+        self.assertEqual(pool, [("image", "pool.png")])
+        self.assertEqual(signature, [("image", "signature.png")])
+        plugin.player_meta_service.get_player_environment.assert_awaited_once_with(
+            "1287101468", season="S9.5"
+        )
+        plugin.player_meta_service.get_player_hero_pool.assert_awaited_once_with(
+            "1287101468", season="S9.5"
+        )
+        plugin.player_meta_service.get_player_signature.assert_awaited_once_with(
+            "1287101468", season="S9.5", minimum_matches=50
+        )
+
     async def test_image_failure_falls_back_to_text(self):
         plugin = plugin_with(render_error=RuntimeError("render"))
         result = [item async for item in plugin.my_hero_pool(FakeEvent())]

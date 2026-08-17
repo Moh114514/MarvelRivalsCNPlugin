@@ -72,8 +72,18 @@ def _career_mapping(value: Any) -> dict[str, Any]:
 
 def _mode_stats(value: Any) -> ModeStats:
     data = _career_mapping(value)
-    matches = _number(data, "totalMatchCount", "matchCount", "matches", "totalMatches")
-    wins = _number(data, "totalMatchWinCount", "totalWinCount", "winCount", "wins")
+    matches = _number(
+        data,
+        "totalMatchCount", "matchCount", "matches", "totalMatches",
+        "totalMatchNum", "matchNum", "gameCount", "totalGameCount",
+        "battleCount", "totalBattleCount", "playCount", "totalPlayCount",
+        "useCount", "totalUseCount",
+    )
+    wins = _number(
+        data,
+        "totalMatchWinCount", "totalWinCount", "winCount", "wins",
+        "totalWinNum", "winNum", "gameWinCount", "totalGameWinCount",
+    )
     win_rate = _number(data, "winRate")
     if win_rate is None and matches and wins is not None:
         win_rate = wins * 100 / matches
@@ -561,6 +571,20 @@ class CNDataSource(RivalsDataSource):
             svp=add("svp"),
         )
 
+    @staticmethod
+    def _merge_mode_stats(existing: ModeStats, incoming: ModeStats) -> ModeStats:
+        """Fill incomplete SortHero rows without discarding their play time."""
+
+        values = {
+            field_name: (
+                getattr(incoming, field_name)
+                if getattr(incoming, field_name) is not None
+                else getattr(existing, field_name)
+            )
+            for field_name in ModeStats.__dataclass_fields__
+        }
+        return ModeStats(**values)
+
     async def get_player_profile(self, uid: str, season: str | None = None) -> PlayerProfile:
         uid = str(uid).strip()
         if not uid.isdigit():
@@ -615,7 +639,48 @@ class CNDataSource(RivalsDataSource):
             self._parse_heroes(sort_quick, "quick"),
             self._parse_heroes(sort_competitive, "competitive"),
         )
+        heroes = await self._enrich_incomplete_sort_heroes(uid, season, heroes)
         return PlayerStats(profile=profile, summary=career_summary, heroes=heroes, season=season, raw=responses)
+
+    async def _enrich_incomplete_sort_heroes(
+        self,
+        uid: str,
+        season: str,
+        heroes: list[PlayerHeroStats],
+    ) -> list[PlayerHeroStats]:
+        """Use HeroCareer only when SortHero omitted usable mode counts.
+
+        Some CN responses expose only ``heroId`` and ``totalPlayTime`` from
+        ``loadSortHero``.  The endpoint is still the source of the common
+        hero ordering, while HeroCareer supplies the missing mode statistics.
+        """
+
+        if not heroes:
+            return heroes
+        selected = [hero for hero in heroes[:10] if str(hero.hero_id).isdigit()]
+        if not selected or not any(
+            hero.quick.matches is None or hero.quick.wins is None
+            or hero.competitive.matches is None or hero.competitive.wins is None
+            for hero in selected
+        ):
+            return heroes
+        hero_ids = [int(hero.hero_id) for hero in selected]
+        try:
+            quick = await self.load_hero_career(uid, hero_ids, season, GameMode.QUICK)
+            competitive = await self.load_hero_career(uid, hero_ids, season, GameMode.COMPETITIVE)
+        except DataSourceError:
+            # SortHero remains usable even when the optional detail fallback
+            # is unavailable for a mode or a historical season.
+            return heroes
+        self._enrich_heroes(heroes, quick, "quick")
+        self._enrich_heroes(heroes, competitive, "competitive")
+        for hero in heroes:
+            self._refresh_hero_total(hero)
+        return sorted(
+            heroes,
+            key=lambda item: (item.total_matches or 0, str(item.hero_id)),
+            reverse=True,
+        )
 
     async def get_summary_detail(self, uid: str) -> dict[str, Any]:
         match_uid = str(uid).strip()
@@ -723,10 +788,10 @@ class CNDataSource(RivalsDataSource):
                 else:
                     if hero.hero_name and current.hero_name == "未知英雄":
                         current.hero_name = hero.hero_name
-                    if hero.quick.matches is not None:
-                        current.quick = hero.quick
-                    if hero.competitive.matches is not None:
-                        current.competitive = hero.competitive
+                    if not _mode_stats_is_empty(hero.quick):
+                        current.quick = cls._merge_mode_stats(current.quick, hero.quick)
+                    if not _mode_stats_is_empty(hero.competitive):
+                        current.competitive = cls._merge_mode_stats(current.competitive, hero.competitive)
                     current.raw = {**current.raw, **hero.raw}
                 cls._refresh_hero_total(current)
         return sorted(
@@ -766,9 +831,9 @@ class CNDataSource(RivalsDataSource):
             if _mode_stats_is_empty(stats):
                 continue
             if scope == "quick":
-                hero.quick = stats
+                hero.quick = self._merge_mode_stats(hero.quick, stats)
             elif scope == "competitive":
-                hero.competitive = stats
+                hero.competitive = self._merge_mode_stats(hero.competitive, stats)
                 hero.ranked = hero.competitive
             elif scope == "total":
                 hero.total = stats

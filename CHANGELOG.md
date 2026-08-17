@@ -2,6 +2,11 @@
 
 本项目遵循 SemVer。`0.x` 版本仍可能调整 API 适配和配置，但会尽量保持已有命令与绑定数据兼容。
 
+## [0.14.8] - 2026-08-17
+
+- 修复查询页常用英雄缺少模式场次/胜率时显示为 `-`：自动用显式快速/竞技英雄详情补齐数据。
+- `/我的环境`、`/我的英雄池`、`/我的绝活` 支持显式 UID 查询，同时保留绑定账号用法。
+
 ## [0.14.7] - 2026-08-17
 
 - CN player statistics now send explicit scalar `gameModeId` values (`1` quick, `2` competitive) with `playModeId=0`; career, sorted-hero, and hero-career data are merged by hero ID only after mode-specific requests.

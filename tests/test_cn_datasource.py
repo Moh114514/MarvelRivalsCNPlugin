@@ -158,7 +158,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.heroes[0].hero_id, "1066")
         self.assertEqual(stats.heroes[0].hero_name, "红兜帽")
         self.assertEqual(stats.heroes[0].play_time_seconds, 4338.3)
-        self.assertIsNone(stats.heroes[0].matches)
+        self.assertEqual(stats.heroes[0].matches, 20)
         self.assertEqual(stats.heroes[0].kills, 186)
 
     async def test_career_array_and_mode_heroes_are_normalized(self):
@@ -245,7 +245,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             if request.url.path.endswith("/loadData"):
                 data = {"aid": 1287101468, "rankGameSeason": json.dumps(rank_seasons)}
             elif request.url.path.endswith("/loadSortHero"):
-                data = {"heros": [{"heroId": 1066, "k": 123}]} if body["gameModeId"] == 1 else {"heros": [{"heroId": 1066}]}
+                data = {"heros": [{"heroId": 1066, "k": 123, "matchCount": 1, "winCount": 1}]}
             else:
                 data = {}
             return httpx.Response(200, json={"data": data})

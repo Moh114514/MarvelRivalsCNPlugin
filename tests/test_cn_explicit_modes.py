@@ -62,8 +62,8 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
                 quick = body["gameModeId"] == 1
                 data = {
                     "heros": [
-                        {"heroId": 1031, "matchCount": 40 if quick else 10},
-                        {"heroId": 1032, "matchCount": 20 if quick else 25},
+                        {"heroId": 1031, "matchCount": 40 if quick else 10, "winCount": 20 if quick else 6},
+                        {"heroId": 1032, "matchCount": 20 if quick else 25, "winCount": 10 if quick else 12},
                     ]
                 }
             else:
@@ -99,6 +99,40 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
                 ),
             })
             await source.load_career("123", "18", GameMode.COMPETITIVE)
+
+    async def test_player_fills_sort_hero_rows_without_counts_from_hero_career(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/loadByRoleId"):
+                return httpx.Response(200, json={"data": {"roleId": 123}})
+            body = json.loads(request.content)
+            calls.append((path, body))
+            if path.endswith("/loadData"):
+                data = {"aid": 123, "name": "Tester"}
+            elif path.endswith("/loadCareer"):
+                data = {"totalMatchCount": 1, "totalMatchWinCount": 1}
+            elif path.endswith("/loadSortHero"):
+                data = {"heros": [{"heroId": 1031, "totalPlayTime": 120.0}]}
+            elif path.endswith("/loadHeroCareer"):
+                quick = body["gameModeId"] == 1
+                data = {"careers": [{
+                    "heroId": 1031,
+                    "totalMatchCount": 40 if quick else 10,
+                    "totalMatchWinCount": 20 if quick else 6,
+                }]}
+            else:
+                self.fail(f"unexpected endpoint: {path}")
+            return httpx.Response(200, json={"data": data})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            stats = await source.get_player("123", "18")
+
+        hero = stats.heroes[0]
+        self.assertEqual((hero.quick.matches, hero.competitive.matches, hero.total_matches), (40, 10, 50))
+        self.assertEqual([path for path, _body in calls].count("/api/game/player/loadHeroCareer"), 2)
 
     async def test_profile_only_loader_does_not_request_statistics(self):
         paths = []
