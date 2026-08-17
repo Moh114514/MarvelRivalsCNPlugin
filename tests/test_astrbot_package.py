@@ -46,8 +46,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.14.5", metadata)
-        self.assertIn('"0.14.5"', main)
+        self.assertIn("version: 0.14.6", metadata)
+        self.assertIn('"0.14.6"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -79,6 +79,12 @@ class TestAstrBotPackage(unittest.TestCase):
             self.assertIn(text, main)
         self.assertIn("/帮助\n显示完整指令帮助\n\n/绑定账号 <UID>\n", main)
 
+    def test_player_meta_commands_are_documented_and_registered(self):
+        main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
+        for command in ("我的环境", "我的英雄池", "我的绝活"):
+            self.assertIn(f'@filter.command("{command}")', main)
+            self.assertIn(f"/{command}", main)
+
     def test_new_commands_and_legacy_aliases_are_registered(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for command in (
@@ -98,7 +104,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.5")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.6")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

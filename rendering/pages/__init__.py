@@ -10,6 +10,11 @@ from .meta import (
     build_meta_segments_html,
     build_meta_single_html,
 )
+from .player_meta import (
+    build_player_hero_pool_html,
+    build_player_meta_environment_html,
+    build_player_signature_html,
+)
 from .player import build_player_stats_html
 from .recent import build_recent_matches_html
 
@@ -22,6 +27,9 @@ __all__ = [
     "build_meta_overview_html",
     "build_meta_segments_html",
     "build_meta_single_html",
+    "build_player_hero_pool_html",
+    "build_player_meta_environment_html",
+    "build_player_signature_html",
     "build_player_stats_html",
     "build_recent_matches_html",
 ]

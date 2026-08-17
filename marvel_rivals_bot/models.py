@@ -12,6 +12,7 @@ class PlayerProfile:
     level: int | None = None
     club_team_name: str = ""
     rank_game_season: str = ""
+    rank_level: int | None = None
 
 
 @dataclass(slots=True)

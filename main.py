@@ -21,6 +21,13 @@ try:
     )
     from .marvel_rivals_bot.meta.service import MetaService
     from .marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
+    from .marvel_rivals_bot.analytics.commands import parse_player_meta_args
+    from .marvel_rivals_bot.analytics.formatters import (
+        format_player_environment,
+        format_player_hero_pool,
+        format_player_signature,
+    )
+    from .marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
     from .qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -44,6 +51,13 @@ except ImportError:
     )
     from marvel_rivals_bot.meta.service import MetaService
     from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
+    from marvel_rivals_bot.analytics.commands import parse_player_meta_args
+    from marvel_rivals_bot.analytics.formatters import (
+        format_player_environment,
+        format_player_hero_pool,
+        format_player_signature,
+    )
+    from marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
     from qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -71,7 +85,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.5", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.6", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -118,6 +132,18 @@ class MarvelRivalsPlugin(Star):
 对比同一环境中的两个英雄（默认生成图片）
 
 段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
+
+    HELP_TEXT += """
+
+/我的环境 [赛季]
+根据已绑定账号的当前段位，查看同段位英雄环境
+
+/我的英雄池 [赛季]
+对比常用英雄的个人胜率与同段位环境
+
+/我的绝活 [最低场次] [赛季]
+查看个人英雄胜率高于同段位环境的英雄，默认至少 20 场
+"""
 
     def __init__(self, context: Context, config=None):
         if hasattr(super(), "__init__"):
@@ -178,6 +204,12 @@ class MarvelRivalsPlugin(Star):
                 self.meta_enabled = False
                 if logger:
                     logger.warning(f"Meta 功能初始化失败，将保持关闭：{exc}")
+
+        self.player_meta_service = (
+            PlayerMetaService(self.service, self.meta_service)
+            if self.meta_service is not None
+            else None
+        )
 
     def _qq_id(self, event: AstrMessageEvent) -> str:
         return str(event.get_sender_id())
@@ -611,6 +643,103 @@ class MarvelRivalsPlugin(Star):
                 yield event.image_result(image_url)
         except ValueError as exc:
             yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("我的环境")
+    async def my_environment(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """根据已绑定账号的当前段位查询同段位英雄环境。"""
+        if self.player_meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        uid = self._bound_uid(event)
+        if not uid:
+            yield event.plain_result("请先使用 /绑定账号 <UID>")
+            return
+        try:
+            args = parse_player_meta_args(arg1, arg2)
+            profile = await self.player_meta_service.get_player_environment(uid, season=args.season)
+            fallback = format_player_environment(profile)
+            try:
+                image_url = await self.image_renderer.player_meta_environment(profile)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"我的环境图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except (ValueError, DataSourceError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("我的英雄池")
+    async def my_hero_pool(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """对比已绑定账号常用英雄与同段位 Meta。"""
+        if self.player_meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        uid = self._bound_uid(event)
+        if not uid:
+            yield event.plain_result("请先使用 /绑定账号 <UID>")
+            return
+        try:
+            args = parse_player_meta_args(arg1, arg2)
+            profile = await self.player_meta_service.get_player_hero_pool(uid, season=args.season)
+            fallback = format_player_hero_pool(profile)
+            try:
+                image_url = await self.image_renderer.player_hero_pool(profile)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"我的英雄池图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except (ValueError, DataSourceError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("我的绝活")
+    async def my_signature(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """查询个人英雄胜率高于同段位环境的英雄。"""
+        if self.player_meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        uid = self._bound_uid(event)
+        if not uid:
+            yield event.plain_result("请先使用 /绑定账号 <UID>")
+            return
+        try:
+            args = parse_player_meta_args(arg1, arg2, allow_minimum_matches=True)
+            profile = await self.player_meta_service.get_player_signature(
+                uid,
+                season=args.season,
+                minimum_matches=args.minimum_matches,
+            )
+            fallback = format_player_signature(profile)
+            try:
+                image_url = await self.image_renderer.player_signature(profile)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"我的绝活图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except (ValueError, DataSourceError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
         except MetaDataSourceError as exc:
             yield event.plain_result(self._meta_source_failure(exc))
 

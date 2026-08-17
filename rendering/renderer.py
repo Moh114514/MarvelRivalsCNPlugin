@@ -12,6 +12,7 @@ try:
         HeroMetaOverview,
         HeroMetaSegments,
     )
+    from ..marvel_rivals_bot.analytics.models import PlayerMetaProfile
 except ImportError:
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
     from marvel_rivals_bot.meta.models import (
@@ -20,6 +21,7 @@ except ImportError:
         HeroMetaOverview,
         HeroMetaSegments,
     )
+    from marvel_rivals_bot.analytics.models import PlayerMetaProfile
 
 from .pages import (
     build_help_html,
@@ -30,6 +32,9 @@ from .pages import (
     build_meta_overview_html,
     build_meta_segments_html,
     build_meta_single_html,
+    build_player_hero_pool_html,
+    build_player_meta_environment_html,
+    build_player_signature_html,
     build_player_stats_html,
     build_recent_matches_html,
 )
@@ -70,6 +75,15 @@ class RivalsImageRenderer:
 
     async def meta_comparison(self, comparison: HeroMetaComparison) -> str:
         return await self._html_render(build_meta_comparison_html(comparison), {}, options=PNG_OPTIONS)
+
+    async def player_meta_environment(self, profile: PlayerMetaProfile) -> str:
+        return await self._html_render(build_player_meta_environment_html(profile), {}, options=PNG_OPTIONS)
+
+    async def player_hero_pool(self, profile: PlayerMetaProfile) -> str:
+        return await self._html_render(build_player_hero_pool_html(profile), {}, options=PNG_OPTIONS)
+
+    async def player_signature(self, profile: PlayerMetaProfile) -> str:
+        return await self._html_render(build_player_signature_html(profile), {}, options=PNG_OPTIONS)
 
 
 # Keep the old public name stable while callers migrate to the semantic name.

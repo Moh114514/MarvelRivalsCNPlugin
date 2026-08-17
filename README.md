@@ -233,3 +233,14 @@ python tools/release.py --build dist/astrbot_plugin_marvel_rivals-v<version>.zip
 ```
 
 版本需要同步更新 `metadata.yaml`、`main.py` 的 `@register` 和 `pyproject.toml`。请勿提交 Token、Cookie、授权头、抓包文件、原始响应、`.env.capture`、本地数据库或代理证书。
+## Player × Meta
+
+已绑定账号后，可使用以下命令把国服个人数据与同段位 RivalsMeta 环境结合：
+
+```text
+/我的环境 [赛季]
+/我的英雄池 [赛季]
+/我的绝活 [最低场次] [赛季]
+```
+
+`/我的环境` 根据绑定账号的当前国服段位自动匹配 Meta 大段位；`/我的英雄池` 对比常用英雄的个人胜率、同段位胜率、选取率和 Ban 率；`/我的绝活` 默认筛选个人至少 20 场的英雄，并展示个人胜率与同段位胜率的差值。结果会标明 RivalsMeta 来源、更新时间和缓存状态。

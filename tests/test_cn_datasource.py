@@ -200,6 +200,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             stats = await source.get_player("1287101468", "18")
 
         self.assertEqual(stats.season, "18")
+        self.assertEqual(stats.profile.rank_level, 14)
         self.assertEqual(stats.profile.rank_game_season, "钻石2（4411 分）")
         self.assertEqual(stats.heroes[0].kills, 123)
         for path, body in calls:

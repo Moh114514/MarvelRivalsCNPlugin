@@ -69,6 +69,21 @@ def _career_mapping(value: Any) -> dict[str, Any]:
     return outer
 
 
+def _rank_level(value: Any, season: str = "19") -> int | None:
+    if not isinstance(value, (str, Mapping)) or not value:
+        return None
+    try:
+        seasons = json.loads(value) if isinstance(value, str) else value
+        current = seasons.get(f"10010{int(season):02d}") if isinstance(seasons, dict) else None
+        rank = json.loads(current) if isinstance(current, str) else current
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(rank, dict):
+        return None
+    level = _number(rank, "level")
+    return int(level) if level is not None else None
+
+
 def _rank_text(value: Any, season: str = "19") -> str:
     if not isinstance(value, (str, Mapping)) or not value:
         return ""
@@ -363,6 +378,9 @@ class CNDataSource(RivalsDataSource):
             level=_number(data, "level"),
             club_team_name=_text(data, "clubTeamName", "clubName"),
             rank_game_season=_rank_text(data.get("rankGameSeason"), season) or _text(data, "rankSeason", "rankName"),
+            rank_level=_rank_level(data.get("rankGameSeason"), season) or _count(
+                data, "rankLevel", "rankLevelId", "currentRankLevel"
+            ),
         )
         # loadData contains the account aggregate in the observed response;
         # loadSummary is the paginated match list, not the aggregate.

@@ -170,6 +170,22 @@ body{font-size:17px}
 .mr-comparison__value--left{text-align:right}
 .mr-comparison__value--right{text-align:left}
 .mr-comparison__label{padding:8px 10px;border-left:2px solid var(--mr-purple);border-right:2px solid var(--mr-purple);color:var(--mr-muted-strong);font-size:15px;font-weight:900;letter-spacing:.06em;text-align:center}
+.mr-player-meta-section{margin-top:28px}
+.mr-player-meta-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mr-player-meta-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:14px;align-items:center;min-height:82px;padding:14px 18px;border-left:6px solid var(--mr-purple);border-bottom:2px solid var(--mr-line);background:var(--mr-paper-strong)}
+.mr-player-meta-row__index{color:var(--mr-purple);font-size:28px;font-weight:950;line-height:1}
+.mr-player-meta-row__hero{min-width:0;display:grid;gap:4px}
+.mr-player-meta-row__hero strong{color:var(--mr-ink-text);font-size:20px;font-weight:950;overflow-wrap:anywhere}
+.mr-player-meta-row__hero span,.mr-player-meta-row__metric span,.mr-player-meta-row__detail{color:var(--mr-muted-strong);font-size:14px;line-height:1.35}
+.mr-player-meta-row__value{color:var(--mr-purple-deep);font-size:clamp(25px,3vw,36px);font-weight:950;line-height:1;white-space:nowrap}
+.mr-player-meta-list--comparison{grid-template-columns:1fr}
+.mr-player-meta-row--comparison{grid-template-columns:52px minmax(170px,1.2fr) minmax(110px,1fr) minmax(110px,1fr) 110px minmax(150px,1fr);gap:16px}
+.mr-player-meta-row__metric{display:grid;gap:4px;min-width:0}
+.mr-player-meta-row__metric strong{color:var(--mr-purple-deep);font-size:24px;font-weight:950;line-height:1}
+.mr-player-meta-row__delta{font-size:27px;font-weight:950;line-height:1;white-space:nowrap}
+.mr-player-meta-row__delta--positive{color:var(--mr-purple)}
+.mr-player-meta-row__delta--negative{color:var(--mr-red)}
+.mr-player-meta-row__detail{display:flex;flex-wrap:wrap;gap:4px 12px}
 
 @media (max-width:900px){
   .mr-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -193,6 +209,12 @@ body{font-size:17px}
   .mr-meta-list,.mr-meta-single{grid-template-columns:1fr}
   .mr-meta-list--rank-breakdown{grid-template-rows:none;grid-auto-flow:row}
   .mr-meta-list--rank-breakdown .mr-meta-row:nth-child(6){border-top:0;padding-top:15px}
+  .mr-player-meta-list{grid-template-columns:1fr}
+  .mr-player-meta-row--comparison{grid-template-columns:52px minmax(0,1fr) minmax(100px,auto) minmax(100px,auto);gap:12px}
+  .mr-player-meta-row--comparison .mr-player-meta-row__metric--personal{grid-column:3;grid-row:1}
+  .mr-player-meta-row--comparison .mr-player-meta-row__metric--meta{grid-column:4;grid-row:1}
+  .mr-player-meta-row--comparison .mr-player-meta-row__delta{grid-column:4;grid-row:2}
+  .mr-player-meta-row--comparison .mr-player-meta-row__detail{grid-column:2 / 4;grid-row:2}
 }
 @media (max-width:520px){
   .mr-page__inner{width:min(calc(100% - 24px),1320px)}
@@ -224,6 +246,16 @@ body{font-size:17px}
   .mr-comparison__row{grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr);gap:8px;min-height:72px}
   .mr-comparison__value{font-size:27px}
   .mr-comparison__label{padding:7px 4px;font-size:14px}
+  .mr-player-meta-row{grid-template-columns:42px minmax(0,1fr) auto;gap:10px;padding:13px 12px}
+  .mr-player-meta-row__index{font-size:25px}
+  .mr-player-meta-row__hero strong{font-size:18px}
+  .mr-player-meta-row__value{font-size:27px}
+  .mr-player-meta-row--comparison{grid-template-columns:40px minmax(0,1fr) minmax(76px,auto);gap:8px}
+  .mr-player-meta-row--comparison .mr-player-meta-row__metric{font-size:13px}
+  .mr-player-meta-row--comparison .mr-player-meta-row__metric--personal{grid-column:2;grid-row:2}
+  .mr-player-meta-row--comparison .mr-player-meta-row__metric--meta{grid-column:3;grid-row:2}
+  .mr-player-meta-row--comparison .mr-player-meta-row__delta{grid-column:3;grid-row:1;align-self:start;font-size:24px}
+  .mr-player-meta-row--comparison .mr-player-meta-row__detail{grid-column:2 / -1;grid-row:3}
   .mr-match-row{grid-template-columns:52px minmax(0,1fr);gap:10px;padding:14px}
   .mr-match-row__index{font-size:29px}
   .mr-match-row__main{font-size:18px}

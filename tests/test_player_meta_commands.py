@@ -1,0 +1,66 @@
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from main import MarvelRivalsPlugin
+from tests.test_player_meta_rendering import _profile
+
+
+class FakeEvent:
+    def get_sender_id(self):
+        return "qq-1"
+
+    def plain_result(self, text):
+        return ("text", text)
+
+    def image_result(self, url):
+        return ("image", url)
+
+
+def plugin_with(profile=None, *, bound_uid="123", render_error=None):
+    plugin = MarvelRivalsPlugin.__new__(MarvelRivalsPlugin)
+    plugin.player_meta_service = SimpleNamespace(
+        get_player_environment=AsyncMock(return_value=profile or _profile()),
+        get_player_hero_pool=AsyncMock(return_value=profile or _profile()),
+        get_player_signature=AsyncMock(return_value=profile or _profile()),
+    )
+    plugin.bindings = SimpleNamespace(get=lambda _qq: bound_uid)
+    plugin.qq_card_sender = SimpleNamespace(supports=lambda _event: False)
+    plugin.image_renderer = SimpleNamespace(
+        player_meta_environment=AsyncMock(side_effect=render_error, return_value="environment.png"),
+        player_hero_pool=AsyncMock(side_effect=render_error, return_value="pool.png"),
+        player_signature=AsyncMock(side_effect=render_error, return_value="signature.png"),
+    )
+    return plugin
+
+
+class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
+    async def test_commands_use_bound_uid_and_send_image(self):
+        plugin = plugin_with()
+        event = FakeEvent()
+        environment = [item async for item in plugin.my_environment(event, "S9.5", "")]
+        pool = [item async for item in plugin.my_hero_pool(event, "S9.5", "")]
+        signature = [item async for item in plugin.my_signature(event, "20", "S9.5")]
+        self.assertEqual(environment, [("image", "environment.png")])
+        self.assertEqual(pool, [("image", "pool.png")])
+        self.assertEqual(signature, [("image", "signature.png")])
+        plugin.player_meta_service.get_player_environment.assert_awaited_once_with("123", season="S9.5")
+        plugin.player_meta_service.get_player_signature.assert_awaited_once_with(
+            "123", season="S9.5", minimum_matches=20,
+        )
+
+    async def test_missing_binding_is_explicit(self):
+        plugin = plugin_with(bound_uid=None)
+        result = [item async for item in plugin.my_environment(FakeEvent())]
+        self.assertEqual(result[0][0], "text")
+        self.assertIn("绑定账号", result[0][1])
+
+    async def test_image_failure_falls_back_to_text(self):
+        plugin = plugin_with(render_error=RuntimeError("render"))
+        result = [item async for item in plugin.my_hero_pool(FakeEvent())]
+        self.assertEqual(result[0][0], "text")
+        self.assertIn("我的英雄池", result[0][1])
+
+
+if __name__ == "__main__":
+    unittest.main()
