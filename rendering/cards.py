@@ -6,14 +6,14 @@ shim keeps direct imports from older integrations working during the split.
 
 try:
     from ..marvel_rivals_bot.game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-    from ..marvel_rivals_bot.hero_names import format_hero_name
+    from ..marvel_rivals_bot.reference.heroes import format_hero_name
     from ..marvel_rivals_bot.models import HeroQueryResult, PlayerStats
-    from ..marvel_rivals_bot.services.rivals import format_season_name
+    from ..marvel_rivals_bot.reference.seasons import format_season_name
 except ImportError:
     from marvel_rivals_bot.game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-    from marvel_rivals_bot.hero_names import format_hero_name
+    from marvel_rivals_bot.reference.heroes import format_hero_name
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
-    from marvel_rivals_bot.services.rivals import format_season_name
+    from marvel_rivals_bot.reference.seasons import format_season_name
 
 from .components import metric_grid
 from .formatters import (

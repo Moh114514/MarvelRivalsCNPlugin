@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
-from ..hero_names import get_hero_name
+from ..reference.heroes import get_hero_name
 from .models import (
     HeroMetaResult,
     RawBanRankBucket,
@@ -13,7 +13,7 @@ from .models import (
     RawHeroMetaStat,
     RawHeroRankBucket,
 )
-from .ranks import rank_codes, rank_label, normalize_rank
+from ..reference.ranks import normalize_rank, rank_codes, rank_label
 
 
 @dataclass(slots=True)

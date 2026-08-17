@@ -2,6 +2,11 @@
 
 本项目遵循 SemVer。`0.x` 版本仍可能调整 API 适配和配置，但会尽量保持已有命令与绑定数据兼容。
 
+## [0.14.2] - 2026-08-17
+
+- 完成 Meta PR-B：新增统一 Game Reference 层，集中维护英雄、CN 细分段位、Meta 段位和 provider 独立赛季身份。
+- 建立 CN 细分段位到 Meta 大段位的显式转换，保留 `hero_names.py`、`game_metadata.py`、`meta.ranks`、`services.rivals` 等旧导入入口兼容。
+
 ## [0.14.1] - 2026-08-17
 
 - 完成 Meta PR-A：收紧命令职责和参数解析，修复重复参数、Ban 数据完整性、非负 schema 校验及用户/数据源错误边界。

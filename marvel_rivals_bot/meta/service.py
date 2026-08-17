@@ -9,13 +9,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..datasource.base import DataSourceError
-from ..hero_names import get_hero_id
-from ..services.rivals import format_season_name, parse_season_name
+from ..reference.heroes import get_hero_id
+from ..reference.ranks import get_rank_label, normalize_rank
+from ..reference.seasons import (
+    get_season_identity,
+    season_identity_from_rivalsmeta_code,
+)
 from .cache import CacheRecord, MetaDiskCache
 from .calculator import _sort_key, calculate_hero_results
 from .errors import MetaCacheError, MetaDataSourceError, MetaQueryError
 from .models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult, RawHeroMetaPayload
-from .ranks import get_rank_label, normalize_rank
 
 
 logger = logging.getLogger(__name__)
@@ -77,14 +80,12 @@ class MetaService:
 
     def season_code(self, season: str | None = None) -> str:
         value = str(season or "").strip()
-        if not value:
-            return self.default_season
-        if value.isdigit():
+        try:
+            if not value:
+                return get_season_identity(self.default_season, "rivalsmeta").for_provider("rivalsmeta")
             # Raw numeric codes are useful for internal/debug calls, while
             # command handlers pass user-facing names through this boundary.
-            return str(int(value))
-        try:
-            return parse_season_name(value)
+            return get_season_identity(value).for_provider("rivalsmeta")
         except (DataSourceError, TypeError, ValueError) as exc:
             raise MetaQueryError(str(exc)) from exc
 
@@ -281,7 +282,7 @@ class MetaService:
         fetched_at = payload.fetched_at or datetime.now(timezone.utc)
         return HeroMetaBoard(
             season_code=str(payload.season),
-            season_label=format_season_name(payload.season),
+            season_label=season_identity_from_rivalsmeta_code(payload.season).label,
             rank_key=rank_key,
             rank_label=get_rank_label(rank_key),
             sort_by=sort_by,

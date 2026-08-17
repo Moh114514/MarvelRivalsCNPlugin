@@ -8,36 +8,15 @@ from typing import Any
 
 import httpx
 
-from ..hero_names import get_hero_name
+from ..reference.heroes import get_hero_name
+from ..reference.ranks import CN_RANK_LEVEL_MAP
 from ..models import CareerSummary, HeroStat, PlayerProfile, PlayerStats, RecentMatch
 from .base import DataSourceError, RivalsDataSource
 
 
-RANK_LEVEL_MAP = {
-    1: "青铜3",
-    2: "青铜2",
-    3: "青铜1",
-    4: "白银3",
-    5: "白银2",
-    6: "白银1",
-    7: "黄金3",
-    8: "黄金2",
-    9: "黄金1",
-    10: "铂金3",
-    11: "铂金2",
-    12: "铂金1",
-    13: "钻石3",
-    14: "钻石2",
-    15: "钻石1",
-    16: "大师3",
-    17: "大师2",
-    18: "大师1",
-    19: "天神3",
-    20: "天神2",
-    21: "天神1",
-    22: "永恒",
-    23: "万物之上",
-}
+# Compatibility name: CN's detailed API levels remain distinct from Meta's
+# broad rank buckets.
+RANK_LEVEL_MAP = CN_RANK_LEVEL_MAP
 
 
 def _number(data: Mapping[str, Any], *keys: str) -> int | float | None:

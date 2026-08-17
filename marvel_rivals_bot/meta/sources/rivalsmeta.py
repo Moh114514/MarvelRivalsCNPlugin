@@ -21,7 +21,7 @@ from ..models import (
     RawHeroMetaStat,
     RawHeroRankBucket,
 )
-from ..ranks import RANK_LABELS
+from ...reference.ranks import RANK_LABELS
 from .base import MetaDataSource
 
 

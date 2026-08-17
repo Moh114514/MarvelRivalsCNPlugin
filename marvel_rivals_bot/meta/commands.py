@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .ranks import normalize_rank
+from ..reference.ranks import normalize_rank
 
 
 class MetaCommandError(ValueError):

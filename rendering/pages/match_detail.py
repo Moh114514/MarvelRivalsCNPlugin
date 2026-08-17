@@ -4,10 +4,10 @@ from __future__ import annotations
 
 try:
     from ...marvel_rivals_bot.game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-    from ...marvel_rivals_bot.hero_names import format_hero_name
+    from ...marvel_rivals_bot.reference.heroes import format_hero_name
 except ImportError:
     from marvel_rivals_bot.game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-    from marvel_rivals_bot.hero_names import format_hero_name
+    from marvel_rivals_bot.reference.heroes import format_hero_name
 
 from ..components import empty_state, metric_grid, page_header, page_shell, player_row, section_title, team_panel
 from ..formatters import extract_first_match, format_duration, format_number, format_timestamp

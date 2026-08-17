@@ -4,12 +4,12 @@ from __future__ import annotations
 
 try:
     from ...marvel_rivals_bot.game_metadata import format_match_map, format_queue
-    from ...marvel_rivals_bot.hero_names import format_hero_name
-    from ...marvel_rivals_bot.services.rivals import format_season_name
+    from ...marvel_rivals_bot.reference.heroes import format_hero_name
+    from ...marvel_rivals_bot.reference.seasons import format_season_name
 except ImportError:
     from marvel_rivals_bot.game_metadata import format_match_map, format_queue
-    from marvel_rivals_bot.hero_names import format_hero_name
-    from marvel_rivals_bot.services.rivals import format_season_name
+    from marvel_rivals_bot.reference.heroes import format_hero_name
+    from marvel_rivals_bot.reference.seasons import format_season_name
 
 from ..components import empty_state, match_row, page_header, page_shell, section_title
 from ..formatters import format_duration, format_number, format_timestamp

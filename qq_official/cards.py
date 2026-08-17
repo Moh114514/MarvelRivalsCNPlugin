@@ -5,9 +5,9 @@ from typing import Any
 
 from .models import CardButton, InteractiveCard
 try:
-    from ..marvel_rivals_bot.services.rivals import format_season_name
+    from ..marvel_rivals_bot.reference.seasons import format_season_name
 except ImportError:
-    from marvel_rivals_bot.services.rivals import format_season_name
+    from marvel_rivals_bot.reference.seasons import format_season_name
 
 
 def _md(value: Any) -> str:

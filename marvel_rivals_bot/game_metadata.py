@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .reference.seasons import RIVALSMETA_SEASON_MAP
+
 
 # game_mode_id describes the matchmaking queue, not the map objective.
 GAME_MODE_MAP: dict[int, str] = {
@@ -68,29 +70,6 @@ MATCH_MAPS: dict[int, tuple[str, str, str | None]] = {
     1399: ("天尊花园", "18对18征服（歼灭）", "arcade"),
     1408: ("杰夫乐园", "杰夫活动模式", "arcade"),
 }
-
-# This namespace belongs to RivalsMeta and is not used to interpret CN API fields.
-RIVALSMETA_SEASON_MAP: dict[int, str] = {
-    1: "S0",
-    2: "S1",
-    3: "S1.5",
-    4: "S2",
-    5: "S2.5",
-    6: "S3",
-    7: "S3.5",
-    8: "S4",
-    9: "S4.5",
-    10: "S5",
-    11: "S5.5",
-    12: "S6",
-    13: "S6.5",
-    14: "S7",
-    15: "S7.5",
-    16: "S8",
-    17: "S8.5",
-    18: "S9",
-}
-
 
 def _integer(value: Any) -> int | None:
     try:
