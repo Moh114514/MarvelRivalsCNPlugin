@@ -67,6 +67,38 @@ class TestRivalsMetaSource(unittest.IsolatedAsyncioTestCase):
                 await RivalsMetaSource(client=client).get_hero_stats("18")
         self.assertEqual(calls, 2)
 
+    async def test_read_error_and_connection_reset_retry_once(self):
+        for failure in (
+            lambda request: httpx.ReadError("read", request=request),
+            lambda request: ConnectionResetError("reset"),
+        ):
+            calls = 0
+
+            def handler(request):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise failure(request)
+                return httpx.Response(200, json=payload())
+
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                await RivalsMetaSource(client=client).get_hero_stats("18")
+            self.assertEqual(calls, 2)
+
+    async def test_other_network_errors_do_not_retry(self):
+        for error_type in (httpx.ConnectError, httpx.WriteError):
+            calls = 0
+
+            def handler(request):
+                nonlocal calls
+                calls += 1
+                raise error_type("network", request=request)
+
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                with self.assertRaises(MetaDataSourceError):
+                    await RivalsMetaSource(client=client).get_hero_stats("18")
+            self.assertEqual(calls, 1)
+
     async def test_schema_errors_and_no_retry_for_404(self):
         with self.assertRaises(MetaSchemaError):
             RivalsMetaSource().parse_payload([])
@@ -87,20 +119,48 @@ class TestRivalsMetaSource(unittest.IsolatedAsyncioTestCase):
                 RivalsMetaSource().parse_payload(bad)
         with self.assertRaises(MetaSchemaError):
             bad = payload()
+            bad["timestamp"] = -1
+            RivalsMetaSource().parse_payload(bad)
+        with self.assertRaises(MetaSchemaError):
+            bad = payload()
             bad["heroes"][0]["rank"] = 99
             RivalsMetaSource().parse_payload(bad)
+        with self.assertRaises(MetaSchemaError):
+            bad = payload()
+            bad["heroes"].append(bad["heroes"][0].copy())
+            RivalsMetaSource().parse_payload(bad)
+        with self.assertRaises(MetaSchemaError):
+            bad = payload()
+            bad["bans"].append(bad["bans"][0].copy())
+            RivalsMetaSource().parse_payload(bad)
+        for field, value in (
+            ("season", -1),
+            ("hero_id", -1020),
+            ("matches", -1),
+            ("bans", -1),
+        ):
+            with self.assertRaises(MetaSchemaError):
+                bad = payload()
+                if field == "season":
+                    bad[field] = value
+                elif field == "bans":
+                    bad["bans"][0]["bans"][0][field] = value
+                else:
+                    bad["heroes"][0]["heroes"][0][field] = value
+                RivalsMetaSource().parse_payload(bad)
 
-        calls = 0
+        for status in (400, 404, 500):
+            calls = 0
 
-        def handler(request):
-            nonlocal calls
-            calls += 1
-            return httpx.Response(404)
+            def handler(_request):
+                nonlocal calls
+                calls += 1
+                return httpx.Response(status)
 
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            with self.assertRaises(MetaHTTPError):
-                await RivalsMetaSource(client=client).get_hero_stats("18")
-        self.assertEqual(calls, 1)
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                with self.assertRaises(MetaHTTPError):
+                    await RivalsMetaSource(client=client).get_hero_stats("18")
+            self.assertEqual(calls, 1)
 
     async def test_response_season_must_match_requested_season(self):
         def handler(_request):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import asyncio
+import logging
 import math
 import os
 from collections.abc import Mapping
@@ -26,6 +27,7 @@ from .base import MetaDataSource
 
 DEFAULT_BASE_URL = "https://rivalsmeta.com"
 HERO_STATS_PATH = "/api/heroes/stats"
+logger = logging.getLogger(__name__)
 
 
 class RivalsMetaSource(MetaDataSource):
@@ -40,6 +42,7 @@ class RivalsMetaSource(MetaDataSource):
     DEFAULT_HERO_STATS_PATH = HERO_STATS_PATH
     SOURCE_NAME = "RivalsMeta"
     RETRY_STATUSES = frozenset({502, 503, 504})
+    RETRY_EXCEPTIONS = (httpx.TimeoutException, httpx.ReadError, ConnectionResetError)
 
     def __init__(
         self,
@@ -89,15 +92,46 @@ class RivalsMetaSource(MetaDataSource):
         for attempt in range(2):
             try:
                 response = await client.get(self.url, params={"season": season})
-            except (httpx.NetworkError, httpx.TimeoutException) as exc:
+            except self.RETRY_EXCEPTIONS as exc:
                 if attempt == 0:
+                    logger.info(
+                        "Meta source=%s season=%s retry=1 reason=%s",
+                        self.SOURCE_NAME,
+                        season,
+                        type(exc).__name__,
+                    )
                     await asyncio.sleep(0.3)
                     continue
+                logger.warning(
+                    "Meta source=%s season=%s request failure=%s retry=1 exhausted",
+                    self.SOURCE_NAME,
+                    season,
+                    type(exc).__name__,
+                )
                 raise MetaDataSourceError(f"RivalsMeta 请求失败：{type(exc).__name__}") from exc
             except httpx.HTTPError as exc:
+                logger.warning(
+                    "Meta source=%s season=%s request failure=%s retry=0",
+                    self.SOURCE_NAME,
+                    season,
+                    type(exc).__name__,
+                )
                 raise MetaDataSourceError(f"RivalsMeta 请求失败：{type(exc).__name__}") from exc
 
+            logger.info(
+                "Meta source=%s season=%s HTTP status=%s retry=%s",
+                self.SOURCE_NAME,
+                season,
+                response.status_code,
+                attempt,
+            )
             if response.status_code in self.RETRY_STATUSES and attempt == 0:
+                logger.info(
+                    "Meta source=%s season=%s HTTP status=%s retry=1",
+                    self.SOURCE_NAME,
+                    season,
+                    response.status_code,
+                )
                 await asyncio.sleep(0.3)
                 continue
             if response.is_error:
@@ -105,9 +139,28 @@ class RivalsMetaSource(MetaDataSource):
             try:
                 payload = response.json()
             except ValueError as exc:
+                logger.warning(
+                    "Meta source=%s season=%s schema error=invalid_json",
+                    self.SOURCE_NAME,
+                    season,
+                )
                 raise MetaSchemaError("RivalsMeta 响应不是有效 JSON") from exc
-            parsed = self.parse_payload(payload)
+            try:
+                parsed = self.parse_payload(payload)
+            except MetaSchemaError as exc:
+                logger.warning(
+                    "Meta source=%s season=%s schema error=%s",
+                    self.SOURCE_NAME,
+                    season,
+                    type(exc).__name__,
+                )
+                raise
             if parsed.season != int(season):
+                logger.warning(
+                    "Meta source=%s season=%s schema error=season_mismatch",
+                    self.SOURCE_NAME,
+                    season,
+                )
                 raise MetaSchemaError(
                     f"RivalsMeta 响应赛季 {parsed.season} 与请求赛季 {season} 不一致"
                 )
@@ -126,6 +179,7 @@ class RivalsMetaSource(MetaDataSource):
         if not isinstance(heroes_raw, list):
             raise MetaSchemaError("Meta heroes 必须是数组")
         heroes = [_parse_hero_bucket(bucket, index) for index, bucket in enumerate(heroes_raw)]
+        _ensure_unique_rank_codes(heroes, "heroes")
 
         bans: list[RawBanRankBucket] | None
         if "bans" not in payload or payload["bans"] is None:
@@ -134,12 +188,23 @@ class RivalsMetaSource(MetaDataSource):
             raise MetaSchemaError("Meta bans 必须是数组")
         else:
             bans = [_parse_ban_bucket(bucket, index) for index, bucket in enumerate(payload["bans"])]
+            _ensure_unique_rank_codes(bans, "bans")
 
         timestamp = payload.get("timestamp")
         if isinstance(timestamp, bool) or timestamp is not None and not isinstance(timestamp, (int, float, str)):
             raise MetaSchemaError("Meta timestamp 类型无效")
-        if isinstance(timestamp, float) and not math.isfinite(timestamp):
-            raise MetaSchemaError("Meta timestamp 必须是有限数值")
+        if isinstance(timestamp, (int, float)):
+            if not math.isfinite(timestamp) or timestamp < 0:
+                raise MetaSchemaError("Meta timestamp 必须是非负有限数值")
+        elif isinstance(timestamp, str):
+            try:
+                numeric_timestamp = float(timestamp.strip())
+            except ValueError:
+                numeric_timestamp = None
+            if numeric_timestamp is not None and (
+                not math.isfinite(numeric_timestamp) or numeric_timestamp < 0
+            ):
+                raise MetaSchemaError("Meta timestamp 必须是非负有限数值")
 
         return RawHeroMetaPayload(
             season=season,
@@ -158,19 +223,27 @@ def _integer(value: Any, field: str, *, nullable: bool = False) -> int | None:
     if isinstance(value, bool):
         raise MetaSchemaError(f"Meta {field} 必须是整数")
     if isinstance(value, int):
+        if value < 0:
+            raise MetaSchemaError(f"Meta {field} 不能为负数")
         return value
     if isinstance(value, float):
         if not math.isfinite(value) or not value.is_integer():
             raise MetaSchemaError(f"Meta {field} 必须是整数，不能是小数")
-        return int(value)
+        integer = int(value)
+        if integer < 0:
+            raise MetaSchemaError(f"Meta {field} 不能为负数")
+        return integer
     if isinstance(value, str):
         text = value.strip()
         if not text:
             raise MetaSchemaError(f"Meta {field} 必须是整数")
         try:
-            return int(text)
+            integer = int(text)
         except ValueError as exc:
             raise MetaSchemaError(f"Meta {field} 必须是整数，不能是 {value!r}") from exc
+        if integer < 0:
+            raise MetaSchemaError(f"Meta {field} 不能为负数")
+        return integer
     raise MetaSchemaError(f"Meta {field} 必须是整数")
 
 
@@ -178,6 +251,14 @@ def _object(value: Any, field: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise MetaSchemaError(f"Meta {field} 必须是对象")
     return value
+
+
+def _ensure_unique_rank_codes(buckets: list[Any], field: str) -> None:
+    seen: set[str] = set()
+    for bucket in buckets:
+        if bucket.rank_code in seen:
+            raise MetaSchemaError(f"Meta {field} 存在重复 rank bucket：{bucket.rank_code}")
+        seen.add(bucket.rank_code)
 
 
 def _rank(bucket: dict[str, Any], index: int) -> str:

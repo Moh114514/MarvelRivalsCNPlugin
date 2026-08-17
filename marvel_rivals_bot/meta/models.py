@@ -72,3 +72,21 @@ class HeroMetaBoard:
     source_timestamp: datetime | None
     fetched_at: datetime
     stale: bool = False
+
+
+@dataclass(slots=True)
+class HeroMetaOverview:
+    """Top heroes for each supported environment metric."""
+
+    season_code: str
+    season_label: str
+    rank_key: str
+    rank_label: str
+    win_rate: list[HeroMetaResult]
+    pick_rate: list[HeroMetaResult]
+    ban_rate: list[HeroMetaResult]
+    matches: list[HeroMetaResult]
+    source: str
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False

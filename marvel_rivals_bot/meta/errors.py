@@ -19,3 +19,7 @@ class MetaHTTPError(MetaDataSourceError):
 
 class MetaCacheError(RuntimeError):
     """Raised when a Meta cache cannot be read or written safely."""
+
+
+class MetaQueryError(ValueError):
+    """Raised when a user's Meta query cannot be normalized or fulfilled."""

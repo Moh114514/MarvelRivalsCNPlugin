@@ -10,9 +10,9 @@ try:
     from .marvel_rivals_bot.services.rivals import RivalsService
     from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
-    from .marvel_rivals_bot.meta.commands import MetaCommandError, parse_meta_command_args
+    from .marvel_rivals_bot.meta.commands import parse_meta_command_args
     from .marvel_rivals_bot.meta.errors import MetaDataSourceError
-    from .marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_single_hero_meta
+    from .marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_hero_meta_overview, format_single_hero_meta
     from .marvel_rivals_bot.meta.service import MetaService
     from .marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
     from .qq_official import (
@@ -27,9 +27,9 @@ except ImportError:
     from marvel_rivals_bot.services.rivals import RivalsService
     from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
-    from marvel_rivals_bot.meta.commands import MetaCommandError, parse_meta_command_args
+    from marvel_rivals_bot.meta.commands import parse_meta_command_args
     from marvel_rivals_bot.meta.errors import MetaDataSourceError
-    from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_single_hero_meta
+    from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_hero_meta_overview, format_single_hero_meta
     from marvel_rivals_bot.meta.service import MetaService
     from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
     from qq_official import (
@@ -59,7 +59,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.1", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -91,13 +91,13 @@ class MarvelRivalsPlugin(Star):
 测试 QQ 卡片能力
 
 /英雄环境 [段位] [赛季]
-查询全局英雄环境（默认全段位、胜率排序）
+查询全局英雄环境总览（默认全段位；不接受排序指标）
 
 /英雄排行 <胜率|选取率|Ban率|场次> [段位] [赛季]
-按指定指标查询英雄排行
+按指定指标查询英雄排行（必须且只能指定一个排序指标）
 
 /英雄统计 <英雄名称> [段位] [赛季]
-查询单个英雄的全局环境数据
+查询单个英雄的全局环境数据（不接受排序指标）
 
 段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
@@ -395,32 +395,43 @@ class MarvelRivalsPlugin(Star):
     def _meta_unavailable(self) -> str:
         return "当前未启用英雄环境功能"
 
+    def _meta_source_failure(self, error: MetaDataSourceError) -> str:
+        if logger:
+            logger.warning(f"Meta 数据源错误：{type(error).__name__}")
+        return "查询失败：英雄环境数据源暂时不可用，请稍后重试"
+
     @filter.command("英雄环境")
     async def hero_meta(self, event: AstrMessageEvent, arg1: str = "", arg2: str = "", arg3: str = ""):
-        """查询指定赛季和段位的全局英雄环境。"""
+        """查询指定赛季和段位的全局英雄环境，不接受排序指标。"""
         if self.meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
         try:
-            args = parse_meta_command_args(arg1, arg2, arg3)
-            board = await self.meta_service.get_hero_meta_board(
+            args = parse_meta_command_args(arg1, arg2, arg3, allow_sort=False)
+            overview = await self.meta_service.get_hero_meta_overview(
                 season=args.season,
                 rank=args.rank,
-                sort_by=args.sort_by,
-                limit=10,
+                limit=5,
             )
-            yield event.plain_result(format_hero_meta_board(board))
-        except (MetaCommandError, MetaDataSourceError, ValueError) as exc:
-            yield event.plain_result(f"查询失败：{exc}")
+            yield event.plain_result(format_hero_meta_overview(overview))
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
 
     @filter.command("英雄排行")
     async def hero_meta_rank(self, event: AstrMessageEvent, arg1: str = "", arg2: str = "", arg3: str = ""):
-        """按胜率、选取率、Ban率或场次查询英雄排行。"""
+        """按一个胜率、选取率、Ban率或场次指标查询英雄排行，不接受英雄名称。"""
         if self.meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
         try:
-            args = parse_meta_command_args(arg1, arg2, arg3)
+            args = parse_meta_command_args(
+                arg1,
+                arg2,
+                arg3,
+                require_sort=True,
+            )
             board = await self.meta_service.get_hero_meta_board(
                 season=args.season,
                 rank=args.rank,
@@ -428,17 +439,25 @@ class MarvelRivalsPlugin(Star):
                 limit=10,
             )
             yield event.plain_result(format_hero_meta_board(board))
-        except (MetaCommandError, MetaDataSourceError, ValueError) as exc:
-            yield event.plain_result(f"查询失败：{exc}")
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
 
     @filter.command("英雄统计")
     async def hero_meta_stats(self, event: AstrMessageEvent, hero_name: str = "", arg2: str = "", arg3: str = ""):
-        """使用中文英雄名称查询全局环境统计。"""
+        """使用中文英雄名称查询全局环境统计，不接受排序指标。"""
         if self.meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
         try:
-            args = parse_meta_command_args(hero_name, arg2, arg3, require_hero=True)
+            args = parse_meta_command_args(
+                hero_name,
+                arg2,
+                arg3,
+                require_hero=True,
+                allow_sort=False,
+            )
             board = await self.meta_service.get_single_hero_meta_board(
                 args.hero_name or "",
                 season=args.season,
@@ -455,8 +474,10 @@ class MarvelRivalsPlugin(Star):
                     stale=board.stale,
                 )
             )
-        except (MetaCommandError, MetaDataSourceError, ValueError) as exc:
-            yield event.plain_result(f"查询失败：{exc}")
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
 
     @filter.command("卡片测试")
     async def card_test(self, event: AstrMessageEvent):

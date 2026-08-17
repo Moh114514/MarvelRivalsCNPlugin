@@ -32,18 +32,28 @@ class TestMetaCalculator(unittest.TestCase):
             hero_bucket(5, RawHeroMetaStat(1020, 10, 5, 10, 5, 0)),
             hero_bucket(6, RawHeroMetaStat(1020, 30, 15, 30, 15, 0)),
         ]
-        result = calculate_hero_results(
-            heroes, [RawBanRankBucket("5", [])], rank="diamond+", sort_by="matches"
-        )
+        bans = [RawBanRankBucket(rank, []) for rank in ("5", "6", "9", "7", "8")]
+        result = calculate_hero_results(heroes, bans, rank="diamond+", sort_by="matches")
         self.assertEqual(result[0].matches, 40)
         self.assertAlmostEqual(result[0].pick_rate, 600.0)
         self.assertEqual(result[0].bans, 0)
         self.assertEqual(result[0].ban_rate, 0.0)
 
+    def test_partial_composite_ban_buckets_are_unavailable(self):
+        heroes = [
+            hero_bucket(5, RawHeroMetaStat(1020, 10, 5, 10, 5, 0)),
+            hero_bucket(6, RawHeroMetaStat(1020, 30, 15, 30, 15, 0)),
+        ]
+        result = calculate_hero_results(
+            heroes, [RawBanRankBucket("5", [RawBanStat(1020, 10)])], rank="diamond+"
+        )
+        self.assertIsNone(result[0].bans)
+        self.assertIsNone(result[0].ban_rate)
+
     def test_missing_bans_is_distinct_from_empty_existing_bucket(self):
         heroes = [hero_bucket(1, RawHeroMetaStat(1020, 1, 1, 1, 1, 0))]
-        missing = calculate_hero_results(heroes, None)
-        empty = calculate_hero_results(heroes, [RawBanRankBucket("1", [])])
+        missing = calculate_hero_results(heroes, None, rank="1")
+        empty = calculate_hero_results(heroes, [RawBanRankBucket("1", [])], rank="1")
         self.assertIsNone(missing[0].ban_rate)
         self.assertIsNone(missing[0].bans)
         self.assertEqual(empty[0].bans, 0)

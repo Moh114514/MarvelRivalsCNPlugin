@@ -1,8 +1,8 @@
 import unittest
 from datetime import datetime, timezone
 
-from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_single_hero_meta
-from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaResult
+from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_hero_meta_overview, format_single_hero_meta
+from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
 
 
 class TestMetaFormatters(unittest.TestCase):
@@ -51,6 +51,25 @@ class TestMetaFormatters(unittest.TestCase):
         self.assertIn("曼蒂斯 | S9下半赛季 | 大师", text)
         self.assertIn("Ban率：—", text)
         self.assertIn("更新时间：", text)
+
+    def test_overview_formatter_has_distinct_metric_sections(self):
+        overview = HeroMetaOverview(
+            season_code="19",
+            season_label="S9下半赛季",
+            rank_key="6",
+            rank_label="大师",
+            win_rate=[self.result],
+            pick_rate=[self.result],
+            ban_rate=[self.result],
+            matches=[self.result],
+            source="RivalsMeta",
+            source_timestamp=1720000000,
+            fetched_at=datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc),
+        )
+        text = format_hero_meta_overview(overview)
+        for heading in ("胜率 TOP5", "选取率 TOP5", "Ban率 TOP5", "场次 TOP5"):
+            self.assertIn(heading, text)
+        self.assertIn("当前英雄环境", text)
 
 
 if __name__ == "__main__":

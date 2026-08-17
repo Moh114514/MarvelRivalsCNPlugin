@@ -65,16 +65,19 @@ def aggregate_hero_stats(
 def aggregate_ban_stats(
     buckets: Sequence[RawBanRankBucket] | None, rank: str | int = "all"
 ) -> tuple[list[RawBanStat], bool]:
-    """Aggregate ban counts and report whether a selected ban bucket exists."""
+    """Aggregate ban counts and report whether all selected buckets exist."""
 
     if buckets is None:
         return [], False
     counts: dict[int | None, int] = defaultdict(int)
+    selected_codes = set(rank_codes(rank))
     selected_buckets = _selected(buckets, rank)
     for bucket in selected_buckets:
         for row in bucket.bans:
             counts[row.hero_id] += row.bans
-    return [RawBanStat(hero_id=hero_id, bans=bans) for hero_id, bans in counts.items()], bool(selected_buckets)
+    available_codes = {str(bucket.rank_code) for bucket in buckets}
+    complete = selected_codes.issubset(available_codes)
+    return [RawBanStat(hero_id=hero_id, bans=bans) for hero_id, bans in counts.items()], complete
 
 
 def calc_win_rate(wr_wins: int, wr_matches: int) -> float:
@@ -109,10 +112,13 @@ def calculate_hero_results(
 
     hero_rows = aggregate_hero_stats(hero_buckets, rank)
     ban_rows, has_bans_bucket = aggregate_ban_stats(ban_buckets, rank)
-    total_matches = sum(row.matches for bucket in _selected(hero_buckets, rank) for row in bucket.heroes)
-    total_bans = sum(row.bans for bucket in _selected(ban_buckets or [], rank) for row in bucket.bans)
-    pick_base = total_matches / 6 if total_matches > 0 else 0
-    ban_base = total_bans / 2 if total_bans > 0 else 0
+    selected_hero_buckets = _selected(hero_buckets, rank)
+    total_matches = sum(row.matches for bucket in selected_hero_buckets for row in bucket.heroes)
+    total_bans = (
+        sum(row.bans for bucket in _selected(ban_buckets or [], rank) for row in bucket.bans)
+        if has_bans_bucket
+        else 0
+    )
     ban_by_hero = {row.hero_id: row.bans for row in ban_rows}
     resolve_name = hero_name_resolver or (lambda hero_id: get_hero_name(hero_id, f"未知英雄（{hero_id}）"))
 

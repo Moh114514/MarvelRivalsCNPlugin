@@ -25,6 +25,49 @@ class TestMetaCommandArguments(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_meta_command_args("19")
 
+    def test_explicit_duplicate_sort_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "只能指定一种排序方式"):
+            parse_meta_command_args("胜率", "胜率")
+
+    def test_explicit_duplicate_rank_is_rejected_even_for_all(self):
+        with self.assertRaisesRegex(ValueError, "只能指定一个段位"):
+            parse_meta_command_args("全段位", "全段位")
+
+    def test_explicit_duplicate_season_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "只能指定一个赛季"):
+            parse_meta_command_args("S9", "S9")
+
+    def test_command_sort_constraints(self):
+        environment = parse_meta_command_args("大师", "S9", allow_sort=False)
+        self.assertEqual(environment.sort_by, "win_rate")
+        with self.assertRaisesRegex(ValueError, "无法识别参数"):
+            parse_meta_command_args("曼蒂斯", allow_sort=False)
+
+        ranking = parse_meta_command_args("Ban率", "天神", require_sort=True)
+        self.assertEqual(ranking.sort_by, "ban_rate")
+
+        statistics = parse_meta_command_args(
+            "曼蒂斯", "大师", "S9", require_hero=True, allow_sort=False
+        )
+        self.assertEqual(statistics.hero_name, "曼蒂斯")
+
+    def test_disallowed_sort_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "不接受排序指标"):
+            parse_meta_command_args("胜率", allow_sort=False)
+
+        with self.assertRaisesRegex(ValueError, "不接受排序指标"):
+            parse_meta_command_args(
+                "曼蒂斯", "胜率", require_hero=True, allow_sort=False
+            )
+
+    def test_required_sort_is_rejected_when_missing(self):
+        with self.assertRaisesRegex(ValueError, "请提供一个排序指标"):
+            parse_meta_command_args("大师", require_sort=True)
+
+    def test_ranking_rejects_hero_name(self):
+        with self.assertRaisesRegex(ValueError, "无法识别参数"):
+            parse_meta_command_args("曼蒂斯", "胜率", require_sort=True)
+
 
 if __name__ == "__main__":
     unittest.main()

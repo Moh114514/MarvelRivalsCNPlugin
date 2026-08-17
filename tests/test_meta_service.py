@@ -1,10 +1,13 @@
 import tempfile
 import unittest
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaResult
 from marvel_rivals_bot.meta.service import MetaService
 from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
+from marvel_rivals_bot.meta.errors import MetaCacheError, MetaDataSourceError, MetaQueryError
 
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
@@ -79,10 +82,74 @@ class TestMetaService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(board.heroes[0].hero_name, "曼蒂斯")
         self.assertFalse(board.stale)
 
+    async def test_missing_bans_remain_unavailable_through_service(self):
+        original_get = self.source.get_hero_stats
+
+        async def get_without_bans(season):
+            result = await original_get(season)
+            result.bans = None
+            return result
+
+        self.source.get_hero_stats = get_without_bans
+        board = await self.service.get_hero_meta_board(season="S9", rank="钻石")
+        self.assertIsNone(board.heroes[0].bans)
+        self.assertIsNone(board.heroes[0].ban_rate)
+
+    async def test_overview_selects_each_metric_from_one_board(self):
+        overview = await self.service.get_hero_meta_overview(season="S9", rank="钻石")
+        self.assertEqual(overview.season_label, "S9下半赛季")
+        self.assertEqual(overview.win_rate[0].hero_id, 1020)
+        self.assertEqual(overview.matches[0].hero_id, 1020)
+        self.assertEqual(overview.ban_rate[0].hero_id, 1020)
+
+    async def test_overview_sorts_each_metric_independently(self):
+        def result(hero_id, name, win_rate, pick_rate, ban_rate, matches):
+            return HeroMetaResult(
+                hero_id=hero_id,
+                hero_name=name,
+                matches=matches,
+                wins=0,
+                wr_matches=1,
+                wr_wins=0,
+                mirror_matches=0,
+                bans=0,
+                win_rate=win_rate,
+                pick_rate=pick_rate,
+                ban_rate=ban_rate,
+            )
+
+        board = HeroMetaBoard(
+            season_code="19",
+            season_label="S9下半赛季",
+            rank_key="5",
+            rank_label="钻石",
+            sort_by="win_rate",
+            heroes=[
+                result(1020, "曼蒂斯", 60, 1, 2, 10),
+                result(1036, "蜘蛛侠", 50, 9, 1, 20),
+                result(1023, "火箭浣熊", 40, 3, 8, 5),
+            ],
+            source="RivalsMeta",
+            source_timestamp=None,
+            fetched_at=datetime.now(timezone.utc),
+        )
+
+        async def fake_board(**_kwargs):
+            return board
+
+        self.service.get_hero_meta_board = fake_board
+        overview = await self.service.get_hero_meta_overview()
+        self.assertEqual(overview.win_rate[0].hero_id, 1020)
+        self.assertEqual(overview.pick_rate[0].hero_id, 1036)
+        self.assertEqual(overview.ban_rate[0].hero_id, 1023)
+        self.assertEqual(overview.matches[0].hero_id, 1036)
+
     async def test_memory_cache_avoids_second_remote_fetch(self):
-        await self.service.get_raw_hero_meta("S9")
-        await self.service.get_raw_hero_meta("S9")
+        with self.assertLogs("marvel_rivals_bot.meta.service", level=logging.INFO) as logs:
+            await self.service.get_raw_hero_meta("S9")
+            await self.service.get_raw_hero_meta("S9")
         self.assertEqual(self.source.calls, ["18"])
+        self.assertIn("cache=memory_fresh", "\n".join(logs.output))
 
     async def test_stale_cache_is_used_when_remote_fails(self):
         fetched_at = datetime.now(timezone.utc) - timedelta(seconds=1200)
@@ -90,15 +157,41 @@ class TestMetaService(unittest.IsolatedAsyncioTestCase):
         cached_payload["season"] = 18
         self.service.cache.save("18", cached_payload, "RivalsMeta", 1720000000, fetched_at)
         self.source.fail = True
-        result = await self.service.get_raw_hero_meta("S9")
+        with self.assertLogs("marvel_rivals_bot.meta.service", level=logging.WARNING) as logs:
+            result = await self.service.get_raw_hero_meta("S9")
         self.assertTrue(result.stale)
         self.assertEqual(result.source, "RivalsMeta")
+        self.assertIn("cache=stale_fallback", "\n".join(logs.output))
+
+    async def test_cache_write_failure_is_logged_but_remote_data_is_returned(self):
+        from unittest.mock import patch
+
+        with patch.object(self.service.cache, "save", side_effect=MetaCacheError("write")):
+            with self.assertLogs("marvel_rivals_bot.meta.service", level=logging.WARNING) as logs:
+                result = await self.service.get_raw_hero_meta("S9")
+        self.assertEqual(result.season, 19)
+        self.assertIn("cache=write_failure", "\n".join(logs.output))
+
+    async def test_user_query_errors_are_not_data_source_errors(self):
+        with self.assertRaises(MetaQueryError):
+            await self.service.get_hero_meta_board(season="not-a-season")
+        with self.assertRaises(MetaQueryError):
+            await self.service.get_hero_meta_board(rank="not-a-rank")
+        with self.assertRaises(MetaQueryError):
+            await self.service.get_hero_meta_board(sort_by="not-a-sort")
+        with self.assertRaises(MetaQueryError):
+            await self.service.get_single_hero_meta("不存在的英雄")
+        with self.assertRaises(MetaQueryError):
+            await self.service.get_single_hero_meta("奇异博士", season="S9")
+        self.assertFalse(issubclass(MetaQueryError, MetaDataSourceError))
 
     async def test_invalid_cached_payload_is_discarded_before_remote_fetch(self):
         self.service.cache.save("18", {"season": 18}, "RivalsMeta")
-        result = await self.service.get_raw_hero_meta("S9")
+        with self.assertLogs("marvel_rivals_bot.meta.service", level=logging.WARNING) as logs:
+            result = await self.service.get_raw_hero_meta("S9")
         self.assertEqual(self.source.calls, ["18"])
         self.assertFalse(result.stale)
+        self.assertIn("cache=invalid_payload", "\n".join(logs.output))
 
     async def test_cached_payload_with_wrong_season_is_discarded(self):
         self.service.cache.save("18", payload(), "RivalsMeta")

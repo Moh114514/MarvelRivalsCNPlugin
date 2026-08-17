@@ -108,6 +108,7 @@ class MetaDiskCache:
         normalized_season = _normalize_season(season)
         path = self._path_for(normalized_season)
         if not path.is_file():
+            logger.info("Meta source=unknown season=%s cache=miss", normalized_season)
             return None
 
         try:
@@ -147,7 +148,10 @@ class MetaDiskCache:
         current_time = now if now is not None else self.clock()
         age = _age_seconds(current_time, fetched_at)
         if age > self.stale_seconds:
+            logger.info("Meta source=%s season=%s cache=expired", source, normalized_season)
             return None
+        state = "stale" if age > self.fresh_seconds else "fresh"
+        logger.info("Meta source=%s season=%s cache=%s", source, normalized_season, state)
         return CacheRecord(
             payload=payload,
             source=source,
@@ -206,6 +210,12 @@ class MetaDiskCache:
             os.replace(temporary_path, path)
             temporary_path = None
         except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                "Meta source=%s season=%s cache=write_failure error=%s",
+                source,
+                normalized_season,
+                type(exc).__name__,
+            )
             raise MetaCacheError("无法写入 Meta 磁盘缓存") from exc
         finally:
             if temporary_path is not None:

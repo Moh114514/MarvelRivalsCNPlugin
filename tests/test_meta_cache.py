@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marvel_rivals_bot.meta.cache import CacheRecord, MetaDiskCache, SCHEMA_VERSION
+from marvel_rivals_bot.meta.errors import MetaCacheError
 
 
 class TestMetaDiskCache(unittest.TestCase):
@@ -53,6 +54,15 @@ class TestMetaDiskCache(unittest.TestCase):
         self.assertTrue(stale.stale)
         self.assertIsNone(expired)
 
+    def test_fresh_and_stale_states_are_logged(self):
+        self.cache.save("S9", {"value": 1}, "source", fetched_at=self.fetched_at)
+        with self.assertLogs("marvel_rivals_bot.meta.cache", level=logging.INFO) as logs:
+            self.cache.load("S9")
+            self.cache.load("S9", now=datetime(2026, 8, 14, 12, 20, tzinfo=timezone.utc))
+        output = "\n".join(logs.output)
+        self.assertIn("cache=fresh", output)
+        self.assertIn("cache=stale", output)
+
     def test_corrupt_json_logs_warning_and_misses(self):
         path = self.cache.cache_dir / "season_S9.json"
         path.parent.mkdir(parents=True)
@@ -84,6 +94,13 @@ class TestMetaDiskCache(unittest.TestCase):
         replace.assert_called_once()
         self.assertTrue((self.cache.cache_dir / "season_S9.json").is_file())
         self.assertEqual(list(self.cache.cache_dir.glob("*.tmp")), [])
+
+    def test_write_failure_is_logged(self):
+        with patch("marvel_rivals_bot.meta.cache.os.replace", side_effect=OSError("read-only")):
+            with self.assertLogs("marvel_rivals_bot.meta.cache", level=logging.WARNING) as logs:
+                with self.assertRaises(MetaCacheError):
+                    self.cache.save("S9", {"value": 1}, "source", fetched_at=self.fetched_at)
+        self.assertIn("cache=write_failure", "\n".join(logs.output))
 
     def test_season_key_is_normalized_without_path_traversal(self):
         self.cache.save("../S9/../../escape", {"value": 1}, "source", fetched_at=self.fetched_at)

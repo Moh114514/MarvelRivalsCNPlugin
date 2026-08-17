@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .models import HeroMetaBoard, HeroMetaResult
+from .models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
 
 
 def _percent(value: float | None) -> str:
@@ -49,6 +49,34 @@ def format_hero_meta_board(board: HeroMetaBoard) -> str:
         return "\n".join(lines)
     lines.append("")
     lines.extend(_hero_line(index, result) for index, result in enumerate(board.heroes, 1))
+    return "\n".join(lines)
+
+
+def format_hero_meta_overview(overview: HeroMetaOverview) -> str:
+    """Format the multi-metric environment overview."""
+
+    lines = [f"当前英雄环境 | {overview.season_label} | {overview.rank_label}"]
+    lines.append(f"数据来源：{overview.source}")
+    lines.append(f"更新时间：{_timestamp(overview.source_timestamp)}")
+    if overview.stale:
+        lines.append("当前上游暂不可用，展示最近缓存数据")
+
+    sections = (
+        ("胜率 TOP5", overview.win_rate, "胜率", "win_rate"),
+        ("选取率 TOP5", overview.pick_rate, "选取率", "pick_rate"),
+        ("Ban率 TOP5", overview.ban_rate, "Ban率", "ban_rate"),
+        ("场次 TOP5", overview.matches, "场次", "matches"),
+    )
+    if not any(items for _, items, _, _ in sections):
+        lines.append("没有可用的英雄环境数据。")
+        return "\n".join(lines)
+    for title, items, label, metric in sections:
+        lines.extend(("", title))
+        for index, result in enumerate(items, 1):
+            value = result.matches if metric == "matches" else _percent(getattr(result, metric))
+            if metric == "matches":
+                value = f"{value:,}"
+            lines.append(f"{index}. {result.hero_name}  {label} {value}")
     return "\n".join(lines)
 
 
