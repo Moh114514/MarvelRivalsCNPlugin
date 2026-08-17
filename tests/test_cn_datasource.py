@@ -22,6 +22,12 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json={"data": {
                     "totalMatchCount": values[0], "totalMatchWinCount": values[1],
                 }})
+            if request.url.path == "/api/game/player/loadHeroCareer":
+                values = (8, 5) if body["gameModeId"] == 1 else (12, 7)
+                return httpx.Response(200, json={"data": {"careers": [{
+                    "heroId": body["heroIdList"][0],
+                    "totalMatchCount": values[0], "totalMatchWinCount": values[1],
+                }]}})
             if request.url.path == "/api/game/player/loadSortHero":
                 matches, wins = (8, 5) if body["gameModeId"] == 1 else (12, 7)
                 return httpx.Response(200, json={"data": {
@@ -179,6 +185,15 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                         "playerUid": 1287101468, "totalMatchCount": 15,
                         "totalMatchWinCount": 8, "k": 206, "d": 67, "a": 184,
                     }]}
+            elif request.url.path.endswith("/loadHeroCareer"):
+                data = {"careers": [{
+                    "heroId": body["heroIdList"][0],
+                    "totalMatchCount": 1,
+                    "totalMatchWinCount": 1,
+                    "k": 180 if body["gameModeId"] == 1 else 206,
+                    "d": 50 if body["gameModeId"] == 1 else 67,
+                    "a": 100 if body["gameModeId"] == 1 else 184,
+                }]}
             elif request.url.path.endswith("/loadSortHero"):
                 data = {"heros": [
                     {"heroId": hero_id, "matchCount": 1, "winCount": 1}
@@ -196,9 +211,10 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((stats.summary.kills, stats.summary.deaths, stats.summary.assists), (386, 117, 284))
         self.assertAlmostEqual(stats.summary.win_rate, 14 * 100 / 27)
         self.assertEqual(len(stats.heroes), 12)
-        self.assertTrue(all(hero.matches == 2 for hero in stats.heroes))
-        self.assertTrue(all(hero.quick.matches == 1 for hero in stats.heroes))
-        self.assertTrue(all(hero.ranked.matches == 1 for hero in stats.heroes))
+        self.assertTrue(all(hero.matches == 2 for hero in stats.heroes[:10]))
+        self.assertTrue(all(hero.quick.matches == 1 for hero in stats.heroes[:10]))
+        self.assertTrue(all(hero.ranked.matches == 1 for hero in stats.heroes[:10]))
+        self.assertTrue(all(hero.matches is None for hero in stats.heroes[10:]))
 
     async def test_quick_and_competitive_scopes_use_scalar_request_filters(self):
         career_filters = []
@@ -219,6 +235,14 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                 mode = body["gameModeId"]
                 values = {1: (12, 6), 2: (8, 5)}[mode]
                 data = {"heros": [{"heroId": 1066, "matchCount": values[0], "winCount": values[1]}]}
+            elif path.endswith("/loadHeroCareer"):
+                mode = body["gameModeId"]
+                values = {1: (12, 6), 2: (8, 5)}[mode]
+                data = {"careers": [{
+                    "heroId": body["heroIdList"][0],
+                    "totalMatchCount": values[0],
+                    "totalMatchWinCount": values[1],
+                }]}
             else:
                 data = {}
             return httpx.Response(200, json={"data": data})
@@ -246,6 +270,13 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                 data = {"aid": 1287101468, "rankGameSeason": json.dumps(rank_seasons)}
             elif request.url.path.endswith("/loadSortHero"):
                 data = {"heros": [{"heroId": 1066, "k": 123, "matchCount": 1, "winCount": 1}]}
+            elif request.url.path.endswith("/loadHeroCareer"):
+                data = {"careers": [{
+                    "heroId": body["heroIdList"][0],
+                    "totalMatchCount": 1,
+                    "totalMatchWinCount": 1,
+                    "k": 123,
+                }]}
             else:
                 data = {}
             return httpx.Response(200, json={"data": data})

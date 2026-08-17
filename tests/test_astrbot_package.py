@@ -52,8 +52,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.14.8", metadata)
-        self.assertIn('"0.14.8"', main)
+        self.assertIn("version: 0.14.9", metadata)
+        self.assertIn('"0.14.9"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -110,7 +110,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.8")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.9")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

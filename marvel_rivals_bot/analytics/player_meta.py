@@ -81,7 +81,9 @@ class PlayerMetaService:
                 item
                 for item in hero_pool
                 if (
-                    item.total_matches >= threshold
+                    item.total_matches is not None
+                    and item.ranked_matches is not None
+                    and item.total_matches >= threshold
                     and item.ranked_matches >= ranked_threshold
                     and item.ranked_win_rate is not None
                     and item.meta_win_rate is not None
@@ -105,11 +107,11 @@ class PlayerMetaService:
                 )
             )
         if include_hero_pool and not hero_pool:
-            raise PlayerMetaQueryError("没有可用于比较的个人英雄数据")
+            raise PlayerMetaQueryError(self._hero_data_error(stats))
         if include_signature and not signature:
-            raise PlayerMetaQueryError(
-                "没有同时满足总场次、竞技场次和同段位 Meta 胜率要求的英雄"
-            )
+            if not self._has_comparable_hero_data(stats):
+                raise PlayerMetaQueryError(self._hero_data_error(stats))
+            raise PlayerMetaQueryError("没有同时满足总场次、竞技场次和同段位 Meta 胜率要求的英雄")
         return PlayerMetaProfile(
             uid=stats.profile.uid,
             player_name=stats.profile.name,
@@ -176,6 +178,30 @@ class PlayerMetaService:
         return value
 
     @staticmethod
+    def _hero_total_matches(hero: PlayerHeroStats | HeroStat) -> int | None:
+        value = getattr(hero, "total_matches", None)
+        if value is None:
+            value = getattr(hero, "matches", None)
+        return int(value) if value is not None else None
+
+    @classmethod
+    def _has_comparable_hero_data(cls, stats: PlayerStats) -> bool:
+        return any(
+            (matches := cls._hero_total_matches(hero)) is not None and matches > 0
+            for hero in stats.heroes
+        )
+
+    @classmethod
+    def _hero_data_error(cls, stats: PlayerStats) -> str:
+        if not stats.heroes:
+            return "本赛季没有英雄记录"
+        if not any(cls._hero_total_matches(hero) is not None for hero in stats.heroes):
+            return "常用英雄已获取，但英雄详细数据获取失败"
+        if not cls._has_comparable_hero_data(stats):
+            return "本赛季没有可用于比较的英雄场次"
+        return "个人英雄数据存在，但没有可与 RivalsMeta 匹配的英雄"
+
+    @staticmethod
     def _resolve_rank(stats: PlayerStats) -> tuple[int, str, str]:
         profile = stats.profile
         rank_level = getattr(profile, "rank_level", None)
@@ -215,7 +241,11 @@ class PlayerMetaService:
         by_id = {str(result.hero_id): result for result in meta_results}
         scoped = [(hero, PlayerMetaService._hero_scopes(hero)) for hero in heroes]
         selected = sorted(
-            ((hero, values) for hero, values in scoped if values[0] > 0),
+            (
+                (hero, values)
+                for hero, values in scoped
+                if values[0] is not None and values[0] > 0
+            ),
             key=lambda item: (item[1][0], str(item[0].hero_id)),
             reverse=True,
         )[:limit]
@@ -233,7 +263,11 @@ class PlayerMetaService:
                     competitive_matches=ranked_matches,
                     competitive_wins=ranked_wins,
                     competitive_win_rate=ranked_rate,
-                    competitive_share=(ranked_matches * 100 / total_matches) if total_matches else None,
+                    competitive_share=(
+                        ranked_matches * 100 / total_matches
+                        if ranked_matches is not None and total_matches
+                        else None
+                    ),
                     meta_matches=meta.matches if meta is not None else None,
                     meta_win_rate=meta_rate,
                     meta_pick_rate=meta.pick_rate if meta is not None else None,
@@ -244,22 +278,28 @@ class PlayerMetaService:
         return rows
 
     @staticmethod
-    def _hero_scopes(hero: PlayerHeroStats | HeroStat) -> tuple[int, int, int, int | None, float | None]:
+    def _hero_scopes(
+        hero: PlayerHeroStats | HeroStat,
+    ) -> tuple[int | None, int | None, int | None, int | None, float | None]:
         """Return total, quick, ranked, ranked wins, and ranked WR."""
 
         if isinstance(hero, PlayerHeroStats) or hasattr(hero, "ranked"):
-            total_matches = int(getattr(hero, "total_matches", 0) or 0)
+            total_value = getattr(hero, "total_matches", None)
+            total_matches = int(total_value) if total_value is not None else None
             quick = getattr(hero, "quick", None)
             ranked = getattr(hero, "competitive", getattr(hero, "ranked", None))
-            quick_matches = int(getattr(quick, "matches", 0) or 0)
-            ranked_matches = int(getattr(ranked, "matches", 0) or 0)
+            quick_value = getattr(quick, "matches", None)
+            ranked_value = getattr(ranked, "matches", None)
+            quick_matches = int(quick_value) if quick_value is not None else None
+            ranked_matches = int(ranked_value) if ranked_value is not None else None
             ranked_wins = getattr(ranked, "wins", None)
             ranked_rate = getattr(ranked, "win_rate", None)
             return total_matches, quick_matches, ranked_matches, ranked_wins, ranked_rate
 
         # Compatibility with callers that still construct the old one-scope
         # HeroStat. Treat that scope as ranked until the caller migrates.
-        total_matches = int(getattr(hero, "matches", 0) or 0)
+        total_value = getattr(hero, "matches", None)
+        total_matches = int(total_value) if total_value is not None else None
         wins = getattr(hero, "wins", None)
         rate = getattr(hero, "win_rate", None)
         if rate is None and total_matches and wins is not None:

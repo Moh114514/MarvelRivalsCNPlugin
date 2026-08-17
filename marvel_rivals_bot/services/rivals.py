@@ -218,13 +218,14 @@ def format_player(stats: PlayerStats) -> str:
         lines += ["", "常用英雄（快速 + 竞技总场次）"]
         for index, hero in enumerate(stats.heroes[:5], 1):
             total_matches = getattr(hero, "total_matches", getattr(hero, "matches", None))
-            quick = getattr(getattr(hero, "quick", None), "matches", 0) or 0
+            quick = getattr(getattr(hero, "quick", None), "matches", None)
             ranked_scope = getattr(hero, "ranked", None)
             ranked = getattr(ranked_scope, "matches", None)
             ranked_rate = getattr(ranked_scope, "win_rate", None)
             if ranked_scope is None:
                 # Older adapters exposed one aggregate HeroStat.  Keep that
                 # data visible while the CN adapter supplies explicit scopes.
+                quick = 0
                 ranked = total_matches
                 ranked_rate = getattr(hero, "win_rate", None)
                 if ranked_rate is None and ranked and getattr(hero, "wins", None) is not None:

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from marvel_rivals_bot.analytics.commands import parse_player_meta_args
 from marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
 from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
-from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
+from marvel_rivals_bot.models import HeroStat, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 
 
 class FakeRivalsService:
@@ -113,6 +113,16 @@ class TestPlayerMetaService(unittest.IsolatedAsyncioTestCase):
         self.rivals.stats.profile.rank_game_season = "未定级"
         with self.assertRaises(PlayerMetaQueryError):
             await self.service.get_player_environment("123")
+
+    async def test_missing_hero_details_are_not_coerced_to_zero(self):
+        self.rivals.stats.heroes = [PlayerHeroStats(
+            hero_id="1020",
+            hero_name="英雄A",
+            quick=ModeStats(matches=None),
+            competitive=ModeStats(matches=None),
+        )]
+        with self.assertRaisesRegex(PlayerMetaQueryError, "英雄详细数据获取失败"):
+            await self.service.get_player_hero_pool("123")
 
 
 class TestPlayerMetaCommandArgs(unittest.TestCase):

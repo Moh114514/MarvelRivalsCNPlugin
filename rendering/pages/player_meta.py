@@ -26,6 +26,10 @@ def _delta(value: float | None) -> str:
     return _value(None if value is None else f"{value:+.1f}pp")
 
 
+def _count(value: int | None) -> str:
+    return "—" if value is None else f"{value:,}"
+
+
 def _source_line(profile: PlayerMetaProfile) -> str:
     timestamp = profile.source_timestamp
     if isinstance(timestamp, datetime):
@@ -100,7 +104,7 @@ def _comparison_row(index: int, item: PlayerHeroMetaComparison, signature: bool 
         f'<span class="mr-player-meta-row__index">{index:02d}</span>'
         '<div class="mr-player-meta-row__hero">'
         f'<strong>{_value(item.hero_name)}</strong>'
-        f'<span>总计 {item.total_matches:,} 场 · 快速 {item.quick_matches:,} · 竞技 {item.ranked_matches:,}</span>'
+        f'<span>总计 {_count(item.total_matches)} 场 · 快速 {_count(item.quick_matches)} · 竞技 {_count(item.ranked_matches)}</span>'
         '</div>'
         '<div class="mr-player-meta-row__metric mr-player-meta-row__metric--personal">'
         f'<span>竞技占比</span><strong>{_percent(item.ranked_share)}</strong>'

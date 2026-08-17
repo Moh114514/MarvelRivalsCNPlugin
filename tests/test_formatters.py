@@ -112,6 +112,19 @@ class TestFormatters(unittest.TestCase):
         self.assertIn("总计 10 / 快速 0 / 竞技 10", text)
         self.assertNotIn("时长", text)
 
+    def test_player_top_heroes_keep_missing_mode_as_dash(self):
+        text = format_player(PlayerStats(
+            profile=PlayerProfile(uid="1", name="Tester"),
+            heroes=[PlayerHeroStats(
+                hero_id="1066",
+                hero_name="红兜帽",
+                quick=ModeStats(matches=None),
+                competitive=ModeStats(matches=10, wins=7, win_rate=70.0),
+            )],
+            season="18",
+        ))
+        self.assertIn("总计 10 / 快速 - / 竞技 10", text)
+
     def test_season_codes_map_to_half_seasons(self):
         self.assertEqual(format_season_name(1), "S0")
         self.assertEqual(format_season_name(2), "S1上半赛季")

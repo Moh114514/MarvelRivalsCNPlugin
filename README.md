@@ -238,7 +238,7 @@ python tools/release.py --build dist/astrbot_plugin_marvel_rivals-v<version>.zip
 版本需要同步更新 `metadata.yaml`、`main.py` 的 `@register` 和 `pyproject.toml`。请勿提交 Token、Cookie、授权头、抓包文件、原始响应、`.env.capture`、本地数据库或代理证书。
 ## Player × Meta
 
-CN 生涯、常用英雄和单英雄接口分别请求快速（`gameModeId=1`）与竞技（`gameModeId=2`）模式，统一使用 `playModeId=0`；对应请求体支持 `*_QUICK_BODY_TEMPLATE`、`*_COMPETITIVE_BODY_TEMPLATE`，旧 `*_RANKED_BODY_TEMPLATE` 仍兼容。
+CN 生涯、常用英雄和单英雄接口分别请求快速（`gameModeId=1`）与竞技（`gameModeId=2`）模式，统一使用 `playModeId=0`；对应请求体支持 `*_QUICK_BODY_TEMPLATE`、`*_COMPETITIVE_BODY_TEMPLATE`，旧 `*_RANKED_BODY_TEMPLATE` 仍兼容。`loadSortHero` 只用于发现/排序候选英雄，模式场次、胜场和胜率以每个英雄独立请求的 `loadHeroCareer` 为准；单个模式请求失败时保留该模式为未知，不把它当成 0。
 
 `/我的绝活` 保留现有可选数字参数：它表示本赛季最低总使用场次（默认 `20`）；竞技场次仍固定要求至少 `10`，且竞技胜率必须高于对应段位 Meta 胜率。
 

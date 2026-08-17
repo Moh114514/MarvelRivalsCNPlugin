@@ -15,6 +15,10 @@ def _delta(value: float | None) -> str:
     return "—" if value is None else f"{value:+.1f}pp"
 
 
+def _count(value: int | None) -> str:
+    return "—" if value is None else f"{value:,}"
+
+
 def _timestamp(value: datetime | None) -> str:
     if value is None:
         return "未知"
@@ -61,7 +65,7 @@ def format_player_environment(profile: PlayerMetaProfile) -> str:
 def _comparison_line(index: int, item: PlayerHeroMetaComparison) -> list[str]:
     return [
         f"{index}. {item.hero_name}",
-        f"总场次：{item.total_matches} · 快速：{item.quick_matches} · 竞技：{item.ranked_matches}",
+        f"总场次：{_count(item.total_matches)} · 快速：{_count(item.quick_matches)} · 竞技：{_count(item.ranked_matches)}",
         f"竞技占比：{_percent(item.ranked_share)} · 竞技胜率：{_percent(item.ranked_win_rate)}",
         f"同段位 Meta：{_percent(item.meta_win_rate)} · 差值：{_delta(item.win_rate_delta)}",
         f"选取率：{_percent(item.meta_pick_rate)} · Ban率：{_percent(item.meta_ban_rate)}",

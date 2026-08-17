@@ -28,9 +28,9 @@ class PlayerHeroMetaComparison:
     meta_pick_rate: float | None = None
     meta_ban_rate: float | None = None
     win_rate_delta: float | None = None
-    total_matches: int = 0
-    quick_matches: int = 0
-    ranked_matches: int = 0
+    total_matches: int | None = 0
+    quick_matches: int | None = 0
+    ranked_matches: int | None = 0
     ranked_wins: int | None = None
     ranked_win_rate: float | None = None
     ranked_share: float | None = None
@@ -43,7 +43,7 @@ class PlayerHeroMetaComparison:
     def __post_init__(self) -> None:
         if not self.total_matches and self.personal_matches is not None:
             self.total_matches = self.personal_matches
-        if self.competitive_matches is None:
+        if self.competitive_matches is None and self.ranked_matches is not None:
             self.competitive_matches = self.ranked_matches
         if self.competitive_wins is None:
             self.competitive_wins = self.ranked_wins if self.ranked_wins is not None else self.personal_wins
@@ -61,7 +61,7 @@ class PlayerHeroMetaComparison:
         self.personal_matches = self.total_matches
         self.personal_wins = self.competitive_wins
         self.personal_win_rate = self.competitive_win_rate
-        self.ranked_matches = self.competitive_matches or 0
+        self.ranked_matches = self.competitive_matches
         self.ranked_wins = self.competitive_wins
         self.ranked_win_rate = self.competitive_win_rate
         self.ranked_share = self.competitive_share

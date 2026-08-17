@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -18,6 +20,7 @@ from .base import DEFAULT_PLAY_MODE, DataSourceError, GameMode, RivalsDataSource
 # Compatibility name: CN's detailed API levels remain distinct from Meta's
 # broad rank buckets.
 RANK_LEVEL_MAP = CN_RANK_LEVEL_MAP
+logger = logging.getLogger(__name__)
 
 
 def _number(data: Mapping[str, Any], *keys: str) -> int | float | None:
@@ -636,51 +639,112 @@ class CNDataSource(RivalsDataSource):
         responses["sort_hero_quick"] = sort_quick
         responses["sort_hero_competitive"] = sort_competitive
         heroes = self._merge_heroes(
-            self._parse_heroes(sort_quick, "quick"),
-            self._parse_heroes(sort_competitive, "competitive"),
+            self._parse_heroes(sort_quick, "quick_discovery"),
+            self._parse_heroes(sort_competitive, "competitive_discovery"),
         )
-        heroes = await self._enrich_incomplete_sort_heroes(uid, season, heroes)
+        heroes = await self._enrich_sort_hero_candidates(uid, season, heroes)
         return PlayerStats(profile=profile, summary=career_summary, heroes=heroes, season=season, raw=responses)
 
-    async def _enrich_incomplete_sort_heroes(
+    async def _load_one_hero_mode(
+        self,
+        uid: str,
+        hero_id: str,
+        season: str,
+        game_mode: GameMode,
+        semaphore: asyncio.Semaphore,
+    ) -> ModeStats | None:
+        """Load one authoritative HeroCareer row without failing its siblings."""
+
+        async with semaphore:
+            try:
+                payload = await self.load_hero_career(
+                    uid,
+                    [int(hero_id)],
+                    season,
+                    game_mode,
+                )
+            except DataSourceError as exc:
+                logger.warning(
+                    "CN HeroCareer failed hero=%s season=%s mode=%s error=%s",
+                    hero_id,
+                    season,
+                    self._mode_suffix(game_mode),
+                    exc,
+                )
+                return None
+
+        row = next(
+            (
+                item for item in self._hero_items(payload)
+                if _text(item, "heroId", "id") == str(hero_id)
+            ),
+            None,
+        )
+        if row is None:
+            logger.warning(
+                "CN HeroCareer returned no row hero=%s season=%s mode=%s",
+                hero_id,
+                season,
+                self._mode_suffix(game_mode),
+            )
+            return None
+        return _mode_stats(row)
+
+    async def _enrich_sort_hero_candidates(
         self,
         uid: str,
         season: str,
         heroes: list[PlayerHeroStats],
     ) -> list[PlayerHeroStats]:
-        """Use HeroCareer only when SortHero omitted usable mode counts.
+        """Treat SortHero as discovery and HeroCareer as the stats authority.
 
-        Some CN responses expose only ``heroId`` and ``totalPlayTime`` from
-        ``loadSortHero``.  The endpoint is still the source of the common
-        hero ordering, while HeroCareer supplies the missing mode statistics.
+        ``loadSortHero`` is observed to return useful hero IDs and play-time
+        ordering, but its match/win fields are not reliable across seasons.
+        Therefore every displayed candidate is queried independently for each
+        explicit mode.  A failed hero/mode keeps ``None`` while a successful
+        response containing zero keeps ``0``.
         """
 
         if not heroes:
             return heroes
-        selected = [hero for hero in heroes[:10] if str(hero.hero_id).isdigit()]
-        if not selected or not any(
-            hero.quick.matches is None or hero.quick.wins is None
-            or hero.competitive.matches is None or hero.competitive.wins is None
+        selected = [
+            hero for hero in heroes[:10]
+            if str(hero.hero_id).isdigit()
+        ]
+        if not selected:
+            return heroes
+
+        semaphore = asyncio.Semaphore(4)
+        specs = [
+            (hero, game_mode)
             for hero in selected
-        ):
-            return heroes
-        hero_ids = [int(hero.hero_id) for hero in selected]
-        try:
-            quick = await self.load_hero_career(uid, hero_ids, season, GameMode.QUICK)
-            competitive = await self.load_hero_career(uid, hero_ids, season, GameMode.COMPETITIVE)
-        except DataSourceError:
-            # SortHero remains usable even when the optional detail fallback
-            # is unavailable for a mode or a historical season.
-            return heroes
-        self._enrich_heroes(heroes, quick, "quick")
-        self._enrich_heroes(heroes, competitive, "competitive")
-        for hero in heroes:
+            for game_mode in (GameMode.QUICK, GameMode.COMPETITIVE)
+        ]
+        tasks = [
+            self._load_one_hero_mode(uid, str(hero.hero_id), season, game_mode, semaphore)
+            for hero, game_mode in specs
+        ]
+        results = await asyncio.gather(*tasks)
+        for (hero, game_mode), stats in zip(specs, results):
+            if stats is None:
+                continue
+            if game_mode is GameMode.QUICK:
+                hero.quick = self._merge_mode_stats(hero.quick, stats)
+            else:
+                hero.competitive = self._merge_mode_stats(hero.competitive, stats)
+                hero.ranked = hero.competitive
             self._refresh_hero_total(hero)
-        return sorted(
-            heroes,
-            key=lambda item: (item.total_matches or 0, str(item.hero_id)),
+
+        enriched = sorted(
+            selected,
+            key=lambda item: (
+                item.total_matches is not None,
+                item.total_matches if item.total_matches is not None else -1,
+            ),
             reverse=True,
         )
+        selected_ids = {str(hero.hero_id) for hero in selected}
+        return enriched + [hero for hero in heroes if str(hero.hero_id) not in selected_ids]
 
     async def get_summary_detail(self, uid: str) -> dict[str, Any]:
         match_uid = str(uid).strip()
@@ -752,14 +816,19 @@ class CNDataSource(RivalsDataSource):
             if not hero_id:
                 continue
             stats = _mode_stats(item)
+            if scope.endswith("_discovery"):
+                # SortHero contributes identity/order and, where available,
+                # mode play time only.  Its match/win values are deliberately
+                # ignored because HeroCareer is the authoritative source.
+                stats = ModeStats(play_time_seconds=stats.play_time_seconds)
             hero = PlayerHeroStats(
                 hero_id=hero_id,
                 hero_name=get_hero_name(hero_id, _text(item, "heroName", "name") or None),
                 raw=dict(item),
             )
-            if scope == "quick":
+            if scope in {"quick", "quick_discovery"}:
                 hero.quick = stats
-            elif scope == "competitive":
+            elif scope in {"competitive", "competitive_discovery"}:
                 hero.competitive = stats
                 hero.ranked = hero.competitive
             elif scope == "total":
@@ -794,11 +863,7 @@ class CNDataSource(RivalsDataSource):
                         current.competitive = cls._merge_mode_stats(current.competitive, hero.competitive)
                     current.raw = {**current.raw, **hero.raw}
                 cls._refresh_hero_total(current)
-        return sorted(
-            merged.values(),
-            key=lambda item: (item.total_matches or 0, str(item.hero_id)),
-            reverse=True,
-        )
+        return list(merged.values())
 
     @staticmethod
     def _refresh_hero_total(hero: PlayerHeroStats) -> None:

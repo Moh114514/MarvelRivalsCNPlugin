@@ -66,6 +66,13 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
                         {"heroId": 1032, "matchCount": 20 if quick else 25, "winCount": 10 if quick else 12},
                     ]
                 }
+            elif path.endswith("/loadHeroCareer"):
+                quick = body["gameModeId"] == 1
+                data = {"careers": [{
+                    "heroId": body["heroIdList"][0],
+                    "totalMatchCount": (40, 20)[body["heroIdList"][0] == 1032] if quick else (10, 25)[body["heroIdList"][0] == 1032],
+                    "totalMatchWinCount": (20, 10)[body["heroIdList"][0] == 1032] if quick else (6, 12)[body["heroIdList"][0] == 1032],
+                }]}
             else:
                 self.fail(f"unexpected endpoint: {path}")
             return httpx.Response(200, json={"data": data})
@@ -83,6 +90,8 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([path for path, _body in calls].count("/api/game/player/loadCareer"), 2)
         self.assertEqual([path for path, _body in calls].count("/api/game/player/loadSortHero"), 2)
+        self.assertEqual([path for path, _body in calls].count("/api/game/player/loadHeroCareer"), 4)
+        self.assertTrue(all(len(body["heroIdList"]) == 1 for path, body in calls if path.endswith("/loadHeroCareer")))
 
     async def test_configured_competitive_template_overrides_generic_template(self):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -133,6 +142,85 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
         hero = stats.heroes[0]
         self.assertEqual((hero.quick.matches, hero.competitive.matches, hero.total_matches), (40, 10, 50))
         self.assertEqual([path for path, _body in calls].count("/api/game/player/loadHeroCareer"), 2)
+
+    async def test_sort_hero_counts_are_ignored_and_zero_from_hero_career_is_kept(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/loadByRoleId"):
+                return httpx.Response(200, json={"data": {"roleId": 123}})
+            body = json.loads(request.content)
+            if path.endswith("/loadData"):
+                data = {"aid": 123, "name": "Tester"}
+            elif path.endswith("/loadCareer"):
+                data = {"totalMatchCount": 1, "totalMatchWinCount": 1}
+            elif path.endswith("/loadSortHero"):
+                data = {"heros": [
+                    {"heroId": 1031, "matchCount": 999, "winCount": 999},
+                    {"heroId": 1032, "matchCount": 888, "winCount": 888},
+                ]}
+            elif path.endswith("/loadHeroCareer"):
+                hero_id = body["heroIdList"][0]
+                quick = body["gameModeId"] == 1
+                values = {
+                    (1031, True): (0, 0),
+                    (1031, False): (14, 9),
+                    (1032, True): (3, 1),
+                    (1032, False): (0, 0),
+                }[(hero_id, quick)]
+                data = {"careers": [{
+                    "heroId": hero_id,
+                    "totalMatchCount": values[0],
+                    "totalMatchWinCount": values[1],
+                }]}
+            else:
+                self.fail(f"unexpected endpoint: {path}")
+            return httpx.Response(200, json={"data": data})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            stats = await source.get_player("123", "18")
+
+        by_id = {hero.hero_id: hero for hero in stats.heroes}
+        self.assertEqual((by_id["1031"].quick.matches, by_id["1031"].competitive.matches), (0, 14))
+        self.assertEqual((by_id["1032"].quick.matches, by_id["1032"].competitive.matches), (3, 0))
+        self.assertEqual((by_id["1031"].total_matches, by_id["1032"].total_matches), (14, 3))
+
+    async def test_one_hero_mode_failure_does_not_discard_other_enrichment(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/loadByRoleId"):
+                return httpx.Response(200, json={"data": {"roleId": 123}})
+            body = json.loads(request.content)
+            if path.endswith("/loadData"):
+                data = {"aid": 123, "name": "Tester"}
+            elif path.endswith("/loadCareer"):
+                data = {"totalMatchCount": 1, "totalMatchWinCount": 1}
+            elif path.endswith("/loadSortHero"):
+                data = {"heros": [{"heroId": 1031}, {"heroId": 1032}]}
+            elif path.endswith("/loadHeroCareer"):
+                hero_id = body["heroIdList"][0]
+                if hero_id == 1031 and body["gameModeId"] == 2:
+                    return httpx.Response(503)
+                values = (4, 2) if hero_id == 1031 else (2, 1)
+                if body["gameModeId"] == 2 and hero_id == 1032:
+                    values = (0, 0)
+                data = {"careers": [{
+                    "heroId": hero_id,
+                    "totalMatchCount": values[0],
+                    "totalMatchWinCount": values[1],
+                }]}
+            else:
+                self.fail(f"unexpected endpoint: {path}")
+            return httpx.Response(200, json={"data": data})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            stats = await source.get_player("123", "18")
+
+        by_id = {hero.hero_id: hero for hero in stats.heroes}
+        self.assertEqual(by_id["1031"].quick.matches, 4)
+        self.assertIsNone(by_id["1031"].competitive.matches)
+        self.assertEqual(by_id["1032"].competitive.matches, 0)
 
     async def test_profile_only_loader_does_not_request_statistics(self):
         paths = []
