@@ -42,7 +42,7 @@ class TestCanonicalRanks(unittest.TestCase):
 
     def test_meta_labels_and_legacy_aliases_are_canonical(self):
         self.assertEqual(META_RANK_ORDER, ("1", "2", "3", "4", "5", "6", "9", "7", "8"))
-        self.assertEqual(META_RANK_LABELS["4"], "白金")
+        self.assertEqual(META_RANK_LABELS["4"], "铂金")
         self.assertEqual(LEGACY_RANK_LABELS, META_RANK_LABELS)
         self.assertEqual(normalize_rank("铂金"), "4")
         self.assertEqual(normalize_rank("宗师"), "6")

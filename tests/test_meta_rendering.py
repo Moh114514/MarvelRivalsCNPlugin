@@ -98,7 +98,7 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
         self.assertIn("HERO META", single)
         self.assertIn("英雄统计", single)
         for html in (overview, board, single):
-            self.assertIn('class="mr-page"', html)
+            self.assertIn('class="mr-page mr-page--portrait"', html)
             self.assertIn("RivalsMeta", html)
             self.assertIn("当前上游暂不可用", html)
             self.assertNotIn("<script>", html)

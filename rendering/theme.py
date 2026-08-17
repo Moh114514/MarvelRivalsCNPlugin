@@ -48,6 +48,8 @@ html,body{width:100%;min-height:100%;margin:0;overflow-x:hidden;background:var(-
 body{font-size:17px}
 
 .mr-page{position:relative;isolation:isolate;width:100vw;min-height:100vh;overflow:hidden;background:var(--mr-paper);color:var(--mr-ink-text)}
+.mr-page--portrait{min-height:max(100vh,125vw)}
+.mr-page--landscape{min-width:960px;min-height:max(100vh,640px)}
 .mr-page__background{position:absolute;inset:0;z-index:-2;overflow:hidden;background:var(--mr-paper);background-image:__MR_PART_NEWS_IMAGE__;background-position:center;background-size:100% 100%;background-repeat:no-repeat}
 .mr-page__background:before{position:absolute;inset:0;content:"";opacity:.86;background-image:__MR_LIST_FRAME_IMAGE__;background-position:center;background-size:100% 100%;background-repeat:no-repeat;pointer-events:none}
 .mr-page__background:after{display:__MR_EDGE_FALLBACK_DISPLAY__;position:absolute;left:-2%;bottom:-1px;width:104%;height:42px;content:"";background:var(--mr-yellow);clip-path:polygon(0 42%,8% 24%,17% 54%,28% 33%,41% 62%,55% 29%,69% 55%,83% 25%,93% 46%,100% 31%,100% 100%,0 100%);opacity:.78}

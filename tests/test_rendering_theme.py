@@ -35,6 +35,7 @@ class TestRenderingTheme(unittest.TestCase):
             'class="mr-command-list"',
             'class="mr-help-note"',
             'data-watermark="COMMAND GUIDE"',
+            'class="mr-page mr-page--landscape"',
         ):
             self.assertIn(marker, html)
         self.assertNotIn("<script>", html)
@@ -62,7 +63,7 @@ class TestRenderingTheme(unittest.TestCase):
             season="19",
         ))
         for marker in (
-            'class="mr-page"',
+            'class="mr-page mr-page--portrait"',
             'class="mr-header"',
             'class="mr-metrics"',
             'class="mr-hero-list"',

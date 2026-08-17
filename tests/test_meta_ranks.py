@@ -11,6 +11,7 @@ class TestMetaRanks(unittest.TestCase):
 
     def test_aliases_and_composites(self):
         self.assertEqual(normalize_rank("铂金"), "4")
+        self.assertEqual(normalize_rank("白金"), "4")
         self.assertEqual(normalize_rank("All Ranks"), "all")
         self.assertEqual(rank_codes("diamond+"), RANK_GROUPS["diamond+"])
         self.assertEqual(rank_codes("天神+"), ("9", "7", "8"))

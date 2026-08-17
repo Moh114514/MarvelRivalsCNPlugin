@@ -116,7 +116,7 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertIn("width:100vw", html)
         self.assertNotIn("width:1040px", html)
         self.assertNotIn("路", html)
-        self.assertIn('class="mr-page"', html)
+        self.assertIn('class="mr-page mr-page--portrait"', html)
         self.assertIn('class="mr-page__background"', html)
         self.assertIn('class="mr-metric__value">51.9%', html)
         self.assertIn('class="mr-metric__value">386/117/284', html)

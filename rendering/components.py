@@ -9,12 +9,20 @@ from .formatters import escape_text
 from .theme import STYLE
 
 
-def page_shell(content: str, watermark: str = "MARVEL RIVALS") -> str:
-    """Wrap a page in the shared responsive shell and footer."""
+def page_shell(
+    content: str,
+    watermark: str = "MARVEL RIVALS",
+    *,
+    layout: str = "portrait",
+) -> str:
+    """Wrap a page in the shared shell, with a stable image orientation."""
+
+    if layout not in {"portrait", "landscape"}:
+        raise ValueError(f"unsupported page layout: {layout}")
 
     return (
         f'<!doctype html><html><head><meta charset="utf-8">{STYLE}</head><body>'
-        f'<main class="mr-page" data-watermark="{escape_text(watermark)}">'
+        f'<main class="mr-page mr-page--{layout}" data-watermark="{escape_text(watermark)}">'
         '<div class="mr-page__background" aria-hidden="true"></div>'
         '<div class="mr-page__slash" aria-hidden="true"></div>'
         f'<div class="mr-page__inner">{content}{footer()}</div>'
