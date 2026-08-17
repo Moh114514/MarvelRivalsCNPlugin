@@ -144,6 +144,16 @@ body{font-size:17px}
 .mr-empty__mark{margin-bottom:10px;color:var(--mr-purple);font-size:14px;font-weight:950;letter-spacing:.18em}
 .mr-footer{display:flex;justify-content:space-between;gap:16px;margin-top:40px;padding-top:15px;border-top:3px solid var(--mr-ink);color:var(--mr-purple);font-size:14px;font-weight:900;letter-spacing:.1em;line-height:1.5}
 
+.mr-meta-source{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0 0 24px;padding:12px 16px;border-left:6px solid var(--mr-yellow);background:var(--mr-purple-deep);color:var(--mr-text);font-size:15px;font-weight:750;line-height:1.5}
+.mr-meta-list,.mr-meta-single{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mr-meta-row{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:14px;align-items:center;min-height:92px;padding:15px 18px;border-bottom:2px solid var(--mr-line);border-left:6px solid var(--mr-purple);background:var(--mr-paper-strong)}
+.mr-meta-row:first-child{border-top:5px solid var(--mr-yellow);padding-top:10px}
+.mr-meta-row__index{color:var(--mr-purple);font-size:30px;font-weight:950;line-height:1}
+.mr-meta-row__body{min-width:0;display:grid;gap:5px}
+.mr-meta-row__title{color:var(--mr-ink-text);font-size:20px;font-weight:950;line-height:1.2;overflow-wrap:anywhere}
+.mr-meta-row__detail{color:var(--mr-muted-strong);font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+.mr-meta-row__value{color:var(--mr-purple-deep);font-size:clamp(25px,3vw,36px);font-weight:950;line-height:1;white-space:nowrap}
+
 @media (max-width:900px){
   .mr-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mr-metric:nth-child(2){border-right:0}
@@ -163,6 +173,7 @@ body{font-size:17px}
   .mr-header__meta-item--uid{min-width:170px}
   .mr-season{min-width:104px;padding:10px 11px;font-size:15px}
   .mr-command-list,.mr-hero-list,.mr-team-list{grid-template-columns:1fr;grid-template-rows:none;grid-auto-flow:row}
+  .mr-meta-list,.mr-meta-single{grid-template-columns:1fr}
 }
 @media (max-width:520px){
   .mr-page__inner{width:min(calc(100% - 24px),1320px)}
@@ -181,6 +192,10 @@ body{font-size:17px}
   .mr-hero-row__index{font-size:28px}
   .mr-hero-row__title{font-size:20px}
   .mr-hero-row__meta{font-size:16px}
+  .mr-meta-row{grid-template-columns:48px minmax(0,1fr);gap:10px;padding:14px}
+  .mr-meta-row__index{font-size:27px}
+  .mr-meta-row__title{font-size:19px}
+  .mr-meta-row__value{grid-column:2;font-size:27px}
   .mr-match-row{grid-template-columns:52px minmax(0,1fr);gap:10px;padding:14px}
   .mr-match-row__index{font-size:29px}
   .mr-match-row__main{font-size:18px}

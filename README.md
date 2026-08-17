@@ -158,7 +158,7 @@ MRCN_DATA_BODY_TEMPLATE={"aid":{player_uid},"zoneId":16001}
 
 旧命令仍保留兼容：`/漫威帮助`、`/绑定漫威`、`/解绑漫威`、`/最近`、`/英雄`、`/对局`。
 
-全局英雄环境数据来自第三方 RivalsMeta，不代表网易或 Marvel 官方统计。Meta 数据按赛季缓存到 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/meta/`；上游暂时不可用时会在有效期内展示最近缓存，并明确标记 stale 状态。英雄、段位和赛季使用统一 Game Reference；CN 细分段位会在服务边界转换为 Meta 大段位，CN 与 RivalsMeta 的赛季编号保持独立。当前阶段仅提供文本查询，皮肤、段位人口、Tier、地图/Team-Up 和图片渲染属于后续阶段。
+全局英雄环境数据来自第三方 RivalsMeta，不代表网易或 Marvel 官方统计。Meta 数据按赛季缓存到 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/meta/`；上游暂时不可用时会在有效期内展示最近缓存，并明确标记 stale 状态。英雄、段位和赛季使用统一 Game Reference；CN 细分段位会在服务边界转换为 Meta 大段位，CN 与 RivalsMeta 的赛季编号保持独立。Meta 三个查询默认生成统一视觉图片，渲染失败时回退文本；皮肤、段位人口、Tier、地图/Team-Up 和高级 Meta 查询属于后续阶段。
 
 QQ Official 查询和 `/帮助` 会生成统一视觉的信息图片；只有 `/最近对局` 会附带用于选择单局的卡片按钮。其他查询不再发送无意义的 Markdown 或导航按钮；不支持富消息或发送失败时会回退为图片/普通文本。群聊中会自动 @ 命令发起者。绑定数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_marvel_rivals/bindings.sqlite3`。
 

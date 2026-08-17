@@ -6,13 +6,18 @@ from typing import Awaitable, Callable
 
 try:
     from ..marvel_rivals_bot.models import HeroQueryResult, PlayerStats
+    from ..marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview
 except ImportError:
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
+    from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview
 
 from .pages import (
     build_help_html,
     build_hero_query_html,
     build_match_detail_html,
+    build_meta_board_html,
+    build_meta_overview_html,
+    build_meta_single_html,
     build_player_stats_html,
     build_recent_matches_html,
 )
@@ -38,6 +43,15 @@ class RivalsImageRenderer:
 
     async def help(self, help_text: str) -> str:
         return await self._html_render(build_help_html(help_text), {}, options=PNG_OPTIONS)
+
+    async def meta_overview(self, overview: HeroMetaOverview) -> str:
+        return await self._html_render(build_meta_overview_html(overview), {}, options=PNG_OPTIONS)
+
+    async def meta_board(self, board: HeroMetaBoard) -> str:
+        return await self._html_render(build_meta_board_html(board), {}, options=PNG_OPTIONS)
+
+    async def meta_single(self, board: HeroMetaBoard) -> str:
+        return await self._html_render(build_meta_single_html(board), {}, options=PNG_OPTIONS)
 
 
 # Keep the old public name stable while callers migrate to the semantic name.

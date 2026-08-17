@@ -59,7 +59,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.2", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.3", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -91,13 +91,13 @@ class MarvelRivalsPlugin(Star):
 测试 QQ 卡片能力
 
 /英雄环境 [段位] [赛季]
-查询全局英雄环境总览（默认全段位；不接受排序指标）
+查询全局英雄环境总览（默认全段位；不接受排序指标；默认生成图片）
 
 /英雄排行 <胜率|选取率|Ban率|场次> [段位] [赛季]
-按指定指标查询英雄排行（必须且只能指定一个排序指标）
+按指定指标查询英雄排行（必须且只能指定一个排序指标；默认生成图片）
 
 /英雄统计 <英雄名称> [段位] [赛季]
-查询单个英雄的全局环境数据（不接受排序指标）
+查询单个英雄的全局环境数据（不接受排序指标；默认生成图片）
 
 段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
@@ -413,7 +413,19 @@ class MarvelRivalsPlugin(Star):
                 rank=args.rank,
                 limit=5,
             )
-            yield event.plain_result(format_hero_meta_overview(overview))
+            fallback = format_hero_meta_overview(overview)
+            try:
+                image_url = await self.image_renderer.meta_overview(overview)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"英雄环境图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
         except ValueError as exc:
             yield event.plain_result(f"参数错误：{exc}")
         except MetaDataSourceError as exc:
@@ -438,7 +450,19 @@ class MarvelRivalsPlugin(Star):
                 sort_by=args.sort_by,
                 limit=10,
             )
-            yield event.plain_result(format_hero_meta_board(board))
+            fallback = format_hero_meta_board(board)
+            try:
+                image_url = await self.image_renderer.meta_board(board)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"英雄排行图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
         except ValueError as exc:
             yield event.plain_result(f"参数错误：{exc}")
         except MetaDataSourceError as exc:
@@ -464,16 +488,26 @@ class MarvelRivalsPlugin(Star):
                 rank=args.rank,
             )
             result = board.heroes[0]
-            yield event.plain_result(
-                format_single_hero_meta(
-                    result,
-                    season_label=board.season_label,
-                    rank_label=board.rank_label,
-                    source=board.source,
-                    source_timestamp=board.source_timestamp,
-                    stale=board.stale,
-                )
+            fallback = format_single_hero_meta(
+                result,
+                season_label=board.season_label,
+                rank_label=board.rank_label,
+                source=board.source,
+                source_timestamp=board.source_timestamp,
+                stale=board.stale,
             )
+            try:
+                image_url = await self.image_renderer.meta_single(board)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"英雄统计图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
         except ValueError as exc:
             yield event.plain_result(f"参数错误：{exc}")
         except MetaDataSourceError as exc:
