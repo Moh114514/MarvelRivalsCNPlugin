@@ -89,3 +89,43 @@ class HeroMetaOverview:
     source_timestamp: datetime | None
     fetched_at: datetime
     stale: bool = False
+
+
+@dataclass(slots=True)
+class HeroMetaSegment:
+    """One hero's calculated statistics in one canonical Meta rank."""
+
+    rank_code: str
+    rank_label: str
+    result: HeroMetaResult | None
+
+
+@dataclass(slots=True)
+class HeroMetaSegments:
+    """A complete rank-by-rank view for one hero and one season."""
+
+    hero_id: int
+    hero_name: str
+    season_code: str
+    season_label: str
+    segments: list[HeroMetaSegment]
+    source: str
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False
+
+
+@dataclass(slots=True)
+class HeroMetaComparison:
+    """Two heroes calculated from the same season/rank context."""
+
+    season_code: str
+    season_label: str
+    rank_key: str
+    rank_label: str
+    left: HeroMetaResult
+    right: HeroMetaResult
+    source: str
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False

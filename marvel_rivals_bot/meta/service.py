@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..datasource.base import DataSourceError
-from ..reference.heroes import get_hero_id
-from ..reference.ranks import get_rank_label, normalize_rank
+from ..reference.heroes import get_hero_id, get_hero_name
+from ..reference.ranks import get_rank_label, normalize_rank, rank_codes
 from ..reference.seasons import (
     get_season_identity,
     season_identity_from_rivalsmeta_code,
@@ -18,7 +18,15 @@ from ..reference.seasons import (
 from .cache import CacheRecord, MetaDiskCache
 from .calculator import _sort_key, calculate_hero_results
 from .errors import MetaCacheError, MetaDataSourceError, MetaQueryError
-from .models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult, RawHeroMetaPayload
+from .models import (
+    HeroMetaBoard,
+    HeroMetaComparison,
+    HeroMetaOverview,
+    HeroMetaResult,
+    HeroMetaSegment,
+    HeroMetaSegments,
+    RawHeroMetaPayload,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -245,6 +253,110 @@ class MetaService:
             source_timestamp=board.source_timestamp,
             fetched_at=board.fetched_at,
             stale=board.stale,
+        )
+
+    async def get_hero_meta_segments(
+        self,
+        hero_name: str,
+        *,
+        season: str | None = None,
+    ) -> HeroMetaSegments:
+        """Return one hero's metrics for every canonical Meta rank.
+
+        The season payload is loaded once. Rank-specific aggregation remains
+        local so this query never creates one remote request per rank.
+        """
+
+        try:
+            hero_id = get_hero_id(hero_name)
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError(str(exc)) from exc
+
+        payload = await self.get_raw_hero_meta(season)
+        segments: list[HeroMetaSegment] = []
+        found = False
+        for rank_key in rank_codes("all"):
+            results = calculate_hero_results(
+                payload.heroes,
+                payload.bans,
+                rank=rank_key,
+                sort_by="matches",
+            )
+            result = next((item for item in results if item.hero_id == hero_id), None)
+            found = found or result is not None
+            segments.append(
+                HeroMetaSegment(
+                    rank_code=rank_key,
+                    rank_label=get_rank_label(rank_key),
+                    result=result,
+                )
+            )
+        if not found:
+            raise MetaQueryError(f"没有找到英雄“{hero_name}”的环境数据")
+
+        source_timestamp = _as_datetime(payload.source_timestamp)
+        return HeroMetaSegments(
+            hero_id=hero_id,
+            hero_name=get_hero_name(hero_id),
+            season_code=str(payload.season),
+            season_label=season_identity_from_rivalsmeta_code(payload.season).label,
+            segments=segments,
+            source=payload.source,
+            source_timestamp=source_timestamp,
+            fetched_at=payload.fetched_at or datetime.now(timezone.utc),
+            stale=payload.stale,
+        )
+
+    async def get_hero_meta_comparison(
+        self,
+        left_hero_name: str,
+        right_hero_name: str,
+        *,
+        season: str | None = None,
+        rank: str = "all",
+    ) -> HeroMetaComparison:
+        """Compare two heroes from one calculated rank context."""
+
+        try:
+            left_id = get_hero_id(left_hero_name)
+            right_id = get_hero_id(right_hero_name)
+            rank_key = normalize_rank(rank)
+            self.season_code(season)
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError(str(exc)) from exc
+        if left_id == right_id:
+            raise MetaQueryError("英雄对比需要选择两个不同的英雄")
+
+        payload = await self.get_raw_hero_meta(season)
+        results = calculate_hero_results(
+            payload.heroes,
+            payload.bans,
+            rank=rank_key,
+            sort_by="matches",
+        )
+        by_id = {item.hero_id: item for item in results}
+        left = by_id.get(left_id)
+        right = by_id.get(right_id)
+        missing = [
+            name
+            for name, result in ((left_hero_name, left), (right_hero_name, right))
+            if result is None
+        ]
+        if missing:
+            raise MetaQueryError(f"没有找到英雄“{missing[0]}”的环境数据")
+
+        source_timestamp = _as_datetime(payload.source_timestamp)
+        return HeroMetaComparison(
+            season_code=str(payload.season),
+            season_label=season_identity_from_rivalsmeta_code(payload.season).label,
+            rank_key=rank_key,
+            rank_label=get_rank_label(rank_key),
+            left=left,
+            right=right,
+            source=payload.source,
+            source_timestamp=source_timestamp,
+            fetched_at=payload.fetched_at or datetime.now(timezone.utc),
+            stale=payload.stale,
         )
 
     async def get_single_hero_meta_board(

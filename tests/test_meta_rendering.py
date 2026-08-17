@@ -4,12 +4,21 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from main import MarvelRivalsPlugin
-from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
+from marvel_rivals_bot.meta.models import (
+    HeroMetaBoard,
+    HeroMetaComparison,
+    HeroMetaOverview,
+    HeroMetaResult,
+    HeroMetaSegment,
+    HeroMetaSegments,
+)
 from qq_official.sender import QQOfficialCardSender
 from rendering import (
     MatchImageRenderer,
     build_meta_board_html,
+    build_meta_comparison_html,
     build_meta_overview_html,
+    build_meta_segments_html,
     build_meta_single_html,
 )
 
@@ -82,6 +91,45 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
             fetched_at=self.board.fetched_at,
             stale=True,
         )
+        self.segments = HeroMetaSegments(
+            hero_id=self.result.hero_id,
+            hero_name=self.result.hero_name,
+            season_code=self.board.season_code,
+            season_label=self.board.season_label,
+            segments=[
+                HeroMetaSegment("1", "青铜", None),
+                HeroMetaSegment("5", "钻石", self.result),
+            ],
+            source=self.board.source,
+            source_timestamp=self.board.source_timestamp,
+            fetched_at=self.board.fetched_at,
+            stale=True,
+        )
+        comparison_right = HeroMetaResult(
+            hero_id=1036,
+            hero_name="蜘蛛侠",
+            matches=8000,
+            wins=4000,
+            wr_matches=8000,
+            wr_wins=4000,
+            mirror_matches=10,
+            bans=20,
+            win_rate=50.0,
+            pick_rate=3.0,
+            ban_rate=1.0,
+        )
+        self.comparison = HeroMetaComparison(
+            season_code=self.board.season_code,
+            season_label=self.board.season_label,
+            rank_key=self.board.rank_key,
+            rank_label=self.board.rank_label,
+            left=self.result,
+            right=comparison_right,
+            source=self.board.source,
+            source_timestamp=self.board.source_timestamp,
+            fetched_at=self.board.fetched_at,
+            stale=True,
+        )
 
     def test_meta_pages_use_semantic_shell_and_escape_view_model_values(self):
         overview = build_meta_overview_html(self.overview)
@@ -104,6 +152,20 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("<script>", html)
         self.assertIn("—", overview)
         self.assertIn("—", single)
+
+        segments = build_meta_segments_html(self.segments)
+        comparison = build_meta_comparison_html(self.comparison)
+        for html in (segments, comparison):
+            self.assertIn('class="mr-page mr-page--portrait"', html)
+            self.assertIn("RivalsMeta", html)
+            self.assertIn("当前上游暂不可用", html)
+            self.assertNotIn("<script>", html)
+        self.assertIn("HERO BREAKDOWN", segments)
+        self.assertIn("青铜", segments)
+        self.assertIn("暂无该段位数据", segments)
+        self.assertIn("HERO COMPARISON", comparison)
+        self.assertIn("曼蒂斯", comparison)
+        self.assertIn("蜘蛛侠", comparison)
 
     def test_meta_page_escapes_untrusted_view_model_text(self):
         escaped_result = HeroMetaResult(
@@ -143,11 +205,15 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
             meta_overview=AsyncMock(return_value="overview.png"),
             meta_board=AsyncMock(return_value="board.png"),
             meta_single=AsyncMock(return_value="single.png"),
+            meta_segments=AsyncMock(return_value="segments.png"),
+            meta_comparison=AsyncMock(return_value="comparison.png"),
         )
         plugin.meta_service = SimpleNamespace(
             get_hero_meta_overview=AsyncMock(return_value=self.overview),
             get_hero_meta_board=AsyncMock(return_value=self.board),
             get_single_hero_meta_board=AsyncMock(return_value=self.board),
+            get_hero_meta_segments=AsyncMock(return_value=self.segments),
+            get_hero_meta_comparison=AsyncMock(return_value=self.comparison),
         )
         event = FakeMetaEvent()
         return [item async for item in getattr(plugin, method_name)(event, *args)], plugin, event
@@ -157,6 +223,8 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
             ("hero_meta", (), "overview.png"),
             ("hero_meta_rank", ("胜率",), "board.png"),
             ("hero_meta_stats", ("曼蒂斯",), "single.png"),
+            ("hero_meta_segments", ("曼蒂斯",), "segments.png"),
+            ("hero_meta_comparison", ("曼蒂斯", "蜘蛛侠", "铂金", "S9.5"), "comparison.png"),
         ):
             results, plugin, _ = await self._run_command(method_name, *args)
             self.assertEqual(results, [("image", expected)])
@@ -164,6 +232,8 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
                 "hero_meta": "meta_overview",
                 "hero_meta_rank": "meta_board",
                 "hero_meta_stats": "meta_single",
+                "hero_meta_segments": "meta_segments",
+                "hero_meta_comparison": "meta_comparison",
             }[method_name]).assert_awaited_once()
 
     async def test_meta_command_render_failure_falls_back_to_text(self):
@@ -190,6 +260,61 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
         self.assertIn("英雄环境", results[0][1])
         event.bot.api.post_group_message.assert_not_awaited()
 
+    async def test_new_meta_command_render_failure_falls_back_to_text(self):
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(
+            meta_segments=AsyncMock(side_effect=RuntimeError("render")),
+            meta_comparison=AsyncMock(side_effect=RuntimeError("render")),
+        )
+        plugin.meta_service = SimpleNamespace(
+            get_hero_meta_segments=AsyncMock(return_value=self.segments),
+            get_hero_meta_comparison=AsyncMock(return_value=self.comparison),
+        )
+
+        segment_results = [item async for item in plugin.hero_meta_segments(FakeMetaEvent(), "曼蒂斯", "S9.5")]
+        comparison_results = [
+            item
+            async for item in plugin.hero_meta_comparison(
+                FakeMetaEvent(), "曼蒂斯", "蜘蛛侠", "铂金", "S9.5"
+            )
+        ]
+        self.assertEqual(segment_results[0][0], "text")
+        self.assertIn("英雄分段", segment_results[0][1])
+        self.assertEqual(comparison_results[0][0], "text")
+        self.assertIn("英雄对比", comparison_results[0][1])
+
+    async def test_new_meta_comparison_qq_upload_failure_falls_back_to_text(self):
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(meta_comparison=AsyncMock(return_value="comparison.png"))
+        plugin.meta_service = SimpleNamespace(get_hero_meta_comparison=AsyncMock(return_value=self.comparison))
+        event = FakeQQMetaEvent(upload_error=RuntimeError("media rejected"))
+
+        results = [
+            item
+            async for item in plugin.hero_meta_comparison(
+                event, "S9.5", "铂金", "曼蒂斯", "蜘蛛侠"
+            )
+        ]
+        self.assertEqual(results[0][0], "text")
+        self.assertIn("英雄对比", results[0][1])
+        event.bot.api.post_group_message.assert_not_awaited()
+
+    async def test_new_meta_segments_qq_upload_failure_falls_back_to_text(self):
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.image_renderer = SimpleNamespace(meta_segments=AsyncMock(return_value="segments.png"))
+        plugin.meta_service = SimpleNamespace(get_hero_meta_segments=AsyncMock(return_value=self.segments))
+        event = FakeQQMetaEvent(upload_error=RuntimeError("media rejected"))
+
+        results = [
+            item async for item in plugin.hero_meta_segments(event, "S9.5", "曼蒂斯")
+        ]
+        self.assertEqual(results[0][0], "text")
+        self.assertIn("英雄分段", results[0][1])
+        event.bot.api.post_group_message.assert_not_awaited()
+
 
 class TestMetaRenderer(unittest.IsolatedAsyncioTestCase):
     async def test_renderer_uses_png_options_for_all_meta_pages(self):
@@ -208,8 +333,20 @@ class TestMetaRenderer(unittest.IsolatedAsyncioTestCase):
         await renderer.meta_overview(overview)
         await renderer.meta_board(board)
         await renderer.meta_single(board)
+        segments = HeroMetaSegments(
+            1020, "曼蒂斯", "19", "S9下半赛季",
+            [HeroMetaSegment("1", "青铜", result)], "RivalsMeta", None,
+            datetime.now(timezone.utc),
+        )
+        comparison = HeroMetaComparison(
+            "19", "S9下半赛季", "all", "全段位", result,
+            HeroMetaResult(2, "蜘蛛侠", 10, 5, 10, 5, 0, 0, 50.0, 1.0, 0.0),
+            "RivalsMeta", None, datetime.now(timezone.utc),
+        )
+        await renderer.meta_segments(segments)
+        await renderer.meta_comparison(comparison)
 
-        self.assertEqual(html_render.await_count, 3)
+        self.assertEqual(html_render.await_count, 5)
         for call in html_render.await_args_list:
             self.assertEqual(call.kwargs["options"]["type"], "png")
             self.assertTrue(call.kwargs["options"]["full_page"])

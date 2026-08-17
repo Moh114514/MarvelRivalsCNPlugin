@@ -201,6 +201,35 @@ class TestMetaService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.hero_id, 1020)
         self.assertEqual(result.matches, 150)
 
+    async def test_segments_use_canonical_rank_order_and_one_payload(self):
+        result = await self.service.get_hero_meta_segments("曼蒂斯", season="S9.5")
+        self.assertEqual(self.source.calls, ["19"])
+        self.assertEqual(
+            [item.rank_code for item in result.segments],
+            ["1", "2", "3", "4", "5", "6", "9", "7", "8"],
+        )
+        self.assertEqual(result.segments[4].rank_label, "钻石")
+        self.assertEqual(result.segments[4].result.matches, 100)
+        self.assertIsNone(result.segments[0].result)
+        self.assertIsNone(result.segments[5].result.ban_rate)
+
+    async def test_comparison_uses_same_rank_and_preserves_requested_order(self):
+        result = await self.service.get_hero_meta_comparison(
+            "蜘蛛侠", "曼蒂斯", season="S9.5", rank="钻石"
+        )
+        self.assertEqual(self.source.calls, ["19"])
+        self.assertEqual(result.rank_label, "钻石")
+        self.assertEqual(result.left.hero_name, "蜘蛛侠")
+        self.assertEqual(result.right.hero_name, "曼蒂斯")
+        self.assertEqual(result.left.matches, 50)
+        self.assertEqual(result.right.matches, 100)
+        self.assertEqual(result.left.ban_rate, 0.0)
+        self.assertEqual(result.right.ban_rate, 200.0)
+
+    async def test_comparison_rejects_duplicate_heroes(self):
+        with self.assertRaisesRegex(MetaQueryError, "两个不同"):
+            await self.service.get_hero_meta_comparison("曼蒂斯", "曼蒂斯")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,17 +6,29 @@ from typing import Awaitable, Callable
 
 try:
     from ..marvel_rivals_bot.models import HeroQueryResult, PlayerStats
-    from ..marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview
+    from ..marvel_rivals_bot.meta.models import (
+        HeroMetaBoard,
+        HeroMetaComparison,
+        HeroMetaOverview,
+        HeroMetaSegments,
+    )
 except ImportError:
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
-    from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview
+    from marvel_rivals_bot.meta.models import (
+        HeroMetaBoard,
+        HeroMetaComparison,
+        HeroMetaOverview,
+        HeroMetaSegments,
+    )
 
 from .pages import (
     build_help_html,
     build_hero_query_html,
     build_match_detail_html,
     build_meta_board_html,
+    build_meta_comparison_html,
     build_meta_overview_html,
+    build_meta_segments_html,
     build_meta_single_html,
     build_player_stats_html,
     build_recent_matches_html,
@@ -52,6 +64,12 @@ class RivalsImageRenderer:
 
     async def meta_single(self, board: HeroMetaBoard) -> str:
         return await self._html_render(build_meta_single_html(board), {}, options=PNG_OPTIONS)
+
+    async def meta_segments(self, segments: HeroMetaSegments) -> str:
+        return await self._html_render(build_meta_segments_html(segments), {}, options=PNG_OPTIONS)
+
+    async def meta_comparison(self, comparison: HeroMetaComparison) -> str:
+        return await self._html_render(build_meta_comparison_html(comparison), {}, options=PNG_OPTIONS)
 
 
 # Keep the old public name stable while callers migrate to the semantic name.

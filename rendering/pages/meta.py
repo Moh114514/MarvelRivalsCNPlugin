@@ -6,9 +6,21 @@ from datetime import datetime
 from typing import Any, Iterable
 
 try:
-    from ...marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
+    from ...marvel_rivals_bot.meta.models import (
+        HeroMetaBoard,
+        HeroMetaComparison,
+        HeroMetaOverview,
+        HeroMetaResult,
+        HeroMetaSegments,
+    )
 except ImportError:
-    from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
+    from marvel_rivals_bot.meta.models import (
+        HeroMetaBoard,
+        HeroMetaComparison,
+        HeroMetaOverview,
+        HeroMetaResult,
+        HeroMetaSegments,
+    )
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
 from ..formatters import escape_text
@@ -167,3 +179,93 @@ def build_meta_single_html(board: HeroMetaBoard) -> str:
         + sample
     )
     return page_shell(content, watermark="HERO META")
+
+
+def _segment_row(index: int, segment: Any) -> str:
+    result = segment.result
+    if result is None:
+        return (
+            '<article class="mr-meta-row mr-meta-row--empty">'
+            f'<span class="mr-meta-row__index">{_value(f"{index:02d}")}</span>'
+            '<div class="mr-meta-row__body">'
+            f'<strong class="mr-meta-row__title">{_value(segment.rank_label)}</strong>'
+            '<span class="mr-meta-row__detail">暂无该段位数据</span>'
+            '</div><strong class="mr-meta-row__value">—</strong></article>'
+        )
+    detail = (
+        f'胜率 {_percent(result.win_rate)} · '
+        f'选取率 {_percent(result.pick_rate)} · '
+        f'Ban率 {_percent(result.ban_rate)}'
+    )
+    return (
+        '<article class="mr-meta-row">'
+        f'<span class="mr-meta-row__index">{_value(f"{index:02d}")}</span>'
+        '<div class="mr-meta-row__body">'
+        f'<strong class="mr-meta-row__title">{_value(segment.rank_label)}</strong>'
+        f'<span class="mr-meta-row__detail">{escape_text(detail)} · 场次 {_count(result.matches)}</span>'
+        '</div>'
+        f'<strong class="mr-meta-row__value">{_percent(result.win_rate)}</strong>'
+        '</article>'
+    )
+
+
+def build_meta_segments_html(segments: HeroMetaSegments) -> str:
+    rows = ''.join(
+        _segment_row(index, segment)
+        for index, segment in enumerate(segments.segments, 1)
+    ) or empty_state("暂无该英雄分段数据")
+    content = (
+        page_header(
+            "HERO BREAKDOWN",
+            "英雄分段",
+            segments.season_label,
+            title_cn=segments.hero_name,
+            eyebrow="MR // META",
+            meta_items=[("范围", "九段位"), ("来源", segments.source)],
+        )
+        + _source_line(segments)
+        + '<section class="mr-section mr-meta-section">'
+        + section_title("段位环境", "RANK BREAKDOWN")
+        + f'<div class="mr-meta-list">{rows}</div>'
+        + '</section>'
+    )
+    return page_shell(content, watermark="HERO BREAKDOWN")
+
+
+def _comparison_metric(label: str, left: str, right: str) -> str:
+    return (
+        '<div class="mr-meta-source mr-meta-comparison-row">'
+        f'<span>{_value(label)}</span>'
+        f'<strong>{_value(left)}</strong>'
+        f'<strong>{_value(right)}</strong>'
+        '</div>'
+    )
+
+
+def build_meta_comparison_html(comparison: HeroMetaComparison) -> str:
+    left, right = comparison.left, comparison.right
+    body = (
+        '<div class="mr-meta-source mr-meta-comparison-head">'
+        f'<strong>{_value(left.hero_name)}</strong><span>VS</span><strong>{_value(right.hero_name)}</strong>'
+        '</div>'
+        + _comparison_metric("胜率", _percent(left.win_rate), _percent(right.win_rate))
+        + _comparison_metric("选取率", _percent(left.pick_rate), _percent(right.pick_rate))
+        + _comparison_metric("Ban率", _percent(left.ban_rate), _percent(right.ban_rate))
+        + _comparison_metric("场次", _count(left.matches), _count(right.matches))
+    )
+    content = (
+        page_header(
+            "HERO COMPARISON",
+            "英雄对比",
+            comparison.season_label,
+            title_cn=f"{left.hero_name} VS {right.hero_name}",
+            eyebrow="MR // META",
+            meta_items=[("段位", comparison.rank_label), ("来源", comparison.source)],
+        )
+        + _source_line(comparison)
+        + '<section class="mr-section mr-meta-section">'
+        + section_title("数据对比", "COMPARISON")
+        + body
+        + '</section>'
+    )
+    return page_shell(content, watermark="HERO COMPARISON")

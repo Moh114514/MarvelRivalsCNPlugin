@@ -68,6 +68,22 @@ class TestMetaCommandArguments(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "无法识别参数"):
             parse_meta_command_args("曼蒂斯", "胜率", require_sort=True)
 
+    def test_comparison_requires_two_heroes_and_keeps_context_order_independent(self):
+        result = parse_meta_command_args(
+            "S9.5", "铂金", "蜘蛛侠", "黑豹", require_hero_count=2, allow_sort=False
+        )
+        self.assertEqual(result.hero_names, ("蜘蛛侠", "黑豹"))
+        self.assertEqual(result.rank, "4")
+        self.assertEqual(result.season, "S9.5")
+        with self.assertRaisesRegex(ValueError, "2个"):
+            parse_meta_command_args("蜘蛛侠", require_hero_count=2, allow_sort=False)
+
+    def test_segments_reject_rank_filter(self):
+        with self.assertRaisesRegex(ValueError, "不接受段位"):
+            parse_meta_command_args(
+                "蜘蛛侠", "大师", require_hero=True, allow_sort=False, allow_rank=False
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

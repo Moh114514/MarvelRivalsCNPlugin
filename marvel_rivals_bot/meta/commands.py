@@ -34,6 +34,7 @@ SORT_ALIASES = {
 @dataclass(slots=True)
 class MetaCommandArgs:
     hero_name: str | None = None
+    hero_names: tuple[str, ...] = ()
     season: str | None = None
     rank: str = "all"
     sort_by: str = "win_rate"
@@ -45,8 +46,10 @@ _SEASON_RE = re.compile(r"^[sS](?:0|[1-9]\d*(?:\.5|上半赛季|下半赛季)?)$
 def parse_meta_command_args(
     *parts: str,
     require_hero: bool = False,
+    require_hero_count: int | None = None,
     allow_sort: bool = True,
     require_sort: bool = False,
+    allow_rank: bool = True,
 ) -> MetaCommandArgs:
     tokens: list[str] = []
     for part in parts:
@@ -79,15 +82,26 @@ def parse_meta_command_args(
         except ValueError:
             remaining.append(token)
         else:
+            if not allow_rank:
+                raise MetaCommandError("该命令不接受段位筛选")
             if rank_seen:
                 raise MetaCommandError("只能指定一个段位")
             rank_seen = True
             result.rank = rank_key
 
-    if remaining:
+    if require_hero_count is not None:
+        if require_hero_count < 1:
+            raise MetaCommandError("英雄数量配置无效")
+        if len(remaining) != require_hero_count:
+            raise MetaCommandError(f"请提供{require_hero_count}个不同的英雄中文名称")
+        result.hero_names = tuple(remaining)
+        if require_hero_count == 1:
+            result.hero_name = remaining[0]
+    elif remaining:
         if not require_hero:
             raise MetaCommandError(f"无法识别参数：{' '.join(remaining)}")
         result.hero_name = " ".join(remaining)
+        result.hero_names = (result.hero_name,)
     if require_hero and not result.hero_name:
         raise MetaCommandError("请提供英雄中文名称，例如：曼蒂斯")
     if require_sort and not sort_seen:

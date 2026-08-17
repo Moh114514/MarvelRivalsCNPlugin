@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
+from .models import (
+    HeroMetaBoard,
+    HeroMetaComparison,
+    HeroMetaOverview,
+    HeroMetaResult,
+    HeroMetaSegments,
+)
 
 
 def _percent(value: float | None) -> str:
@@ -93,4 +99,49 @@ def format_single_hero_meta(result: HeroMetaResult, *, season_label: str, rank_l
     )
     if stale:
         lines.append("当前上游暂不可用，展示最近缓存数据")
+    return "\n".join(lines)
+
+
+def format_hero_meta_segments(segments: HeroMetaSegments) -> str:
+    """Format a hero's metrics in canonical rank order."""
+
+    lines = [f"英雄分段 | {segments.hero_name} | {segments.season_label}"]
+    lines.append(f"数据来源：{segments.source}")
+    lines.append(f"更新时间：{_timestamp(segments.source_timestamp)}")
+    if segments.stale:
+        lines.append("当前上游暂不可用，展示最近缓存数据")
+    lines.extend(("", "段位        胜率       选取率      Ban率       场次"))
+    for segment in segments.segments:
+        result = segment.result
+        if result is None:
+            lines.append(f"{segment.rank_label:<8} 暂无数据")
+            continue
+        lines.append(
+            f"{segment.rank_label:<8} "
+            f"{_percent(result.win_rate):>8} "
+            f"{_percent(result.pick_rate):>10} "
+            f"{_percent(result.ban_rate):>10} "
+            f"{result.matches:,}"
+        )
+    return "\n".join(lines)
+
+
+def format_hero_meta_comparison(comparison: HeroMetaComparison) -> str:
+    """Format two heroes without recomputing any metric in presentation."""
+
+    left, right = comparison.left, comparison.right
+    lines = [f"英雄对比 | {comparison.season_label} | {comparison.rank_label}"]
+    lines.append(f"数据来源：{comparison.source}")
+    lines.append(f"更新时间：{_timestamp(comparison.source_timestamp)}")
+    if comparison.stale:
+        lines.append("当前上游暂不可用，展示最近缓存数据")
+    lines.extend(("", f"{left.hero_name}  VS  {right.hero_name}", ""))
+    lines.extend(
+        (
+            f"胜率：{_percent(left.win_rate)}  VS  {_percent(right.win_rate)}",
+            f"选取率：{_percent(left.pick_rate)}  VS  {_percent(right.pick_rate)}",
+            f"Ban率：{_percent(left.ban_rate)}  VS  {_percent(right.ban_rate)}",
+            f"场次：{left.matches:,}  VS  {right.matches:,}",
+        )
+    )
     return "\n".join(lines)

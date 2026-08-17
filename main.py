@@ -12,7 +12,13 @@ try:
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from .marvel_rivals_bot.meta.commands import parse_meta_command_args
     from .marvel_rivals_bot.meta.errors import MetaDataSourceError
-    from .marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_hero_meta_overview, format_single_hero_meta
+    from .marvel_rivals_bot.meta.formatters import (
+        format_hero_meta_board,
+        format_hero_meta_comparison,
+        format_hero_meta_overview,
+        format_hero_meta_segments,
+        format_single_hero_meta,
+    )
     from .marvel_rivals_bot.meta.service import MetaService
     from .marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
     from .qq_official import (
@@ -29,7 +35,13 @@ except ImportError:
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from marvel_rivals_bot.meta.commands import parse_meta_command_args
     from marvel_rivals_bot.meta.errors import MetaDataSourceError
-    from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_hero_meta_overview, format_single_hero_meta
+    from marvel_rivals_bot.meta.formatters import (
+        format_hero_meta_board,
+        format_hero_meta_comparison,
+        format_hero_meta_overview,
+        format_hero_meta_segments,
+        format_single_hero_meta,
+    )
     from marvel_rivals_bot.meta.service import MetaService
     from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
     from qq_official import (
@@ -59,7 +71,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.4", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.5", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -98,6 +110,12 @@ class MarvelRivalsPlugin(Star):
 
 /英雄统计 <英雄名称> [段位] [赛季]
 查询单个英雄的全局环境数据（不接受排序指标；默认生成图片）
+
+/英雄分段 <英雄名称> [赛季]
+查询一个英雄在九个大段位中的环境数据（默认生成图片）
+
+/英雄对比 <英雄1> <英雄2> [段位] [赛季]
+对比同一环境中的两个英雄（默认生成图片）
 
 段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
@@ -501,6 +519,89 @@ class MarvelRivalsPlugin(Star):
             except Exception as exc:
                 if logger:
                     logger.warning(f"英雄统计图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("英雄分段")
+    async def hero_meta_segments(self, event: AstrMessageEvent, arg1: str = "", arg2: str = "", arg3: str = ""):
+        """查询一个英雄在九个 Meta 大段位中的环境数据，不接受段位筛选。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_meta_command_args(
+                arg1,
+                arg2,
+                arg3,
+                require_hero=True,
+                allow_sort=False,
+                allow_rank=False,
+            )
+            segments = await self.meta_service.get_hero_meta_segments(
+                args.hero_name or "",
+                season=args.season,
+            )
+            fallback = format_hero_meta_segments(segments)
+            try:
+                image_url = await self.image_renderer.meta_segments(segments)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"英雄分段图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("英雄对比")
+    async def hero_meta_comparison(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+        arg4: str = "",
+    ):
+        """对比同一赛季和段位中的两个中文英雄，不接受排序指标。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_meta_command_args(
+                arg1,
+                arg2,
+                arg3,
+                arg4,
+                require_hero_count=2,
+                allow_sort=False,
+            )
+            comparison = await self.meta_service.get_hero_meta_comparison(
+                args.hero_names[0],
+                args.hero_names[1],
+                season=args.season,
+                rank=args.rank,
+            )
+            fallback = format_hero_meta_comparison(comparison)
+            try:
+                image_url = await self.image_renderer.meta_comparison(comparison)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"英雄对比图片渲染失败，回退普通文本：{exc}")
                 yield event.plain_result(fallback)
                 return
             if self.qq_card_sender.supports(event):

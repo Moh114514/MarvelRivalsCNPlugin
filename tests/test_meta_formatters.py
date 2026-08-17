@@ -1,8 +1,21 @@
 import unittest
 from datetime import datetime, timezone
 
-from marvel_rivals_bot.meta.formatters import format_hero_meta_board, format_hero_meta_overview, format_single_hero_meta
-from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaOverview, HeroMetaResult
+from marvel_rivals_bot.meta.formatters import (
+    format_hero_meta_board,
+    format_hero_meta_comparison,
+    format_hero_meta_overview,
+    format_hero_meta_segments,
+    format_single_hero_meta,
+)
+from marvel_rivals_bot.meta.models import (
+    HeroMetaBoard,
+    HeroMetaComparison,
+    HeroMetaOverview,
+    HeroMetaResult,
+    HeroMetaSegment,
+    HeroMetaSegments,
+)
 
 
 class TestMetaFormatters(unittest.TestCase):
@@ -70,6 +83,55 @@ class TestMetaFormatters(unittest.TestCase):
             self.assertIn(heading, text)
         self.assertNotIn("场次 TOP5", text)
         self.assertIn("当前英雄环境", text)
+
+    def test_segments_formatter_keeps_missing_rank_data_explicit(self):
+        segments = HeroMetaSegments(
+            hero_id=1020,
+            hero_name="曼蒂斯",
+            season_code="19",
+            season_label="S9下半赛季",
+            segments=[
+                HeroMetaSegment("1", "青铜", None),
+                HeroMetaSegment("5", "钻石", self.result),
+            ],
+            source="RivalsMeta",
+            source_timestamp=1720000000,
+            fetched_at=datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc),
+        )
+        text = format_hero_meta_segments(segments)
+        self.assertIn("英雄分段", text)
+        self.assertIn("青铜", text)
+        self.assertIn("暂无数据", text)
+        self.assertIn("钻石", text)
+
+    def test_comparison_formatter_contains_both_view_model_results(self):
+        right = HeroMetaResult(
+            hero_id=1036,
+            hero_name="蜘蛛侠",
+            matches=200,
+            wins=100,
+            wr_matches=200,
+            wr_wins=100,
+            mirror_matches=0,
+            bans=5,
+            win_rate=50.0,
+            pick_rate=4.0,
+            ban_rate=1.0,
+        )
+        comparison = HeroMetaComparison(
+            season_code="19",
+            season_label="S9下半赛季",
+            rank_key="5",
+            rank_label="钻石",
+            left=self.result,
+            right=right,
+            source="RivalsMeta",
+            source_timestamp=1720000000,
+            fetched_at=datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc),
+        )
+        text = format_hero_meta_comparison(comparison)
+        self.assertIn("曼蒂斯  VS  蜘蛛侠", text)
+        self.assertIn("胜率：55.55%  VS  50.00%", text)
 
 
 if __name__ == "__main__":
