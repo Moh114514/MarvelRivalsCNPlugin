@@ -88,7 +88,7 @@ class PlayerMetaProfile:
     hero_pool: tuple[PlayerHeroMetaComparison, ...] = field(default_factory=tuple)
     signature_heroes: tuple[PlayerHeroMetaComparison, ...] = field(default_factory=tuple)
     minimum_matches: int = 20
-    minimum_ranked_matches: int = 10
+    minimum_ranked_matches: int = 5
 
     @property
     def minimum_competitive_matches(self) -> int:

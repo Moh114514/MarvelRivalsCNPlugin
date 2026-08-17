@@ -105,8 +105,19 @@ class TestPlayerMetaService(unittest.IsolatedAsyncioTestCase):
         profile = await self.service.get_player_signature("123", minimum_matches=1, minimum_ranked_matches=1)
         self.assertEqual([item.hero_id for item in profile.signature_heroes], ["1036", "1020"])
         self.assertEqual(profile.minimum_matches, 1)
-        self.assertEqual(profile.minimum_ranked_matches, 10)
+        self.assertEqual(profile.minimum_ranked_matches, 5)
         self.assertAlmostEqual(profile.signature_heroes[0].win_rate_delta, 35.0)
+
+    async def test_signature_accepts_five_competitive_matches(self):
+        self.rivals.stats.heroes = [PlayerHeroStats(
+            hero_id="1020",
+            hero_name="英雄A",
+            quick=ModeStats(matches=0, wins=0),
+            competitive=ModeStats(matches=5, wins=4, win_rate=80.0),
+        )]
+        profile = await self.service.get_player_signature("123", minimum_matches=5)
+        self.assertEqual([item.hero_id for item in profile.signature_heroes], ["1020"])
+        self.assertEqual(profile.minimum_ranked_matches, 5)
 
     async def test_unknown_rank_is_user_safe(self):
         self.rivals.stats.profile.rank_level = None

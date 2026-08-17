@@ -85,7 +85,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.9", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.10", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -139,7 +139,7 @@ class MarvelRivalsPlugin(Star):
 按快速与竞技总场次查看英雄池，并核对竞技表现
 
 /我的绝活 [UID] [赛季] [最低总场次]
-查看满足总场次、竞技场次和同段位表现要求的英雄；可用数字参数调整最低总场次，默认 20
+查看满足总场次、竞技至少 5 场和同段位表现要求的英雄；可用数字参数调整最低总场次，默认 20
 """
 
     def __init__(self, context: Context, config=None):
