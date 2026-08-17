@@ -61,14 +61,14 @@ class TestMetaFormatters(unittest.TestCase):
             win_rate=[self.result],
             pick_rate=[self.result],
             ban_rate=[self.result],
-            matches=[self.result],
             source="RivalsMeta",
             source_timestamp=1720000000,
             fetched_at=datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc),
         )
         text = format_hero_meta_overview(overview)
-        for heading in ("胜率 TOP5", "选取率 TOP5", "Ban率 TOP5", "场次 TOP5"):
+        for heading in ("胜率 TOP5", "选取率 TOP5", "Ban率 TOP5"):
             self.assertIn(heading, text)
+        self.assertNotIn("场次 TOP5", text)
         self.assertIn("当前英雄环境", text)
 
 

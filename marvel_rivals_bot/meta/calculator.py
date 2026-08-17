@@ -65,18 +65,27 @@ def aggregate_hero_stats(
 def aggregate_ban_stats(
     buckets: Sequence[RawBanRankBucket] | None, rank: str | int = "all"
 ) -> tuple[list[RawBanStat], bool]:
-    """Aggregate ban counts and report whether all selected buckets exist."""
+    """Aggregate ban counts and report whether usable selected data exists.
+
+    RivalsMeta currently omits the Bronze and Silver ban buckets. Its explicit
+    All Ranks response is therefore still usable when the available ban
+    buckets are aggregated, while a single rank or composite query remains
+    unavailable unless every requested bucket is present.
+    """
 
     if buckets is None:
         return [], False
     counts: dict[int | None, int] = defaultdict(int)
-    selected_codes = set(rank_codes(rank))
-    selected_buckets = _selected(buckets, rank)
+    rank_key = normalize_rank(rank)
+    selected_codes = set(rank_codes(rank_key))
+    selected_buckets = _selected(buckets, rank_key)
     for bucket in selected_buckets:
         for row in bucket.bans:
             counts[row.hero_id] += row.bans
     available_codes = {str(bucket.rank_code) for bucket in buckets}
-    complete = selected_codes.issubset(available_codes)
+    complete = bool(selected_buckets) and (
+        rank_key == "all" or selected_codes.issubset(available_codes)
+    )
     return [RawBanStat(hero_id=hero_id, bans=bans) for hero_id, bans in counts.items()], complete
 
 

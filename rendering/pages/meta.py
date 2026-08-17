@@ -107,7 +107,6 @@ def build_meta_overview_html(overview: HeroMetaOverview) -> str:
         + _metric_section("胜率 TOP5", "win_rate", overview.win_rate)
         + _metric_section("选取率 TOP5", "pick_rate", overview.pick_rate)
         + _metric_section("Ban率 TOP5", "ban_rate", overview.ban_rate)
-        + _metric_section("场次 TOP5", "matches", overview.matches)
     )
     return page_shell(content, watermark="CURRENT META")
 

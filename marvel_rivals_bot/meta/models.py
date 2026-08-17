@@ -85,7 +85,6 @@ class HeroMetaOverview:
     win_rate: list[HeroMetaResult]
     pick_rate: list[HeroMetaResult]
     ban_rate: list[HeroMetaResult]
-    matches: list[HeroMetaResult]
     source: str
     source_timestamp: datetime | None
     fetched_at: datetime

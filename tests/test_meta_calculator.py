@@ -50,6 +50,30 @@ class TestMetaCalculator(unittest.TestCase):
         self.assertIsNone(result[0].bans)
         self.assertIsNone(result[0].ban_rate)
 
+    def test_all_ranks_aggregates_available_ban_buckets(self):
+        heroes = [
+            hero_bucket(1, RawHeroMetaStat(1020, 10, 5, 10, 5, 0)),
+            hero_bucket(
+                3,
+                RawHeroMetaStat(1020, 20, 10, 20, 10, 0),
+                RawHeroMetaStat(1021, 20, 10, 20, 10, 0),
+            ),
+        ]
+        bans = [
+            RawBanRankBucket(
+                "3",
+                [RawBanStat(1020, 5), RawBanStat(1021, 5)],
+            )
+        ]
+
+        result = calculate_hero_results(heroes, bans, rank="all", sort_by="ban_rate")
+
+        self.assertEqual(result[0].hero_id, 1020)
+        self.assertEqual(result[0].bans, 5)
+        self.assertAlmostEqual(result[0].ban_rate, 100.0)
+        self.assertEqual(result[1].hero_id, 1021)
+        self.assertAlmostEqual(result[1].ban_rate, 100.0)
+
     def test_missing_bans_is_distinct_from_empty_existing_bucket(self):
         heroes = [hero_bucket(1, RawHeroMetaStat(1020, 1, 1, 1, 1, 0))]
         missing = calculate_hero_results(heroes, None, rank="1")

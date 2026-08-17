@@ -77,7 +77,6 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
             win_rate=[self.result],
             pick_rate=[self.result],
             ban_rate=[self.result],
-            matches=[self.result],
             source="RivalsMeta",
             source_timestamp=self.board.source_timestamp,
             fetched_at=self.board.fetched_at,
@@ -91,8 +90,9 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("CURRENT META", overview)
         self.assertIn("当前英雄环境", overview)
-        for heading in ("胜率 TOP5", "选取率 TOP5", "Ban率 TOP5", "场次 TOP5"):
+        for heading in ("胜率 TOP5", "选取率 TOP5", "Ban率 TOP5"):
             self.assertIn(heading, overview)
+        self.assertNotIn("场次 TOP5", overview)
         self.assertIn("HERO RANKING", board)
         self.assertIn("英雄排行", board)
         self.assertIn("HERO META", single)
@@ -201,7 +201,7 @@ class TestMetaRenderer(unittest.IsolatedAsyncioTestCase):
             datetime.now(timezone.utc),
         )
         overview = HeroMetaOverview(
-            "19", "S9下半赛季", "all", "全段位", [result], [result], [result], [result],
+            "19", "S9下半赛季", "all", "全段位", [result], [result], [result],
             "RivalsMeta", None, datetime.now(timezone.utc),
         )
 

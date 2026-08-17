@@ -241,7 +241,6 @@ class MetaService:
             win_rate=top("win_rate"),
             pick_rate=top("pick_rate"),
             ban_rate=top("ban_rate"),
-            matches=top("matches"),
             source=board.source,
             source_timestamp=board.source_timestamp,
             fetched_at=board.fetched_at,

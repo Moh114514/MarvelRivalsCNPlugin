@@ -65,7 +65,6 @@ def format_hero_meta_overview(overview: HeroMetaOverview) -> str:
         ("胜率 TOP5", overview.win_rate, "胜率", "win_rate"),
         ("选取率 TOP5", overview.pick_rate, "选取率", "pick_rate"),
         ("Ban率 TOP5", overview.ban_rate, "Ban率", "ban_rate"),
-        ("场次 TOP5", overview.matches, "场次", "matches"),
     )
     if not any(items for _, items, _, _ in sections):
         lines.append("没有可用的英雄环境数据。")

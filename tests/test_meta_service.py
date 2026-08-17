@@ -99,7 +99,6 @@ class TestMetaService(unittest.IsolatedAsyncioTestCase):
         overview = await self.service.get_hero_meta_overview(season="S9", rank="钻石")
         self.assertEqual(overview.season_label, "S9下半赛季")
         self.assertEqual(overview.win_rate[0].hero_id, 1020)
-        self.assertEqual(overview.matches[0].hero_id, 1020)
         self.assertEqual(overview.ban_rate[0].hero_id, 1020)
 
     async def test_overview_sorts_each_metric_independently(self):
@@ -142,7 +141,6 @@ class TestMetaService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview.win_rate[0].hero_id, 1020)
         self.assertEqual(overview.pick_rate[0].hero_id, 1036)
         self.assertEqual(overview.ban_rate[0].hero_id, 1023)
-        self.assertEqual(overview.matches[0].hero_id, 1036)
 
     async def test_memory_cache_avoids_second_remote_fetch(self):
         with self.assertLogs("marvel_rivals_bot.meta.service", level=logging.INFO) as logs:

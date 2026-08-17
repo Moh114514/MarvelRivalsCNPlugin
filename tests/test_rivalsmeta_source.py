@@ -39,6 +39,9 @@ class TestRivalsMetaSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(seen[0].url), "https://rivalsmeta.com/api/heroes/stats?season=18")
         self.assertEqual(result.season, 18)
         self.assertEqual(result.heroes[0].heroes[0].matches, 1020)
+        self.assertEqual(result.bans[0].rank_code, "6")
+        self.assertEqual(result.bans[0].bans[0].hero_id, 1020)
+        self.assertEqual(result.bans[0].bans[0].bans, 2)
         self.assertEqual(result.raw["maps"], payload()["maps"])
         self.assertIsNotNone(result.fetched_at)
 
