@@ -40,11 +40,10 @@ class TestRenderingArchitecture(unittest.TestCase):
         self.assertNotIn("<value>", html)
         self.assertNotIn("{{danger}}", html)
         self.assertIn('class="mr-metric__value">-</b>', html)
-        self.assertIn('class="mr-page mr-page--portrait"', html)
+        self.assertIn('class="mr-page"', html)
         self.assertIn('class="mr-page__background"', html)
         self.assertNotIn("width:1040px", html)
         self.assertIn("width:100vw", html)
-        self.assertIn("min-height:max(100vh,125vw)", html)
         self.assertEqual(escape_text("<unsafe>"), "&lt;unsafe&gt;")
 
 

@@ -66,4 +66,4 @@ def build_help_html(help_text: str) -> str:
         + note_html
         + '</section>'
     )
-    return page_shell(content, watermark="COMMAND GUIDE", layout="landscape")
+    return page_shell(content, watermark="COMMAND GUIDE")

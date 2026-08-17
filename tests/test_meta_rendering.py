@@ -146,7 +146,7 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
         self.assertIn("HERO META", single)
         self.assertIn("英雄统计", single)
         for html in (overview, board, single):
-            self.assertIn('class="mr-page mr-page--portrait"', html)
+            self.assertIn('class="mr-page"', html)
             self.assertIn("RivalsMeta", html)
             self.assertIn("当前上游暂不可用", html)
             self.assertNotIn("<script>", html)
@@ -156,16 +156,20 @@ class TestMetaRendering(unittest.IsolatedAsyncioTestCase):
         segments = build_meta_segments_html(self.segments)
         comparison = build_meta_comparison_html(self.comparison)
         for html in (segments, comparison):
-            self.assertIn('class="mr-page mr-page--portrait"', html)
+            self.assertIn('class="mr-page"', html)
             self.assertIn("RivalsMeta", html)
             self.assertIn("当前上游暂不可用", html)
             self.assertNotIn("<script>", html)
         self.assertIn("HERO BREAKDOWN", segments)
         self.assertIn("青铜", segments)
         self.assertIn("暂无该段位数据", segments)
+        self.assertIn('class="mr-meta-list mr-meta-list--rank-breakdown"', segments)
         self.assertIn("HERO COMPARISON", comparison)
         self.assertIn("曼蒂斯", comparison)
         self.assertIn("蜘蛛侠", comparison)
+        self.assertIn('class="mr-comparison"', comparison)
+        self.assertIn('class="mr-comparison__value mr-comparison__value--left"', comparison)
+        self.assertIn('class="mr-comparison__label"', comparison)
 
     def test_meta_page_escapes_untrusted_view_model_text(self):
         escaped_result = HeroMetaResult(

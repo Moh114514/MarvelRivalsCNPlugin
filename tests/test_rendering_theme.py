@@ -35,7 +35,7 @@ class TestRenderingTheme(unittest.TestCase):
             'class="mr-command-list"',
             'class="mr-help-note"',
             'data-watermark="COMMAND GUIDE"',
-            'class="mr-page mr-page--landscape"',
+            'class="mr-page"',
         ):
             self.assertIn(marker, html)
         self.assertNotIn("<script>", html)
@@ -46,7 +46,8 @@ class TestRenderingTheme(unittest.TestCase):
         for feature in (
             ".mr-page__background", ".mr-page__slash", ".mr-header__nameplate",
             ".mr-hero-row__index", "grid-auto-flow:column", "grid-template-rows:repeat(5,minmax(0,auto))",
-            "data-watermark", "clip-path", "@media (max-width:520px)",
+            ".mr-meta-list--rank-breakdown", ".mr-comparison__row", "data-watermark", "clip-path",
+            "@media (max-width:520px)",
         ):
             self.assertIn(feature, STYLE)
 
@@ -63,7 +64,7 @@ class TestRenderingTheme(unittest.TestCase):
             season="19",
         ))
         for marker in (
-            'class="mr-page mr-page--portrait"',
+            'class="mr-page"',
             'class="mr-header"',
             'class="mr-metrics"',
             'class="mr-hero-list"',

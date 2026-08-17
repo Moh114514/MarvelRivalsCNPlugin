@@ -226,7 +226,7 @@ def build_meta_segments_html(segments: HeroMetaSegments) -> str:
         + _source_line(segments)
         + '<section class="mr-section mr-meta-section">'
         + section_title("段位环境", "RANK BREAKDOWN")
-        + f'<div class="mr-meta-list">{rows}</div>'
+        + f'<div class="mr-meta-list mr-meta-list--rank-breakdown">{rows}</div>'
         + '</section>'
     )
     return page_shell(content, watermark="HERO BREAKDOWN")
@@ -234,10 +234,10 @@ def build_meta_segments_html(segments: HeroMetaSegments) -> str:
 
 def _comparison_metric(label: str, left: str, right: str) -> str:
     return (
-        '<div class="mr-meta-source mr-meta-comparison-row">'
-        f'<span>{_value(label)}</span>'
-        f'<strong>{_value(left)}</strong>'
-        f'<strong>{_value(right)}</strong>'
+        '<div class="mr-comparison__row">'
+        f'<strong class="mr-comparison__value mr-comparison__value--left">{_value(left)}</strong>'
+        f'<span class="mr-comparison__label">{_value(label)}</span>'
+        f'<strong class="mr-comparison__value mr-comparison__value--right">{_value(right)}</strong>'
         '</div>'
     )
 
@@ -245,13 +245,24 @@ def _comparison_metric(label: str, left: str, right: str) -> str:
 def build_meta_comparison_html(comparison: HeroMetaComparison) -> str:
     left, right = comparison.left, comparison.right
     body = (
-        '<div class="mr-meta-source mr-meta-comparison-head">'
-        f'<strong>{_value(left.hero_name)}</strong><span>VS</span><strong>{_value(right.hero_name)}</strong>'
+        '<div class="mr-comparison">'
+        '<div class="mr-comparison__heads">'
+        '<div class="mr-comparison__hero mr-comparison__hero--left">'
+        '<span class="mr-comparison__tag">A</span>'
+        f'<strong>{_value(left.hero_name)}</strong>'
         '</div>'
+        '<div class="mr-comparison__vs">VS</div>'
+        '<div class="mr-comparison__hero mr-comparison__hero--right">'
+        '<span class="mr-comparison__tag">B</span>'
+        f'<strong>{_value(right.hero_name)}</strong>'
+        '</div>'
+        '</div>'
+        '<div class="mr-comparison__metrics">'
         + _comparison_metric("胜率", _percent(left.win_rate), _percent(right.win_rate))
         + _comparison_metric("选取率", _percent(left.pick_rate), _percent(right.pick_rate))
         + _comparison_metric("Ban率", _percent(left.ban_rate), _percent(right.ban_rate))
         + _comparison_metric("场次", _count(left.matches), _count(right.matches))
+        + '</div></div>'
     )
     content = (
         page_header(
