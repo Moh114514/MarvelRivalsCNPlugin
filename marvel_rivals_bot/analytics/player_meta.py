@@ -39,7 +39,19 @@ class PlayerMetaService:
     ) -> PlayerMetaProfile:
         if self.meta_service is None:
             raise PlayerMetaQueryError("当前未启用英雄环境功能")
-        stats = await self.rivals_service.get_player_stats(uid, season)
+        if include_hero_pool or include_signature:
+            stats = await self.rivals_service.get_player_stats(uid, season)
+        else:
+            profile_loader = getattr(self.rivals_service, "get_player_profile", None)
+            if callable(profile_loader):
+                profile = await profile_loader(uid, season)
+                season_code_loader = getattr(self.rivals_service, "season_code", None)
+                season_code = season_code_loader(season) if callable(season_code_loader) else str(season or "")
+                stats = PlayerStats(profile=profile, season=season_code)
+            else:
+                # Compatibility fallback for lightweight integrations written
+                # before the profile-only source method was introduced.
+                stats = await self.rivals_service.get_player_stats(uid, season)
         rank_level, cn_rank_label, meta_rank_code = self._resolve_rank(stats)
         board = await self.meta_service.get_hero_meta_board(
             season=stats.season,
@@ -61,10 +73,9 @@ class PlayerMetaService:
             )
         signature = ()
         if include_signature:
-            # The V1 command intentionally has no user-controlled threshold.
-            # Keep the keyword arguments for compatibility with integrations,
-            # but always apply the product gates here.
-            threshold = DEFAULT_SIGNATURE_MIN_MATCHES
+            # The competitive gate remains a product rule; the total-match
+            # threshold may be overridden by the numeric command argument.
+            threshold = self._minimum_matches(minimum_matches)
             ranked_threshold = DEFAULT_SIGNATURE_MIN_RANKED_MATCHES
             signature = tuple(
                 item
@@ -81,8 +92,13 @@ class PlayerMetaService:
                 sorted(
                     signature,
                     key=lambda item: (
-                        item.win_rate_delta is not None,
-                        item.win_rate_delta if item.win_rate_delta is not None else float("-inf"),
+                        item.competitive_win_rate_delta is not None,
+                        (
+                            item.competitive_win_rate_delta
+                            if item.competitive_win_rate_delta is not None
+                            else float("-inf")
+                        ),
+                        item.competitive_matches or 0,
                         item.total_matches,
                     ),
                     reverse=True,
@@ -110,7 +126,7 @@ class PlayerMetaService:
             environment=environment,
             hero_pool=hero_pool,
             signature_heroes=signature,
-            minimum_matches=DEFAULT_SIGNATURE_MIN_MATCHES if include_signature else self._minimum_matches(minimum_matches),
+            minimum_matches=threshold if include_signature else self._minimum_matches(minimum_matches),
             minimum_ranked_matches=DEFAULT_SIGNATURE_MIN_RANKED_MATCHES if include_signature else self._minimum_matches(minimum_ranked_matches),
         )
 
@@ -212,20 +228,17 @@ class PlayerMetaService:
                 PlayerHeroMetaComparison(
                     hero_id=str(hero.hero_id),
                     hero_name=hero.hero_name,
-                    personal_matches=total_matches,
-                    personal_wins=ranked_wins,
-                    personal_win_rate=ranked_rate,
+                    total_matches=total_matches,
+                    quick_matches=quick_matches,
+                    competitive_matches=ranked_matches,
+                    competitive_wins=ranked_wins,
+                    competitive_win_rate=ranked_rate,
+                    competitive_share=(ranked_matches * 100 / total_matches) if total_matches else None,
                     meta_matches=meta.matches if meta is not None else None,
                     meta_win_rate=meta_rate,
                     meta_pick_rate=meta.pick_rate if meta is not None else None,
                     meta_ban_rate=meta.ban_rate if meta is not None else None,
-                    win_rate_delta=delta,
-                    total_matches=total_matches,
-                    quick_matches=quick_matches,
-                    ranked_matches=ranked_matches,
-                    ranked_wins=ranked_wins,
-                    ranked_win_rate=ranked_rate,
-                    ranked_share=(ranked_matches * 100 / total_matches) if total_matches else None,
+                    competitive_win_rate_delta=delta,
                 )
             )
         return rows
@@ -237,7 +250,7 @@ class PlayerMetaService:
         if isinstance(hero, PlayerHeroStats) or hasattr(hero, "ranked"):
             total_matches = int(getattr(hero, "total_matches", 0) or 0)
             quick = getattr(hero, "quick", None)
-            ranked = getattr(hero, "ranked", None)
+            ranked = getattr(hero, "competitive", getattr(hero, "ranked", None))
             quick_matches = int(getattr(quick, "matches", 0) or 0)
             ranked_matches = int(getattr(ranked, "matches", 0) or 0)
             ranked_wins = getattr(ranked, "wins", None)

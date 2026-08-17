@@ -15,7 +15,18 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             if request.url.path == "/api/role/loadByRoleId":
                 calls.append((request.url.path, dict(request.url.params)))
                 return httpx.Response(200, json={"data": {"roleId": "195963667", "roleName": "Noir"}})
-            calls.append((request.url.path, json.loads(request.content)))
+            body = json.loads(request.content)
+            calls.append((request.url.path, body))
+            if request.url.path == "/api/game/player/loadCareer":
+                values = (8, 5) if body["gameModeId"] == 1 else (12, 7)
+                return httpx.Response(200, json={"data": {
+                    "totalMatchCount": values[0], "totalMatchWinCount": values[1],
+                }})
+            if request.url.path == "/api/game/player/loadSortHero":
+                matches, wins = (8, 5) if body["gameModeId"] == 1 else (12, 7)
+                return httpx.Response(200, json={"data": {
+                    "heroes": [{"heroId": "1", "heroName": "月光骑士", "matchCount": matches, "winCount": wins}],
+                }})
             responses = {
                 "/api/game/player/loadData": {"data": {"name": "Noir", "level": 33, "rankGameSeason": "钻石 I"}},
                 "/api/game/player/loadSummary": {"data": {"totalMatchCount": 20, "totalMatchWinCount": 12, "k": 100, "d": 50, "a": 80}},
@@ -33,7 +44,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.profile.name, "Noir")
         self.assertEqual(stats.summary.win_rate, 60)
         self.assertEqual(stats.heroes[0].hero_name, "月光骑士")
-        self.assertEqual(stats.heroes[0].kills, 42)
+        self.assertEqual(stats.heroes[0].matches, 20)
         self.assertEqual(calls[0][1], {"roleId": "195963667"})
         self.assertEqual(calls[1][1], {"aid": "195963667", "zoneId": 16001})
 
@@ -126,6 +137,17 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/loadByRoleId"):
                 return httpx.Response(200, json={"data": {"roleId": 195963667}})
+            if request.url.path.endswith("/loadCareer"):
+                body = json.loads(request.content)
+                if body["gameModeId"] == 1:
+                    data = {"totalWinCount": 6, "totalMatchCount": 12, "k": 100, "d": 40, "a": 80}
+                else:
+                    data = {"totalWinCount": 8, "totalMatchCount": 15, "k": 286, "d": 77, "a": 204}
+                return httpx.Response(200, json={"data": data})
+            if request.url.path.endswith("/loadSortHero"):
+                body = json.loads(request.content)
+                data = {"heros": [{"heroId": 1066, "totalPlayTime": 4338.3, "k": 186}]} if body["gameModeId"] == 1 else {"heros": [{"heroId": 1066}]}
+                return httpx.Response(200, json={"data": data})
             return httpx.Response(200, json=responses[request.url.path])
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -136,13 +158,10 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.heroes[0].hero_id, "1066")
         self.assertEqual(stats.heroes[0].hero_name, "红兜帽")
         self.assertEqual(stats.heroes[0].play_time_seconds, 4338.3)
-        self.assertEqual(stats.heroes[0].matches, 10)
-        self.assertEqual(stats.heroes[0].wins, 7)
+        self.assertIsNone(stats.heroes[0].matches)
         self.assertEqual(stats.heroes[0].kills, 186)
 
-    async def test_career_array_and_top_ten_heroes_are_normalized(self):
-        requested_hero_ids = []
-
+    async def test_career_array_and_mode_heroes_are_normalized(self):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/loadByRoleId"):
                 return httpx.Response(200, json={"data": {"roleId": 1287101468}})
@@ -150,17 +169,20 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             if request.url.path.endswith("/loadData"):
                 data = {"aid": 1287101468}
             elif request.url.path.endswith("/loadCareer"):
-                data = {"career": None, "careers": [{
-                    "playerUid": 1287101468, "totalMatchCount": 27,
-                    "totalMatchWinCount": 14, "k": 386, "d": 117, "a": 284,
-                }]}
+                if body["gameModeId"] == 1:
+                    data = {"career": None, "careers": [{
+                        "playerUid": 1287101468, "totalMatchCount": 12,
+                        "totalMatchWinCount": 6, "k": 180, "d": 50, "a": 100,
+                    }]}
+                else:
+                    data = {"career": None, "careers": [{
+                        "playerUid": 1287101468, "totalMatchCount": 15,
+                        "totalMatchWinCount": 8, "k": 206, "d": 67, "a": 184,
+                    }]}
             elif request.url.path.endswith("/loadSortHero"):
-                data = {"heros": [{"heroId": hero_id} for hero_id in range(1001, 1013)]}
-            elif request.url.path.endswith("/loadHeroCareer"):
-                requested_hero_ids.extend(body["heroIdList"])
-                data = {"careers": [
-                    {"heroId": hero_id, "totalMatchCount": 1, "totalMatchWinCount": 1}
-                    for hero_id in body["heroIdList"]
+                data = {"heros": [
+                    {"heroId": hero_id, "matchCount": 1, "winCount": 1}
+                    for hero_id in range(1001, 1013)
                 ]}
             else:
                 data = {}
@@ -173,14 +195,13 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((stats.summary.matches, stats.summary.wins), (27, 14))
         self.assertEqual((stats.summary.kills, stats.summary.deaths, stats.summary.assists), (386, 117, 284))
         self.assertAlmostEqual(stats.summary.win_rate, 14 * 100 / 27)
-        self.assertEqual(requested_hero_ids, list(range(1001, 1011)) * 3)
-        self.assertTrue(all(hero.matches == 1 for hero in stats.heroes[:10]))
-        self.assertTrue(all(hero.quick.matches == 1 for hero in stats.heroes[:10]))
-        self.assertTrue(all(hero.ranked.matches == 1 for hero in stats.heroes[:10]))
+        self.assertEqual(len(stats.heroes), 12)
+        self.assertTrue(all(hero.matches == 2 for hero in stats.heroes))
+        self.assertTrue(all(hero.quick.matches == 1 for hero in stats.heroes))
+        self.assertTrue(all(hero.ranked.matches == 1 for hero in stats.heroes))
 
-    async def test_quick_and_ranked_scopes_use_separate_request_filters(self):
+    async def test_quick_and_competitive_scopes_use_scalar_request_filters(self):
         career_filters = []
-        hero_filters = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/loadByRoleId"):
@@ -190,17 +211,14 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             if path.endswith("/loadData"):
                 data = {"aid": 1287101468, "name": "Tester"}
             elif path.endswith("/loadCareer"):
-                mode = body.get("gameModeId", {}).get("$in", [1, 2])
+                mode = body["gameModeId"]
                 career_filters.append(mode)
-                values = {(1,): (12, 6), (2,): (8, 5), (1, 2): (20, 11)}[tuple(mode)]
+                values = {1: (12, 6), 2: (8, 5)}[mode]
                 data = {"totalMatchCount": values[0], "totalMatchWinCount": values[1]}
             elif path.endswith("/loadSortHero"):
-                data = {"heros": [{"heroId": 1066}]}
-            elif path.endswith("/loadHeroCareer"):
-                mode = body.get("gameModeId", {}).get("$in", [1, 2])
-                hero_filters.append(mode)
-                values = {(1,): (12, 6), (2,): (8, 5), (1, 2): (20, 11)}[tuple(mode)]
-                data = {"careers": [{"heroId": 1066, "totalMatchCount": values[0], "totalMatchWinCount": values[1]}]}
+                mode = body["gameModeId"]
+                values = {1: (12, 6), 2: (8, 5)}[mode]
+                data = {"heros": [{"heroId": 1066, "matchCount": values[0], "winCount": values[1]}]}
             else:
                 data = {}
             return httpx.Response(200, json={"data": data})
@@ -209,8 +227,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
             stats = await source.get_player("1287101468")
 
-        self.assertEqual(career_filters, [[1, 2], [1], [2]])
-        self.assertEqual(hero_filters, [[1, 2], [1], [2]])
+        self.assertEqual(career_filters, [1, 2])
         self.assertEqual((stats.summary.matches, stats.summary.quick.matches, stats.summary.ranked.matches), (20, 12, 8))
         hero = stats.heroes[0]
         self.assertEqual((hero.total_matches, hero.quick.matches, hero.ranked.matches), (20, 12, 8))
@@ -228,9 +245,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
             if request.url.path.endswith("/loadData"):
                 data = {"aid": 1287101468, "rankGameSeason": json.dumps(rank_seasons)}
             elif request.url.path.endswith("/loadSortHero"):
-                data = {"heros": [{"heroId": 1066}]}
-            elif request.url.path.endswith("/loadHeroCareer"):
-                data = {"careers": [{"heroId": 1066, "totalMatchCount": 9, "totalMatchWinCount": 6, "k": 123}]}
+                data = {"heros": [{"heroId": 1066, "k": 123}]} if body["gameModeId"] == 1 else {"heros": [{"heroId": 1066}]}
             else:
                 data = {}
             return httpx.Response(200, json={"data": data})

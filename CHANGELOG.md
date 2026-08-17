@@ -4,8 +4,10 @@
 
 ## [0.14.7] - 2026-08-17
 
+- CN player statistics now send explicit scalar `gameModeId` values (`1` quick, `2` competitive) with `playModeId=0`; career, sorted-hero, and hero-career data are merged by hero ID only after mode-specific requests.
+
 - 重构个人数据口径：`/查询` 同时展示快速、竞技和总计数据，`/英雄数据` 增加总计使用量、竞技详细数据和快速摘要。
-- `/我的英雄池` 按快速 + 竞技总场次排序，并使用竞技数据与同段位 Meta 对比；`/我的绝活` 固定要求总场次至少 20、竞技场次至少 10 且竞技胜率高于同段位 Meta。
+- `/我的英雄池` 按快速 + 竞技总场次排序，并使用竞技数据与同段位 Meta 对比；`/我的绝活` 默认要求总场次至少 20（可用数字参数调整）、竞技场次至少 10 且竞技胜率高于同段位 Meta。
 - `/战绩` 保留为兼容别名；`/最近对局`、`/我的环境` 和全局 Meta 命令的统计口径保持不变。
 
 ## [0.14.6] - 2026-08-17

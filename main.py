@@ -138,8 +138,8 @@ class MarvelRivalsPlugin(Star):
 /我的英雄池 [赛季]
 按快速与竞技总场次查看英雄池，并核对竞技表现
 
-/我的绝活 [赛季]
-查看满足总场次、竞技场次和同段位表现要求的英雄
+/我的绝活 [赛季] [最低总场次]
+查看满足总场次、竞技场次和同段位表现要求的英雄；可用数字参数调整最低总场次，默认 20
 """
 
     def __init__(self, context: Context, config=None):
@@ -707,7 +707,7 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的绝活")
     async def my_signature(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """查询个人英雄胜率高于同段位环境的英雄。"""
+        """查询个人英雄胜率高于同段位环境的英雄，可用数字参数调整最低总场次。"""
         if self.player_meta_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
@@ -716,11 +716,11 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result("请先使用 /绑定账号 <UID>")
             return
         try:
-            args = parse_player_meta_args(arg1, arg2)
-            profile = await self.player_meta_service.get_player_signature(
-                uid,
-                season=args.season,
-            )
+            args = parse_player_meta_args(arg1, arg2, allow_minimum_matches=True)
+            signature_kwargs = {"season": args.season}
+            if any(str(part).strip().isdigit() for part in (arg1, arg2)):
+                signature_kwargs["minimum_matches"] = args.minimum_matches
+            profile = await self.player_meta_service.get_player_signature(uid, **signature_kwargs)
             fallback = format_player_signature(profile)
             try:
                 image_url = await self.image_renderer.player_signature(profile)

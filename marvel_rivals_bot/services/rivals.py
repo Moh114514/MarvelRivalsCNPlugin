@@ -7,7 +7,7 @@ from typing import TypeVar
 from ..datasource.base import DataSourceError, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..reference.heroes import format_hero_name, get_hero_id
-from ..models import HeroQueryResult, ModeStats, PlayerStats
+from ..models import HeroQueryResult, ModeStats, PlayerProfile, PlayerStats
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
 from ..reference.seasons import season_identity_from_cn_code, season_identity_from_name
@@ -34,6 +34,7 @@ class RivalsService:
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
         self._player_cache: dict[str, tuple[float, PlayerStats]] = {}
+        self._profile_cache: dict[str, tuple[float, PlayerProfile]] = {}
         self._matches_cache: dict[str, tuple[float, list[dict]]] = {}
         self._hero_cache: dict[str, tuple[float, HeroQueryResult]] = {}
         self._match_detail_cache: dict[str, tuple[float, dict]] = {}
@@ -50,6 +51,22 @@ class RivalsService:
 
     async def player_text(self, uid: str, season: str | None = None) -> str:
         return format_player(await self.get_player_stats(uid, season))
+
+    async def get_player_profile(self, uid: str, season: str | None = None) -> PlayerProfile:
+        """Load only identity and current rank context for Meta commands."""
+
+        season_code = self._season_code(season)
+        cache_key = f"{uid}:{season_code}:profile"
+        cached = self._cached(self._profile_cache, cache_key)
+        if cached is not None:
+            return cached
+        loader = getattr(self.source, "get_player_profile", None)
+        if callable(loader):
+            profile = await loader(uid, season_code)
+        else:
+            profile = (await self.source.get_player(uid, season_code)).profile
+        self._profile_cache[cache_key] = (time.monotonic(), profile)
+        return profile
 
     async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
         season_code = self._season_code(season)

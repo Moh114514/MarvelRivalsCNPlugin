@@ -147,19 +147,24 @@
     "default": "/api/game/player/loadSummary"
   },
   "MRCN_HERO_BODY_TEMPLATE": {
-    "description": "Hero request JSON template. Use {hero_ids}, {season} and {player_uid} placeholders.",
+    "description": "Hero request JSON template. Use {hero_ids}, {season}, {game_mode_id}, {play_mode_id} and {player_uid} placeholders.",
     "type": "string",
-    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":{\"$in\":[1,2]},\"playModeId\":{\"$in\":[0,7,8]},\"playerUid\":{player_uid}}"
+    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":{game_mode_id},\"playModeId\":{play_mode_id},\"playerUid\":{player_uid}}"
   },
   "MRCN_HERO_QUICK_BODY_TEMPLATE": {
     "description": "Quick-play hero request JSON template. Use {hero_ids}, {season} and {player_uid} placeholders.",
     "type": "string",
-    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":{\"$in\":[1]},\"playModeId\":{\"$in\":[0,7,8]},\"playerUid\":{player_uid}}"
+    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":1,\"playModeId\":0,\"playerUid\":{player_uid}}"
   },
   "MRCN_HERO_RANKED_BODY_TEMPLATE": {
     "description": "Competitive hero request JSON template. Use {hero_ids}, {season} and {player_uid} placeholders.",
     "type": "string",
-    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":{\"$in\":[2]},\"playModeId\":{\"$in\":[0,7,8]},\"playerUid\":{player_uid}}"
+    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":2,\"playModeId\":0,\"playerUid\":{player_uid}}"
+  },
+  "MRCN_HERO_COMPETITIVE_BODY_TEMPLATE": {
+    "description": "Competitive hero request JSON template. Use {hero_ids}, {season} and {player_uid}.",
+    "type": "string",
+    "default": "{\"heroIdList\":{hero_ids},\"matchSeason\":\"{season}\",\"gameModeId\":2,\"playModeId\":0,\"playerUid\":{player_uid}}"
   },
   "MRCN_DATA_BODY_TEMPLATE": {
     "description": "loadData request JSON template. Use {player_uid}.",
@@ -172,24 +177,44 @@
     "default": "{\"matchSeason\":{\"$eq\":\"{season}\"},\"gameModeId\":{\"$in\":[1,2,4]},\"playModeId\":{\"$in\":[0,7,8]},\"page\":0,\"pageSize\":10,\"playerUid\":{player_uid}}"
   },
   "MRCN_CAREER_BODY_TEMPLATE": {
-    "description": "Career request JSON template. Use {season} and {player_uid}.",
+    "description": "Career request JSON template. Use {season}, {game_mode_id}, {play_mode_id} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":{\"$in\":[1,2]},\"playModeId\":{\"$in\":[0,7,8]},\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":{game_mode_id},\"playModeId\":{play_mode_id},\"playerUid\":{player_uid}}"
   },
   "MRCN_CAREER_QUICK_BODY_TEMPLATE": {
     "description": "Quick-play career request JSON template. Use {season} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":{\"$in\":[1]},\"playModeId\":{\"$in\":[0,7,8]},\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":1,\"playModeId\":0,\"playerUid\":{player_uid}}"
   },
   "MRCN_CAREER_RANKED_BODY_TEMPLATE": {
     "description": "Competitive career request JSON template. Use {season} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":{\"$in\":[2]},\"playModeId\":{\"$in\":[0,7,8]},\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":2,\"playModeId\":0,\"playerUid\":{player_uid}}"
+  },
+  "MRCN_CAREER_COMPETITIVE_BODY_TEMPLATE": {
+    "description": "Competitive career request JSON template. Use {season} and {player_uid}.",
+    "type": "string",
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":2,\"playModeId\":0,\"playerUid\":{player_uid}}"
   },
   "MRCN_SORT_HERO_BODY_TEMPLATE": {
-    "description": "Sorted heroes request JSON template. Use {season} and {player_uid}.",
+    "description": "Sorted heroes request JSON template. Use {season}, {game_mode_id}, {play_mode_id} and {player_uid}.",
     "type": "string",
-    "default": "{\"matchSeason\":\"{season}\",\"playerUid\":{player_uid}}"
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":{game_mode_id},\"playModeId\":{play_mode_id},\"playerUid\":{player_uid}}"
+  },
+  "MRCN_SORT_HERO_QUICK_BODY_TEMPLATE": {
+    "description": "Quick-play sorted heroes request JSON template. Use {season} and {player_uid}.",
+    "type": "string",
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":1,\"playModeId\":0,\"playerUid\":{player_uid}}"
+  },
+  "MRCN_SORT_HERO_RANKED_BODY_TEMPLATE": {
+    "description": "Competitive sorted heroes request JSON template. Use {season} and {player_uid}.",
+    "type": "string",
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":2,\"playModeId\":0,\"playerUid\":{player_uid}}"
+  },
+  "MRCN_SORT_HERO_COMPETITIVE_BODY_TEMPLATE": {
+    "description": "Competitive sorted heroes request JSON template. Use {season} and {player_uid}.",
+    "type": "string",
+    "default": "{\"matchSeason\":\"{season}\",\"gameModeId\":2,\"playModeId\":0,\"playerUid\":{player_uid}}"
   },
   "MRCN_SUMMARY_DETAIL_BODY_TEMPLATE": {
     "description": "Match detail request JSON template. Use {match_uids}.",

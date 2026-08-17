@@ -238,6 +238,10 @@ python tools/release.py --build dist/astrbot_plugin_marvel_rivals-v<version>.zip
 版本需要同步更新 `metadata.yaml`、`main.py` 的 `@register` 和 `pyproject.toml`。请勿提交 Token、Cookie、授权头、抓包文件、原始响应、`.env.capture`、本地数据库或代理证书。
 ## Player × Meta
 
+CN 生涯、常用英雄和单英雄接口分别请求快速（`gameModeId=1`）与竞技（`gameModeId=2`）模式，统一使用 `playModeId=0`；对应请求体支持 `*_QUICK_BODY_TEMPLATE`、`*_COMPETITIVE_BODY_TEMPLATE`，旧 `*_RANKED_BODY_TEMPLATE` 仍兼容。
+
+`/我的绝活` 保留现有可选数字参数：它表示本赛季最低总使用场次（默认 `20`）；竞技场次仍固定要求至少 `10`，且竞技胜率必须高于对应段位 Meta 胜率。
+
 已绑定账号后，可使用以下命令把国服个人数据与同段位 RivalsMeta 环境结合：
 
 ```text
@@ -246,6 +250,6 @@ python tools/release.py --build dist/astrbot_plugin_marvel_rivals-v<version>.zip
 /我的绝活 [赛季]
 ```
 
-`/我的环境` 根据绑定账号的当前国服段位自动匹配 Meta 大段位，不混入个人英雄数据；`/我的英雄池` 按快速 + 竞技总场次排序，分别展示总场次、快速场次、竞技场次、竞技占比，并用竞技胜率对比同段位 Meta；`/我的绝活` 使用固定规则筛选：总场次至少 20、竞技场次至少 10，且竞技胜率高于同段位 Meta，只展示符合条件的英雄。结果会标明 RivalsMeta 来源、更新时间和缓存状态。
+`/我的环境` 根据绑定账号的当前国服段位自动匹配 Meta 大段位，不混入个人英雄数据；`/我的英雄池` 按快速 + 竞技总场次排序，分别展示总场次、快速场次、竞技场次、竞技占比，并用竞技胜率对比同段位 Meta；`/我的绝活` 默认要求总场次至少 20（可用数字参数调整）、竞技场次至少 10，且竞技胜率高于同段位 Meta，只展示符合条件的英雄。结果会标明 RivalsMeta 来源、更新时间和缓存状态。
 
 个人数据口径如下：`/查询` 展示快速、竞技和两者合计；`/英雄数据` 展示总计使用量、竞技详细数据和快速摘要；`/最近对局` 保持现有快速 + 竞技 + 其他已接入队列的混合时间线，不作为英雄池或绝活的统计口径。`/战绩` 仍保留为兼容旧命令的别名，但不再作为正式帮助入口。
