@@ -7,7 +7,7 @@ from rendering.pages.player import build_player_stats_html
 from rendering.pages.recent import build_recent_matches_html
 from rendering.asset_loader import APPROVED_ASSETS, LIST_FRAME_URI, PART_NEWS_BACKGROUND_URI
 from rendering.theme import STYLE
-from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, PlayerProfile, PlayerStats
+from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 
 
 class TestRenderingTheme(unittest.TestCase):
@@ -132,6 +132,24 @@ class TestRenderingTheme(unittest.TestCase):
         self.assertIn("HERO DATA", hero)
         self.assertIn('class="mr-empty"', hero)
         self.assertIn("暂无该英雄的生涯数据", hero)
+
+        scoped = build_hero_query_html(HeroQueryResult(
+            uid="123",
+            hero_id="1066",
+            hero_name="红兜帽",
+            season="19",
+            stats=PlayerHeroStats(
+                hero_id="1066",
+                hero_name="红兜帽",
+                total_matches=30,
+                total_wins=18,
+                quick=ModeStats(matches=20, wins=10, win_rate=50.0),
+                ranked=ModeStats(matches=10, wins=8, win_rate=80.0),
+            ),
+        ))
+        self.assertIn("RANKED DETAILS", scoped)
+        self.assertIn("QUICK SUMMARY", scoped)
+        self.assertIn("总计场次", scoped)
 
         recent = build_recent_matches_html("<script>{{danger}}</script>", "19", [])
         self.assertNotIn("<script>", recent)

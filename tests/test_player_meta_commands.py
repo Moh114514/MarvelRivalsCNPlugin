@@ -40,13 +40,13 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
         event = FakeEvent()
         environment = [item async for item in plugin.my_environment(event, "S9.5", "")]
         pool = [item async for item in plugin.my_hero_pool(event, "S9.5", "")]
-        signature = [item async for item in plugin.my_signature(event, "20", "S9.5")]
+        signature = [item async for item in plugin.my_signature(event, "S9.5", "")]
         self.assertEqual(environment, [("image", "environment.png")])
         self.assertEqual(pool, [("image", "pool.png")])
         self.assertEqual(signature, [("image", "signature.png")])
         plugin.player_meta_service.get_player_environment.assert_awaited_once_with("123", season="S9.5")
         plugin.player_meta_service.get_player_signature.assert_awaited_once_with(
-            "123", season="S9.5", minimum_matches=20,
+            "123", season="S9.5",
         )
 
     async def test_missing_binding_is_explicit(self):

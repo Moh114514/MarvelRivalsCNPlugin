@@ -173,8 +173,48 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((stats.summary.matches, stats.summary.wins), (27, 14))
         self.assertEqual((stats.summary.kills, stats.summary.deaths, stats.summary.assists), (386, 117, 284))
         self.assertAlmostEqual(stats.summary.win_rate, 14 * 100 / 27)
-        self.assertEqual(requested_hero_ids, list(range(1001, 1011)))
+        self.assertEqual(requested_hero_ids, list(range(1001, 1011)) * 3)
         self.assertTrue(all(hero.matches == 1 for hero in stats.heroes[:10]))
+        self.assertTrue(all(hero.quick.matches == 1 for hero in stats.heroes[:10]))
+        self.assertTrue(all(hero.ranked.matches == 1 for hero in stats.heroes[:10]))
+
+    async def test_quick_and_ranked_scopes_use_separate_request_filters(self):
+        career_filters = []
+        hero_filters = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/loadByRoleId"):
+                return httpx.Response(200, json={"data": {"roleId": 1287101468}})
+            body = json.loads(request.content)
+            path = request.url.path
+            if path.endswith("/loadData"):
+                data = {"aid": 1287101468, "name": "Tester"}
+            elif path.endswith("/loadCareer"):
+                mode = body.get("gameModeId", {}).get("$in", [1, 2])
+                career_filters.append(mode)
+                values = {(1,): (12, 6), (2,): (8, 5), (1, 2): (20, 11)}[tuple(mode)]
+                data = {"totalMatchCount": values[0], "totalMatchWinCount": values[1]}
+            elif path.endswith("/loadSortHero"):
+                data = {"heros": [{"heroId": 1066}]}
+            elif path.endswith("/loadHeroCareer"):
+                mode = body.get("gameModeId", {}).get("$in", [1, 2])
+                hero_filters.append(mode)
+                values = {(1,): (12, 6), (2,): (8, 5), (1, 2): (20, 11)}[tuple(mode)]
+                data = {"careers": [{"heroId": 1066, "totalMatchCount": values[0], "totalMatchWinCount": values[1]}]}
+            else:
+                data = {}
+            return httpx.Response(200, json={"data": data})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            source = CNDataSource(client=client, env={"MRCN_API_BASE_URL": "https://example.test"})
+            stats = await source.get_player("1287101468")
+
+        self.assertEqual(career_filters, [[1, 2], [1], [2]])
+        self.assertEqual(hero_filters, [[1, 2], [1], [2]])
+        self.assertEqual((stats.summary.matches, stats.summary.quick.matches, stats.summary.ranked.matches), (20, 12, 8))
+        hero = stats.heroes[0]
+        self.assertEqual((hero.total_matches, hero.quick.matches, hero.ranked.matches), (20, 12, 8))
+        self.assertEqual(hero.ranked.wins, 5)
 
     async def test_historical_season_is_sent_and_rank_is_mapped(self):
         calls = []

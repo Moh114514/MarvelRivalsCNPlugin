@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..models import HeroStat, PlayerStats
+from ..models import HeroStat, PlayerHeroStats, PlayerStats
 from ..reference.ranks import CN_RANK_LEVEL_MAP, meta_rank_from_cn_level
 from .models import PlayerHeroMetaComparison, PlayerMetaProfile
 
@@ -15,6 +15,7 @@ class PlayerMetaQueryError(ValueError):
 
 
 DEFAULT_SIGNATURE_MIN_MATCHES = 20
+DEFAULT_SIGNATURE_MIN_RANKED_MATCHES = 10
 
 
 class PlayerMetaService:
@@ -31,6 +32,7 @@ class PlayerMetaService:
         season: str | None = None,
         hero_limit: int = 10,
         minimum_matches: int = DEFAULT_SIGNATURE_MIN_MATCHES,
+        minimum_ranked_matches: int = DEFAULT_SIGNATURE_MIN_RANKED_MATCHES,
         include_environment: bool = False,
         include_hero_pool: bool = False,
         include_signature: bool = False,
@@ -59,11 +61,21 @@ class PlayerMetaService:
             )
         signature = ()
         if include_signature:
-            threshold = self._minimum_matches(minimum_matches)
+            # The V1 command intentionally has no user-controlled threshold.
+            # Keep the keyword arguments for compatibility with integrations,
+            # but always apply the product gates here.
+            threshold = DEFAULT_SIGNATURE_MIN_MATCHES
+            ranked_threshold = DEFAULT_SIGNATURE_MIN_RANKED_MATCHES
             signature = tuple(
                 item
                 for item in hero_pool
-                if item.personal_matches >= threshold
+                if (
+                    item.total_matches >= threshold
+                    and item.ranked_matches >= ranked_threshold
+                    and item.ranked_win_rate is not None
+                    and item.meta_win_rate is not None
+                    and item.ranked_win_rate > item.meta_win_rate
+                )
             )
             signature = tuple(
                 sorted(
@@ -71,7 +83,7 @@ class PlayerMetaService:
                     key=lambda item: (
                         item.win_rate_delta is not None,
                         item.win_rate_delta if item.win_rate_delta is not None else float("-inf"),
-                        item.personal_matches,
+                        item.total_matches,
                     ),
                     reverse=True,
                 )
@@ -80,7 +92,7 @@ class PlayerMetaService:
             raise PlayerMetaQueryError("没有可用于比较的个人英雄数据")
         if include_signature and not signature:
             raise PlayerMetaQueryError(
-                f"没有达到最低 {self._minimum_matches(minimum_matches)} 场的个人英雄数据"
+                "没有同时满足总场次、竞技场次和同段位 Meta 胜率要求的英雄"
             )
         return PlayerMetaProfile(
             uid=stats.profile.uid,
@@ -98,7 +110,8 @@ class PlayerMetaService:
             environment=environment,
             hero_pool=hero_pool,
             signature_heroes=signature,
-            minimum_matches=self._minimum_matches(minimum_matches),
+            minimum_matches=DEFAULT_SIGNATURE_MIN_MATCHES if include_signature else self._minimum_matches(minimum_matches),
+            minimum_ranked_matches=DEFAULT_SIGNATURE_MIN_RANKED_MATCHES if include_signature else self._minimum_matches(minimum_ranked_matches),
         )
 
     async def get_player_environment(self, uid: str, *, season: str | None = None) -> PlayerMetaProfile:
@@ -124,6 +137,7 @@ class PlayerMetaService:
         *,
         season: str | None = None,
         minimum_matches: int = DEFAULT_SIGNATURE_MIN_MATCHES,
+        minimum_ranked_matches: int = DEFAULT_SIGNATURE_MIN_RANKED_MATCHES,
         hero_limit: int = 10,
     ) -> PlayerMetaProfile:
         return await self.get_player_meta_profile(
@@ -131,6 +145,7 @@ class PlayerMetaService:
             season=season,
             hero_limit=hero_limit,
             minimum_matches=minimum_matches,
+            minimum_ranked_matches=minimum_ranked_matches,
             include_signature=True,
         )
 
@@ -173,7 +188,7 @@ class PlayerMetaService:
 
     @staticmethod
     def _compare_heroes(
-        heroes: list[HeroStat],
+        heroes: list[PlayerHeroStats | HeroStat],
         meta_results,
         limit: int,
     ) -> list[PlayerHeroMetaComparison]:
@@ -182,38 +197,66 @@ class PlayerMetaService:
         except (TypeError, ValueError) as exc:
             raise PlayerMetaQueryError("英雄池数量必须是正整数") from exc
         by_id = {str(result.hero_id): result for result in meta_results}
+        scoped = [(hero, PlayerMetaService._hero_scopes(hero)) for hero in heroes]
         selected = sorted(
-            (hero for hero in heroes if hero.matches is not None and hero.matches > 0),
-            key=lambda hero: (hero.matches or 0, str(hero.hero_id)),
+            ((hero, values) for hero, values in scoped if values[0] > 0),
+            key=lambda item: (item[1][0], str(item[0].hero_id)),
             reverse=True,
         )[:limit]
         rows: list[PlayerHeroMetaComparison] = []
-        for hero in selected:
-            personal_rate = None
-            if hero.matches and hero.wins is not None:
-                personal_rate = hero.wins * 100 / hero.matches
+        for hero, (total_matches, quick_matches, ranked_matches, ranked_wins, ranked_rate) in selected:
             meta = by_id.get(str(hero.hero_id))
             meta_rate = meta.win_rate if meta is not None else None
-            delta = personal_rate - meta_rate if personal_rate is not None and meta_rate is not None else None
+            delta = ranked_rate - meta_rate if ranked_rate is not None and meta_rate is not None else None
             rows.append(
                 PlayerHeroMetaComparison(
                     hero_id=str(hero.hero_id),
                     hero_name=hero.hero_name,
-                    personal_matches=int(hero.matches or 0),
-                    personal_wins=hero.wins,
-                    personal_win_rate=personal_rate,
+                    personal_matches=total_matches,
+                    personal_wins=ranked_wins,
+                    personal_win_rate=ranked_rate,
                     meta_matches=meta.matches if meta is not None else None,
                     meta_win_rate=meta_rate,
                     meta_pick_rate=meta.pick_rate if meta is not None else None,
                     meta_ban_rate=meta.ban_rate if meta is not None else None,
                     win_rate_delta=delta,
+                    total_matches=total_matches,
+                    quick_matches=quick_matches,
+                    ranked_matches=ranked_matches,
+                    ranked_wins=ranked_wins,
+                    ranked_win_rate=ranked_rate,
+                    ranked_share=(ranked_matches * 100 / total_matches) if total_matches else None,
                 )
             )
         return rows
 
+    @staticmethod
+    def _hero_scopes(hero: PlayerHeroStats | HeroStat) -> tuple[int, int, int, int | None, float | None]:
+        """Return total, quick, ranked, ranked wins, and ranked WR."""
+
+        if isinstance(hero, PlayerHeroStats) or hasattr(hero, "ranked"):
+            total_matches = int(getattr(hero, "total_matches", 0) or 0)
+            quick = getattr(hero, "quick", None)
+            ranked = getattr(hero, "ranked", None)
+            quick_matches = int(getattr(quick, "matches", 0) or 0)
+            ranked_matches = int(getattr(ranked, "matches", 0) or 0)
+            ranked_wins = getattr(ranked, "wins", None)
+            ranked_rate = getattr(ranked, "win_rate", None)
+            return total_matches, quick_matches, ranked_matches, ranked_wins, ranked_rate
+
+        # Compatibility with callers that still construct the old one-scope
+        # HeroStat. Treat that scope as ranked until the caller migrates.
+        total_matches = int(getattr(hero, "matches", 0) or 0)
+        wins = getattr(hero, "wins", None)
+        rate = getattr(hero, "win_rate", None)
+        if rate is None and total_matches and wins is not None:
+            rate = wins * 100 / total_matches
+        return total_matches, 0, total_matches, wins, rate
+
 
 __all__ = [
     "DEFAULT_SIGNATURE_MIN_MATCHES",
+    "DEFAULT_SIGNATURE_MIN_RANKED_MATCHES",
     "PlayerMetaQueryError",
     "PlayerMetaService",
 ]

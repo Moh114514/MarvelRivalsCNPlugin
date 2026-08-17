@@ -61,8 +61,9 @@ def format_player_environment(profile: PlayerMetaProfile) -> str:
 def _comparison_line(index: int, item: PlayerHeroMetaComparison) -> list[str]:
     return [
         f"{index}. {item.hero_name}",
-        f"个人胜率：{_percent(item.personal_win_rate)} · 同段位胜率：{_percent(item.meta_win_rate)}",
-        f"差值：{_delta(item.win_rate_delta)} · 个人场次：{item.personal_matches}",
+        f"总场次：{item.total_matches} · 快速：{item.quick_matches} · 竞技：{item.ranked_matches}",
+        f"竞技占比：{_percent(item.ranked_share)} · 竞技胜率：{_percent(item.ranked_win_rate)}",
+        f"同段位 Meta：{_percent(item.meta_win_rate)} · 差值：{_delta(item.win_rate_delta)}",
         f"选取率：{_percent(item.meta_pick_rate)} · Ban率：{_percent(item.meta_ban_rate)}",
     ]
 
@@ -71,7 +72,7 @@ def format_player_hero_pool(profile: PlayerMetaProfile) -> str:
     lines = [f"我的英雄池 | {profile.season_label} | {profile.meta_rank_label}", *_context(profile)]
     if not profile.hero_pool:
         return "\n".join(lines + ["", "暂无可用于比较的个人英雄数据。"])
-    lines.extend(("", "个人数据 × 同段位环境"))
+    lines.extend(("", "英雄池熟悉度 × 竞技验证"))
     for index, item in enumerate(profile.hero_pool, 1):
         lines.extend(_comparison_line(index, item))
     return "\n".join(lines)
@@ -81,20 +82,13 @@ def format_player_signature(profile: PlayerMetaProfile) -> str:
     lines = [
         f"我的绝活 | {profile.season_label} | {profile.meta_rank_label}",
         *_context(profile),
-        f"规则：个人英雄至少 {profile.minimum_matches} 场；差值 = 个人胜率 - 同段位胜率",
+        f"规则：总场次 ≥ {profile.minimum_matches}，竞技场次 ≥ {profile.minimum_ranked_matches}，且竞技胜率高于同段位 Meta",
     ]
     if not profile.signature_heroes:
-        return "\n".join(lines + ["", "暂无达到最低场次的英雄数据。"])
-    strong = [item for item in profile.signature_heroes if item.win_rate_delta is None or item.win_rate_delta >= 0]
-    room = [item for item in profile.signature_heroes if item.win_rate_delta is not None and item.win_rate_delta < 0]
-    if strong:
-        lines.extend(("", "你的绝活"))
-        for index, item in enumerate(strong, 1):
-            lines.extend(_comparison_line(index, item))
-    if room:
-        lines.extend(("", "还有提升空间"))
-        for index, item in enumerate(room, 1):
-            lines.extend(_comparison_line(index, item))
+        return "\n".join(lines + ["", "暂无同时满足总场次、竞技场次和胜率要求的英雄。"])
+    lines.extend(("", "你的绝活"))
+    for index, item in enumerate(profile.signature_heroes, 1):
+        lines.extend(_comparison_line(index, item))
     return "\n".join(lines)
 
 

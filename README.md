@@ -9,7 +9,7 @@
 1. 将仓库根目录作为 AstrBot 插件目录安装。仓库根目录已经直接包含 `main.py`、`metadata.yaml`、`_conf_schema.json` 和 `requirements.txt`，不需要再套一层 `astrbot_plugin_marvel_rivals/`。
 2. 按下方“抓包并获取 Token”操作，得到当前可用的接口配置。
 3. 在 AstrBot WebUI 的插件配置中填写 `MRCN_ACCESS_TOKEN`，并核对接口地址、请求头、路径和请求体模板。
-4. 重载插件后执行 `/帮助` 和 `/战绩 <UID>` 验证。
+4. 重载插件后执行 `/帮助` 和 `/查询 <UID>` 验证。
 
 Token 是微信小程序会话中的临时凭据，不是玩家 UID。Token 决定请求使用哪个小程序会话，命令中的 UID 决定查询哪个玩家；查询其他玩家还要求对方在小程序中开放战绩查询权限。
 
@@ -110,9 +110,13 @@ MRCN_ACCESS_TOKEN=
 | `MRCN_ROLE_PATH` | 根据 UID 查询角色的 GET 接口 | 无 |
 | `MRCN_DATA_BODY_TEMPLATE` | `loadData` 请求体 | `{player_uid}` |
 | `MRCN_SUMMARY_BODY_TEMPLATE` | 综合/最近对局请求体 | `{season}`、`{player_uid}` |
-| `MRCN_CAREER_BODY_TEMPLATE` | 生涯数据请求体 | `{season}`、`{player_uid}` |
+| `MRCN_CAREER_BODY_TEMPLATE` | 快速 + 竞技总计生涯数据请求体 | `{season}`、`{player_uid}` |
+| `MRCN_CAREER_QUICK_BODY_TEMPLATE` | 快速模式生涯数据请求体 | `{season}`、`{player_uid}` |
+| `MRCN_CAREER_RANKED_BODY_TEMPLATE` | 竞技模式生涯数据请求体 | `{season}`、`{player_uid}` |
 | `MRCN_SORT_HERO_BODY_TEMPLATE` | 常用英雄请求体 | `{season}`、`{player_uid}` |
-| `MRCN_HERO_BODY_TEMPLATE` | 英雄详情请求体 | `{hero_ids}`、`{season}`、`{player_uid}` |
+| `MRCN_HERO_BODY_TEMPLATE` | 快速 + 竞技总计英雄请求体 | `{hero_ids}`、`{season}`、`{player_uid}` |
+| `MRCN_HERO_QUICK_BODY_TEMPLATE` | 快速模式英雄请求体 | `{hero_ids}`、`{season}`、`{player_uid}` |
+| `MRCN_HERO_RANKED_BODY_TEMPLATE` | 竞技模式英雄请求体 | `{hero_ids}`、`{season}`、`{player_uid}` |
 | `MRCN_SUMMARY_DETAIL_BODY_TEMPLATE` | 对局详情请求体 | `{match_uids}` |
 
 例如抓包确认 `loadData` 使用 `aid` 和 `zoneId`，只修改对应模板：
@@ -131,7 +135,6 @@ MRCN_DATA_BODY_TEMPLATE={"aid":{player_uid},"zoneId":16001}
 /帮助
 /绑定账号 <UID>
 /解绑账号
-/战绩 [UID] [赛季]
 /查询 [UID] [赛季]
 /最近对局 [UID] [赛季]
 /英雄数据 <英雄名称> [UID] [赛季]
@@ -148,7 +151,7 @@ MRCN_DATA_BODY_TEMPLATE={"aid":{player_uid},"zoneId":16001}
 
 ```text
 /绑定账号 1287101468
-/战绩
+/查询
 /英雄数据 蜘蛛侠 S9.5
 /英雄环境 大师 S9.5
 /英雄排行 Ban率 天神 S9.5
@@ -240,7 +243,9 @@ python tools/release.py --build dist/astrbot_plugin_marvel_rivals-v<version>.zip
 ```text
 /我的环境 [赛季]
 /我的英雄池 [赛季]
-/我的绝活 [最低场次] [赛季]
+/我的绝活 [赛季]
 ```
 
-`/我的环境` 根据绑定账号的当前国服段位自动匹配 Meta 大段位；`/我的英雄池` 对比常用英雄的个人胜率、同段位胜率、选取率和 Ban 率；`/我的绝活` 默认筛选个人至少 20 场的英雄，并展示个人胜率与同段位胜率的差值。结果会标明 RivalsMeta 来源、更新时间和缓存状态。
+`/我的环境` 根据绑定账号的当前国服段位自动匹配 Meta 大段位，不混入个人英雄数据；`/我的英雄池` 按快速 + 竞技总场次排序，分别展示总场次、快速场次、竞技场次、竞技占比，并用竞技胜率对比同段位 Meta；`/我的绝活` 使用固定规则筛选：总场次至少 20、竞技场次至少 10，且竞技胜率高于同段位 Meta，只展示符合条件的英雄。结果会标明 RivalsMeta 来源、更新时间和缓存状态。
+
+个人数据口径如下：`/查询` 展示快速、竞技和两者合计；`/英雄数据` 展示总计使用量、竞技详细数据和快速摘要；`/最近对局` 保持现有快速 + 竞技 + 其他已接入队列的混合时间线，不作为英雄池或绝活的统计口径。`/战绩` 仍保留为兼容旧命令的别名，但不再作为正式帮助入口。

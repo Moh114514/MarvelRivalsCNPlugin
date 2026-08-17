@@ -34,7 +34,13 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("MRCN_CARD_ENABLED", schema)
         self.assertNotIn("MRCN_CARD_THEME", schema)
         self.assertNotIn("MRCN_CARD_FALLBACK_TEXT", schema)
-        for name in ("MRCN_SUMMARY_BODY_TEMPLATE", "MRCN_CAREER_BODY_TEMPLATE", "MRCN_HERO_BODY_TEMPLATE", "MRCN_SORT_HERO_BODY_TEMPLATE", "MRCN_MATCHES_BODY_TEMPLATE"):
+        for name in (
+            "MRCN_SUMMARY_BODY_TEMPLATE", "MRCN_CAREER_BODY_TEMPLATE",
+            "MRCN_CAREER_QUICK_BODY_TEMPLATE", "MRCN_CAREER_RANKED_BODY_TEMPLATE",
+            "MRCN_HERO_BODY_TEMPLATE", "MRCN_HERO_QUICK_BODY_TEMPLATE",
+            "MRCN_HERO_RANKED_BODY_TEMPLATE", "MRCN_SORT_HERO_BODY_TEMPLATE",
+            "MRCN_MATCHES_BODY_TEMPLATE",
+        ):
             self.assertIn("{season}", schema[name]["default"])
 
     def test_configuration_schema_uses_astrbot_types(self):
@@ -46,8 +52,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.14.6", metadata)
-        self.assertIn('"0.14.6"', main)
+        self.assertIn("version: 0.14.7", metadata)
+        self.assertIn('"0.14.7"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -104,7 +110,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.6")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.7")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

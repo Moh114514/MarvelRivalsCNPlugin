@@ -10,7 +10,7 @@ import httpx
 
 from ..reference.heroes import get_hero_name
 from ..reference.ranks import CN_RANK_LEVEL_MAP
-from ..models import CareerSummary, HeroStat, PlayerProfile, PlayerStats, RecentMatch
+from ..models import CareerSummary, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats, RecentMatch
 from .base import DataSourceError, RivalsDataSource
 
 
@@ -67,6 +67,31 @@ def _career_mapping(value: Any) -> dict[str, Any]:
     if isinstance(career, Mapping):
         return {**outer, **career}
     return outer
+
+
+def _mode_stats(value: Any) -> ModeStats:
+    data = _career_mapping(value)
+    matches = _number(data, "totalMatchCount", "matchCount", "matches", "totalMatches")
+    wins = _number(data, "totalMatchWinCount", "totalWinCount", "winCount", "wins")
+    win_rate = _number(data, "winRate")
+    if win_rate is None and matches and wins is not None:
+        win_rate = wins * 100 / matches
+    return ModeStats(
+        matches=round(matches) if matches is not None else None,
+        wins=round(wins) if wins is not None else None,
+        kills=_count(data, "k", "kills", "totalKill"),
+        deaths=_count(data, "d", "deaths", "totalDeath"),
+        assists=_count(data, "a", "assists", "totalAssist"),
+        win_rate=win_rate,
+        damage=_count(data, "totalDamage", "damage"),
+        hero_damage=_count(data, "totalHeroDamage", "heroDamage"),
+        heal=_count(data, "totalHeroHeal", "totalHeal", "heroHeal", "heal"),
+        damage_taken=_count(data, "totalDamageTaken", "damageTaken"),
+        hit_rate=_number(data, "sessionMaxHitRate", "hitRate"),
+        play_time_seconds=_number(data, "totalPlayTime", "playTime"),
+        mvp=_count(data, "totalMvpTimes", "mvp", "mvpTimes"),
+        svp=_count(data, "totalSvpTimes", "svp", "svpTimes"),
+    )
 
 
 def _rank_level(value: Any, season: str = "19") -> int | None:
@@ -126,9 +151,13 @@ class CNDataSource(RivalsDataSource):
         "data": '{"playerUid":{player_uid}}',
         "summary": '{"matchSeason":{"$eq":"{season}"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":3,"playerUid":{player_uid}}',
         "summary_detail": '{"matchUids":{match_uids}}',
-        "career": '{"matchSeason":"{season}","playerUid":{player_uid}}',
-        "hero": '{"heroIdList":{hero_ids},"matchSeason":"{season}","playerUid":{player_uid}}',
-        "sort_hero": '{"matchSeason":"{season}","playerUid":{player_uid}}',
+        "career": '{"matchSeason":"{season}","gameModeId":{"$in":[1,2]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
+        "career_quick": '{"matchSeason":"{season}","gameModeId":{"$in":[1]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
+        "career_ranked": '{"matchSeason":"{season}","gameModeId":{"$in":[2]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
+        "hero": '{"heroIdList":{hero_ids},"matchSeason":"{season}","gameModeId":{"$in":[1,2]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
+        "hero_quick": '{"heroIdList":{hero_ids},"matchSeason":"{season}","gameModeId":{"$in":[1]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
+        "hero_ranked": '{"heroIdList":{hero_ids},"matchSeason":"{season}","gameModeId":{"$in":[2]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
+        "sort_hero": '{"matchSeason":"{season}","gameModeId":{"$in":[1,2]},"playModeId":{"$in":[0,7,8]},"playerUid":{player_uid}}',
         "matches": '{"matchSeason":{"$eq":"{season}"},"gameModeId":{"$in":[1,2,4]},"playModeId":{"$in":[0,7,8]},"page":0,"pageSize":10,"playerUid":{player_uid}}',
     }
     PRIVATE_PROFILE_MESSAGES = (
@@ -173,6 +202,17 @@ class CNDataSource(RivalsDataSource):
             )
             for name in self.paths
         }
+        # Mode-specific templates are deliberately separate from the legacy
+        # aggregate templates.  The CN API is observed and unstable, so each
+        # scope remains configurable without changing the source abstraction.
+        for name in (
+            "career_quick", "career_ranked",
+            "hero_quick", "hero_ranked",
+        ):
+            self.body_templates[name] = config.get(
+                f"MRCN_{name.upper()}_BODY_TEMPLATE",
+                self.DEFAULT_BODY_TEMPLATES[name],
+            )
         legacy_templates = {
             "data": "{}",
             "career": '{"matchSeason":"19"}',
@@ -182,7 +222,11 @@ class CNDataSource(RivalsDataSource):
         for name, legacy in legacy_templates.items():
             if self.body_templates.get(name) == legacy:
                 self.body_templates[name] = self.DEFAULT_BODY_TEMPLATES[name]
-        for name in ("summary", "career", "hero", "sort_hero", "matches"):
+        for name in (
+            "summary", "career", "career_quick", "career_ranked",
+            "hero", "hero_quick", "hero_ranked",
+            "sort_hero", "matches",
+        ):
             template = self.body_templates.get(name, "")
             self.body_templates[name] = template.replace('"matchSeason":"19"', '"matchSeason":"{season}"').replace(
                 '"$eq":"19"', '"$eq":"{season}"'
@@ -366,8 +410,14 @@ class CNDataSource(RivalsDataSource):
             responses[name] = await self._post(
                 self.paths[name], uid, body_template=self.body_templates[name], season=season
             )
+        for name in ("career_quick", "career_ranked"):
+            responses[name] = await self._post(
+                self.paths["career"], uid, body_template=self.body_templates[name], season=season
+            )
         summary = _first_mapping(responses["summary"].get("data", responses["summary"]))
         career = _career_mapping(responses["career"].get("data", responses["career"]))
+        quick_stats = _mode_stats(responses["career_quick"].get("data", responses["career_quick"]))
+        ranked_stats = _mode_stats(responses["career_ranked"].get("data", responses["career_ranked"]))
         career_uid = self._response_uid(career)
         if career_uid and career_uid != response_uid:
             raise DataSourceError("国服接口返回了不一致的账号 UID，已拒绝展示数据")
@@ -399,6 +449,8 @@ class CNDataSource(RivalsDataSource):
             win_rate=win_rate,
             damage=_number(source, "totalDamage", "damage"),
             hero_damage=_number(source, "totalHeroDamage", "heroDamage"),
+            quick=quick_stats,
+            ranked=ranked_stats,
         )
         heroes = self._parse_heroes(responses["sort_hero"])
         hero_ids = [int(hero.hero_id) for hero in heroes[:10] if hero.hero_id.isdigit()]
@@ -410,7 +462,23 @@ class CNDataSource(RivalsDataSource):
                 hero_ids=hero_ids,
                 season=season,
             )
-            heroes = self._enrich_heroes(heroes, responses["hero_career"])
+            responses["hero_career_quick"] = await self._post(
+                self.paths["hero"],
+                uid,
+                body_template=self.body_templates["hero_quick"],
+                hero_ids=hero_ids,
+                season=season,
+            )
+            responses["hero_career_ranked"] = await self._post(
+                self.paths["hero"],
+                uid,
+                body_template=self.body_templates["hero_ranked"],
+                hero_ids=hero_ids,
+                season=season,
+            )
+            heroes = self._enrich_heroes(heroes, responses["hero_career"], "total")
+            heroes = self._enrich_heroes(heroes, responses["hero_career_quick"], "quick")
+            heroes = self._enrich_heroes(heroes, responses["hero_career_ranked"], "ranked")
         return PlayerStats(
             profile=profile,
             summary=career_summary,
@@ -449,9 +517,50 @@ class CNDataSource(RivalsDataSource):
             season=season,
         )
 
-    def _parse_heroes(self, payload: dict[str, Any]) -> list[HeroStat]:
+    async def get_hero_profile(self, uid: str, hero_id: str, season: str | None = None) -> PlayerHeroStats:
+        """Load one hero in the total, quick, and ranked scopes."""
+
+        uid, hero_id = str(uid).strip(), str(hero_id).strip()
+        if not uid.isdigit() or not hero_id:
+            raise DataSourceError("UID must be numeric and hero_id cannot be empty")
+        season = self._normalize_season(season or self.default_season)
+        await self.validate_uid(uid)
+        hero_ids = [int(hero_id)] if hero_id.isdigit() else [hero_id]
+        payloads = {
+            "total": await self._post(
+                self.paths["hero"], uid,
+                body_template=self.body_templates["hero"],
+                hero_ids=hero_ids,
+                season=season,
+            ),
+            "quick": await self._post(
+                self.paths["hero"], uid,
+                body_template=self.body_templates["hero_quick"],
+                hero_ids=hero_ids,
+                season=season,
+            ),
+            "ranked": await self._post(
+                self.paths["hero"], uid,
+                body_template=self.body_templates["hero_ranked"],
+                hero_ids=hero_ids,
+                season=season,
+            ),
+        }
+        hero = PlayerHeroStats(hero_id=hero_id, hero_name=get_hero_name(hero_id))
+        for scope, payload in payloads.items():
+            parsed = self._parse_heroes(payload)
+            if parsed:
+                hero.hero_name = parsed[0].hero_name
+                hero.raw = {**hero.raw, **parsed[0].raw}
+            self._enrich_heroes([hero], payload, scope)
+        return hero
+
+    def _parse_heroes(self, payload: dict[str, Any]) -> list[PlayerHeroStats]:
         value = payload.get("data", payload)
-        items = value if isinstance(value, list) else value.get("heros", value.get("heroes", value.get("heroList", []))) if isinstance(value, dict) else []
+        items = value if isinstance(value, list) else value.get(
+            "careers",
+            value.get("heros", value.get("heroes", value.get("heroList", []))),
+        ) if isinstance(value, dict) else []
         if not isinstance(items, list):
             return []
         result = []
@@ -464,19 +573,23 @@ class CNDataSource(RivalsDataSource):
             if rate is None and matches and wins is not None:
                 rate = wins * 100 / matches
             hero_id = _text(item, "heroId", "id")
-            result.append(HeroStat(
+            result.append(PlayerHeroStats(
                 hero_id=hero_id,
                 hero_name=get_hero_name(hero_id, _text(item, "heroName", "name") or None),
-                matches=matches,
-                wins=wins,
-                kills=_count(item, "k", "kills", "totalKill"),
-                win_rate=rate,
-                play_time_seconds=_number(item, "totalPlayTime", "playTime"),
+                total_matches=matches,
+                total_wins=wins,
+                total_win_rate=rate,
+                total_play_time_seconds=_number(item, "totalPlayTime", "playTime"),
                 raw=item,
             ))
         return result
 
-    def _enrich_heroes(self, heroes: list[HeroStat], payload: dict[str, Any]) -> list[HeroStat]:
+    def _enrich_heroes(
+        self,
+        heroes: list[PlayerHeroStats],
+        payload: dict[str, Any],
+        scope: str,
+    ) -> list[PlayerHeroStats]:
         value = payload.get("data", payload)
         careers = value.get("careers", []) if isinstance(value, dict) else []
         if not isinstance(careers, list):
@@ -490,11 +603,19 @@ class CNDataSource(RivalsDataSource):
             item = details.get(hero.hero_id)
             if not item:
                 continue
-            hero.matches = _count(item, "totalMatchCount", "matchCount", "matches")
-            hero.wins = _count(item, "totalMatchWinCount", "winCount", "wins")
-            hero.kills = _count(item, "k", "kills", "totalKill")
-            if hero.matches and hero.wins is not None:
-                hero.win_rate = hero.wins * 100 / hero.matches
+            stats = _mode_stats(item)
+            if scope == "total":
+                hero.total = stats
+                hero.total_matches = stats.matches
+                hero.total_wins = stats.wins
+                hero.total_win_rate = stats.win_rate
+                hero.total_play_time_seconds = stats.play_time_seconds or hero.total_play_time_seconds
+            elif scope == "quick":
+                hero.quick = stats
+            elif scope == "ranked":
+                hero.ranked = stats
+            else:
+                raise ValueError(f"unknown hero scope: {scope}")
             hero.raw = {**hero.raw, **item}
         return heroes
 

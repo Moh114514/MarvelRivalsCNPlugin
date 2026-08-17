@@ -102,11 +102,11 @@ class TestPlayerMetaService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile.hero_pool[0].personal_matches, 50)
 
     async def test_signature_filters_minimum_matches_and_sorts_by_delta(self):
-        profile = await self.service.get_player_signature("123", minimum_matches=20)
-        self.assertEqual([item.hero_id for item in profile.signature_heroes], ["1020", "1040"])
+        profile = await self.service.get_player_signature("123", minimum_matches=1, minimum_ranked_matches=1)
+        self.assertEqual([item.hero_id for item in profile.signature_heroes], ["1020"])
         self.assertEqual(profile.minimum_matches, 20)
+        self.assertEqual(profile.minimum_ranked_matches, 10)
         self.assertAlmostEqual(profile.signature_heroes[0].win_rate_delta, 20.0)
-        self.assertAlmostEqual(profile.signature_heroes[1].win_rate_delta, -15.0)
 
     async def test_unknown_rank_is_user_safe(self):
         self.rivals.stats.profile.rank_level = None

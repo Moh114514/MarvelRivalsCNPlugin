@@ -22,6 +22,12 @@ class PlayerHeroMetaComparison:
     meta_pick_rate: float | None
     meta_ban_rate: float | None
     win_rate_delta: float | None
+    total_matches: int = 0
+    quick_matches: int = 0
+    ranked_matches: int = 0
+    ranked_wins: int | None = None
+    ranked_win_rate: float | None = None
+    ranked_share: float | None = None
 
 
 @dataclass(slots=True)
@@ -43,4 +49,5 @@ class PlayerMetaProfile:
     environment: HeroMetaOverview | None = None
     hero_pool: tuple[PlayerHeroMetaComparison, ...] = field(default_factory=tuple)
     signature_heroes: tuple[PlayerHeroMetaComparison, ...] = field(default_factory=tuple)
-    minimum_matches: int = 0
+    minimum_matches: int = 20
+    minimum_ranked_matches: int = 10

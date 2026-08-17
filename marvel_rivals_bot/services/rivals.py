@@ -7,7 +7,7 @@ from typing import TypeVar
 from ..datasource.base import DataSourceError, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..reference.heroes import format_hero_name, get_hero_id
-from ..models import HeroQueryResult, PlayerStats
+from ..models import HeroQueryResult, ModeStats, PlayerStats
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
 from ..reference.seasons import season_identity_from_cn_code, season_identity_from_name
@@ -75,19 +75,31 @@ class RivalsService:
         cached = self._cached(self._hero_cache, cache_key)
         if cached is not None:
             return cached
-        result = HeroQueryResult(
-            uid=uid,
-            hero_id=hero_id,
-            hero_name=hero_name,
-            season=season_code,
-            payload=await self.source.get_hero(uid, hero_id, season_code),
-        )
+        profile_loader = getattr(self.source, "get_hero_profile", None)
+        if callable(profile_loader):
+            profile = await profile_loader(uid, hero_id, season_code)
+            result = HeroQueryResult(
+                uid=uid,
+                hero_id=hero_id,
+                hero_name=profile.hero_name or hero_name,
+                season=season_code,
+                payload={"data": {"careers": [profile.raw]}},
+                stats=profile,
+            )
+        else:
+            result = HeroQueryResult(
+                uid=uid,
+                hero_id=hero_id,
+                hero_name=hero_name,
+                season=season_code,
+                payload=await self.source.get_hero(uid, hero_id, season_code),
+            )
         self._hero_cache[cache_key] = (time.monotonic(), result)
         return result
 
     async def hero_text(self, uid: str, hero_name: str, season: str | None = None) -> str:
         result = await self.get_hero_stats(uid, hero_name, season)
-        return format_hero(result.payload, result.season)
+        return format_hero_result(result)
 
     async def get_match_detail(self, match_uid: str) -> dict:
         cache_key = str(match_uid).strip()
@@ -158,22 +170,51 @@ def _time(timestamp: Any) -> str:
         return "未知时间"
 
 
+def _mode_matches(mode: ModeStats, fallback: int | float | None = None) -> str:
+    value = mode.matches if mode.matches is not None else fallback
+    return _count(value)
+
+
+def _mode_rate(mode: ModeStats, fallback: float | None = None) -> str:
+    value = mode.win_rate if mode.win_rate is not None else fallback
+    return _fmt(value) + "%" if value is not None else "-"
+
+
 def format_player(stats: PlayerStats) -> str:
     p, s = stats.profile, stats.summary
-    lines = [f"漫威争锋国服战绩（{format_season_name(stats.season)}的数据）", f"玩家：{p.name}", f"UID：{p.uid}"]
+    lines = [f"漫威争锋国服个人资料（{format_season_name(stats.season)}的数据）", f"玩家：{p.name}", f"UID：{p.uid}"]
     if p.level is not None:
         lines.append(f"等级：{p.level}")
     if p.rank_game_season:
         lines.append(f"段位：{p.rank_game_season}")
-    lines += ["", "综合数据", f"场次：{_count(s.matches)}    胜场：{_count(s.wins)}    胜率：{_fmt(s.win_rate)}%", f"K/D/A：{_count(s.kills)} / {_count(s.deaths)} / {_count(s.assists)}"]
+    lines += [
+        "",
+        "本赛季游戏",
+        f"竞技：{_mode_matches(s.ranked)} 场 · 胜率 {_mode_rate(s.ranked)}",
+        f"快速：{_mode_matches(s.quick)} 场 · 胜率 {_mode_rate(s.quick)}",
+        f"总计：{_count(s.matches)} 场 · 胜场 {_count(s.wins)} · 胜率 {_mode_rate(ModeStats(win_rate=s.win_rate))}",
+        f"竞技 K/D/A：{_count(s.ranked.kills, _count(s.kills))} / {_count(s.ranked.deaths, _count(s.deaths))} / {_count(s.ranked.assists, _count(s.assists))}",
+    ]
     if s.damage is not None:
         lines.append(f"总伤害：{_fmt(s.damage)}")
     if stats.heroes:
-        lines += ["", "常用英雄"]
+        lines += ["", "常用英雄（快速 + 竞技总场次）"]
         for index, hero in enumerate(stats.heroes[:5], 1):
+            total_matches = getattr(hero, "total_matches", getattr(hero, "matches", None))
+            quick = getattr(getattr(hero, "quick", None), "matches", 0) or 0
+            ranked_scope = getattr(hero, "ranked", None)
+            ranked = getattr(ranked_scope, "matches", None)
+            ranked_rate = getattr(ranked_scope, "win_rate", None)
+            if ranked_scope is None:
+                # Older adapters exposed one aggregate HeroStat.  Keep that
+                # data visible while the CN adapter supplies explicit scopes.
+                ranked = total_matches
+                ranked_rate = getattr(hero, "win_rate", None)
+                if ranked_rate is None and ranked and getattr(hero, "wins", None) is not None:
+                    ranked_rate = hero.wins * 100 / ranked
             lines.append(
                 f"{index}. {format_hero_name(hero.hero_id, hero.hero_name)}  "
-                f"出场 {_fmt(hero.matches)} / 胜场 {_fmt(hero.wins)} / 击败 {_fmt(hero.kills)}"
+                f"总计 {_fmt(total_matches)} / 快速 {_fmt(quick)} / 竞技 {_fmt(ranked)} / 竞技胜率 {_mode_rate(ModeStats(win_rate=ranked_rate))}"
             )
     return "\n".join(lines)
 
@@ -237,6 +278,41 @@ def format_hero(payload: dict, season: str | None = None) -> str:
         f"承受伤害：{_fmt(hero.get('totalDamageTaken'))}",
         f"最高命中率：{_fmt(hit_rate * 100 if isinstance(hit_rate, (int, float)) else None)}%",
         f"MVP：{_count(hero.get('totalMvpTimes'))}    SVP：{_count(hero.get('totalSvpTimes'))}",
+    ]
+    return "\n".join(lines)
+
+
+def format_hero_result(result: HeroQueryResult) -> str:
+    """Format the explicit total/quick/ranked hero model when available.
+
+    The payload-only formatter remains public for CLI and older integrations;
+    structured queries use this path so text and image output share scopes.
+    """
+
+    stats = result.stats
+    if stats is None or not hasattr(stats, "ranked"):
+        return format_hero(result.payload, result.season)
+
+    total_matches = getattr(stats, "total_matches", None)
+    total_wins = getattr(stats, "total_wins", None)
+    total_rate = getattr(stats, "total_win_rate", None)
+    quick = stats.quick
+    ranked = stats.ranked
+    if total_rate is None and total_matches and total_wins is not None:
+        total_rate = total_wins * 100 / total_matches
+    hero_name = format_hero_name(result.hero_id, result.hero_name)
+    lines = [
+        f"英雄：{hero_name}",
+        *((f"（{format_season_name(result.season)}的数据）",) if result.season else ()),
+        f"总计使用：{_count(total_matches)} 场    快速：{_count(quick.matches)} 场    竞技：{_count(ranked.matches)} 场",
+        f"总计胜率：{_mode_rate(ModeStats(win_rate=total_rate))}    总胜场：{_count(total_wins)}",
+        f"竞技：{_count(ranked.matches)} 场    胜场：{_count(ranked.wins)}    胜率：{_mode_rate(ranked)}",
+        f"快速：{_count(quick.matches)} 场    胜场：{_count(quick.wins)}    胜率：{_mode_rate(quick)}",
+        f"竞技 K/D/A：{_count(ranked.kills)} / {_count(ranked.deaths)} / {_count(ranked.assists)}",
+        f"竞技英雄伤害：{_fmt(ranked.hero_damage)}    治疗：{_fmt(ranked.heal)}",
+        f"竞技承受伤害：{_fmt(ranked.damage_taken)}",
+        f"竞技游戏时长：{_hours(ranked.play_time_seconds)}",
+        f"竞技 MVP：{_count(ranked.mvp)}    SVP：{_count(ranked.svp)}",
     ]
     return "\n".join(lines)
 

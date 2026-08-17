@@ -100,16 +100,17 @@ def _comparison_row(index: int, item: PlayerHeroMetaComparison, signature: bool 
         f'<span class="mr-player-meta-row__index">{index:02d}</span>'
         '<div class="mr-player-meta-row__hero">'
         f'<strong>{_value(item.hero_name)}</strong>'
-        f'<span>个人 {item.personal_matches:,} 场</span>'
+        f'<span>总计 {item.total_matches:,} 场 · 快速 {item.quick_matches:,} · 竞技 {item.ranked_matches:,}</span>'
         '</div>'
         '<div class="mr-player-meta-row__metric mr-player-meta-row__metric--personal">'
-        f'<span>个人胜率</span><strong>{_percent(item.personal_win_rate)}</strong>'
+        f'<span>竞技占比</span><strong>{_percent(item.ranked_share)}</strong>'
         '</div>'
         '<div class="mr-player-meta-row__metric mr-player-meta-row__metric--meta">'
-        f'<span>同段位</span><strong>{_percent(item.meta_win_rate)}</strong>'
+        f'<span>竞技胜率</span><strong>{_percent(item.ranked_win_rate)}</strong>'
         '</div>'
         f'<strong class="mr-player-meta-row__delta mr-player-meta-row__delta--{delta_class}">{_delta(item.win_rate_delta)}</strong>'
         '<div class="mr-player-meta-row__detail">'
+        f'<span>Meta {_percent(item.meta_win_rate)}</span>'
         f'<span>选取率 {_percent(item.meta_pick_rate)}</span>'
         f'<span>Ban率 {_percent(item.meta_ban_rate)}</span>'
         '</div>'
@@ -155,10 +156,10 @@ def build_player_signature_html(profile: PlayerMetaProfile) -> str:
         "MY SPECIALTY",
         f"{profile.player_name} 的绝活",
         profile.signature_heroes,
-        f"至少 {profile.minimum_matches} 场 · 胜率差值",
+        f"总场次 ≥ {profile.minimum_matches} · 竞技场次 ≥ {profile.minimum_ranked_matches} · 胜率高于 Meta",
         "PLAYER SPECIALTY",
         signature=True,
-        empty="暂无达到最低场次的英雄数据",
+        empty="暂无同时满足总场次、竞技场次和胜率要求的英雄",
     )
 
 

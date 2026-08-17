@@ -8,7 +8,7 @@ try:
     from .marvel_rivals_bot.datasource.base import DataSourceError
     from .marvel_rivals_bot.datasource.cn import CNDataSource
     from .marvel_rivals_bot.services.rivals import RivalsService
-    from .marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
+    from .marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from .marvel_rivals_bot.meta.commands import parse_meta_command_args
     from .marvel_rivals_bot.meta.errors import MetaDataSourceError
@@ -38,7 +38,7 @@ except ImportError:
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
     from marvel_rivals_bot.services.rivals import RivalsService
-    from marvel_rivals_bot.services.rivals import format_hero, format_match_detail, format_matches, format_player
+    from marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from marvel_rivals_bot.meta.commands import parse_meta_command_args
     from marvel_rivals_bot.meta.errors import MetaDataSourceError
@@ -85,7 +85,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.6", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.7", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -98,11 +98,8 @@ class MarvelRivalsPlugin(Star):
 /解绑账号
 解除账号绑定（兼容 /解绑漫威）
 
-/战绩 [UID] [赛季]
-查询综合战绩
-
 /查询 [UID] [赛季]
-查询综合战绩
+查询个人资料（含快速与竞技数据）
 
 /最近对局 [UID] [赛季]
 查询最近十场（兼容 /最近）
@@ -139,10 +136,10 @@ class MarvelRivalsPlugin(Star):
 根据已绑定账号的当前段位，查看同段位英雄环境
 
 /我的英雄池 [赛季]
-对比常用英雄的个人胜率与同段位环境
+按快速与竞技总场次查看英雄池，并核对竞技表现
 
-/我的绝活 [最低场次] [赛季]
-查看个人英雄胜率高于同段位环境的英雄，默认至少 20 场
+/我的绝活 [赛季]
+查看满足总场次、竞技场次和同段位表现要求的英雄
 """
 
     def __init__(self, context: Context, config=None):
@@ -337,14 +334,14 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("战绩")
     async def stats(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
-        """查询玩家段位、综合数据和常用英雄，可指定 UID 和赛季名称。"""
+        """兼容旧版 /战绩 命令；正式入口为 /查询。"""
         uid, season = self._uid_and_season(uid, season)
         async for result in self._query(event, uid or None, season or None):
             yield result
 
     @filter.command("查询")
     async def query(self, event: AstrMessageEvent, uid: str = "", season: str = ""):
-        """查询玩家战绩，功能与 /战绩 相同。"""
+        """查询玩家个人资料，包含快速、竞技和总计数据。"""
         uid, season = self._uid_and_season(uid, season)
         async for result in self._query(event, uid or None, season or None):
             yield result
@@ -400,11 +397,11 @@ class MarvelRivalsPlugin(Star):
             except Exception as exc:
                 if logger:
                     logger.warning(f"英雄数据图片渲染失败，回退普通文本：{exc}")
-                yield event.plain_result(format_hero(result.payload, result.season))
+                yield event.plain_result(format_hero_result(result))
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(format_hero(result.payload, result.season))
+                    yield event.plain_result(format_hero_result(result))
             else:
                 yield event.image_result(image_url)
         except (DataSourceError, BindingStoreError) as exc:
@@ -719,11 +716,10 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result("请先使用 /绑定账号 <UID>")
             return
         try:
-            args = parse_player_meta_args(arg1, arg2, allow_minimum_matches=True)
+            args = parse_player_meta_args(arg1, arg2)
             profile = await self.player_meta_service.get_player_signature(
                 uid,
                 season=args.season,
-                minimum_matches=args.minimum_matches,
             )
             fallback = format_player_signature(profile)
             try:

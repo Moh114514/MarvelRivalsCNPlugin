@@ -10,10 +10,11 @@ from marvel_rivals_bot.game_metadata import (
     get_map_mode,
     get_map_queue_variant,
 )
-from marvel_rivals_bot.models import HeroStat, PlayerProfile, PlayerStats
+from marvel_rivals_bot.models import HeroQueryResult, HeroStat, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 from marvel_rivals_bot.services.rivals import (
     RivalsService,
     format_hero,
+    format_hero_result,
     format_match_detail,
     format_matches,
     format_player,
@@ -61,6 +62,26 @@ class TestFormatters(unittest.TestCase):
         self.assertIn("游玩时长：7.98 小时", text)
         self.assertNotIn("10.3", text)
 
+    def test_structured_hero_formatter_separates_quick_and_ranked(self):
+        text = format_hero_result(HeroQueryResult(
+            uid="1",
+            hero_id="1066",
+            hero_name="红兜帽",
+            season="19",
+            stats=PlayerHeroStats(
+                hero_id="1066",
+                hero_name="红兜帽",
+                total_matches=30,
+                total_wins=18,
+                quick=ModeStats(matches=20, wins=10, win_rate=50.0),
+                ranked=ModeStats(matches=10, wins=8, win_rate=80.0, kills=100),
+            ),
+        ))
+        self.assertIn("总计使用：30 场", text)
+        self.assertIn("快速：20 场", text)
+        self.assertIn("竞技：10 场", text)
+        self.assertIn("竞技 K/D/A：100", text)
+
     def test_match_detail_uses_matches_and_match_players(self):
         text = format_match_detail({"data": {"matches": [{
             "matchUid": "match-1",
@@ -88,7 +109,7 @@ class TestFormatters(unittest.TestCase):
         ))
         self.assertIn("（S9上半赛季的数据）", text)
         self.assertIn("红兜帽（1066）", text)
-        self.assertIn("出场 10 / 胜场 7 / 击败 186", text)
+        self.assertIn("总计 10 / 快速 0 / 竞技 10", text)
         self.assertNotIn("时长", text)
 
     def test_season_codes_map_to_half_seasons(self):
@@ -204,7 +225,7 @@ class TestServiceTranslation(unittest.IsolatedAsyncioTestCase):
         service = RivalsService(source, cache_seconds=0)
         stats = await service.get_player_stats("1287101468", "s0")
         self.assertEqual(source.call, ("1287101468", "1"))
-        self.assertEqual(format_player(stats).splitlines()[0], "漫威争锋国服战绩（S0的数据）")
+        self.assertEqual(format_player(stats).splitlines()[0], "漫威争锋国服个人资料（S0的数据）")
 
     async def test_structured_recent_hero_and_match_queries_share_cache_with_text(self):
         class FakeSource:

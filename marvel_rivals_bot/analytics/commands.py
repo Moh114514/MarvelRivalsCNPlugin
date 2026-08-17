@@ -30,7 +30,7 @@ def parse_player_meta_args(*parts: str, allow_minimum_matches: bool = False) -> 
                 minimum_matches = int(token)
                 minimum_seen = True
                 continue
-            raise ValueError("参数只支持赛季名称；/我的绝活还可指定最低场次")
+            raise ValueError("参数只支持赛季名称")
         if season is not None:
             raise ValueError("只能指定一个赛季")
         season = token
