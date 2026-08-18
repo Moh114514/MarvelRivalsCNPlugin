@@ -5,16 +5,17 @@ from rendering.pages.help import build_help_html
 from rendering.pages.match_detail import build_match_detail_html
 from rendering.pages.player import build_player_stats_html
 from rendering.pages.recent import build_recent_matches_html
-from rendering.asset_loader import APPROVED_ASSETS, LIST_FRAME_URI, PART_NEWS_BACKGROUND_URI
+from rendering.asset_loader import APPROVED_ASSETS, LIST_FRAME_URI, MARVEL_LOGO_URI, PART_NEWS_BACKGROUND_URI
 from rendering.theme import STYLE
 from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 
 
 class TestRenderingTheme(unittest.TestCase):
     def test_approved_visual_assets_are_available_to_the_theme(self):
-        self.assertEqual(len(APPROVED_ASSETS), 2)
+        self.assertEqual(len(APPROVED_ASSETS), 3)
         self.assertTrue(PART_NEWS_BACKGROUND_URI.startswith("data:image/png;base64,"))
         self.assertTrue(LIST_FRAME_URI.startswith("data:image/png;base64,"))
+        self.assertTrue(MARVEL_LOGO_URI.startswith("data:image/png;base64,"))
         self.assertIn("background-image:url(\"data:image/png;base64,", STYLE)
 
     def test_help_page_uses_the_shared_visual_shell(self):
@@ -73,6 +74,8 @@ class TestRenderingTheme(unittest.TestCase):
             'class="mr-header__meta-item mr-header__meta-item--uid"',
             'class="mr-hero-row__index">01</span>',
             'class="mr-footer"',
+            'class="mr-footer__logo"',
+            'alt="Marvel Rivals"',
             'data-watermark="PLAYER PROFILE"',
             "PLAYER PROFILE",
         ):
@@ -81,6 +84,7 @@ class TestRenderingTheme(unittest.TestCase):
         self.assertIn("黄金2", html)
         self.assertIn("3774 分", html)
         self.assertNotIn("SUBJECT", html)
+        self.assertNotIn("<span>漫威争锋</span>", html)
         self.assertNotIn("<script>", html)
 
     def test_recent_page_keeps_ten_stable_numbers_and_removes_platform_hint(self):

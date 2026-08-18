@@ -30,6 +30,7 @@ RUNTIME_DIRECTORIES = ("marvel_rivals_bot", "qq_official", "rendering")
 RUNTIME_ASSETS = frozenset({
     "rendering/assets/part-news-bg_ac16ec22.png",
     "rendering/assets/list-l_8a1441f6.png",
+    "rendering/assets/logo_95906827.png",
 })
 FORBIDDEN_PARTS = {
     ".git",

@@ -235,10 +235,10 @@ class TestHistoricalMetaPresentation(unittest.TestCase):
         self.assertIn("+2.00pp", monsters)
 
     def test_history_pages_escape_and_show_stale_state(self):
-        for html in (
-            build_meta_trend_html(self.series),
-            build_rank_monsters_html(self.monsters),
-        ):
+        trend_html = build_meta_trend_html(self.series)
+        self.assertIn('class="mr-meta-list mr-meta-list--trend"', trend_html)
+        self.assertEqual(trend_html.count('class="mr-trend-metrics"'), len(self.series.points) - 1)
+        for html in (trend_html, build_rank_monsters_html(self.monsters)):
             self.assertIn('class="mr-page"', html)
             self.assertIn("当前上游暂不可用", html)
             self.assertNotIn("<script>", html)

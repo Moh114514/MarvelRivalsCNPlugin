@@ -351,7 +351,7 @@ def build_meta_trend_html(series: HeroRankSeries) -> str:
         + _source_line(series)
         + '<section class="mr-section mr-meta-section">'
         + section_title("赛季变化", "SEASON SERIES")
-        + f'<div class="mr-meta-list">{"".join(rows) or empty_state("暂无历史趋势数据")}</div>'
+        + f'<div class="mr-meta-list mr-meta-list--trend">{"".join(rows) or empty_state("暂无历史趋势数据")}</div>'
         + '</section>'
     )
     return page_shell(content, watermark="HERO TREND")

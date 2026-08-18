@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from .asset_loader import MARVEL_LOGO_URI
 from .formatters import escape_text
 from .theme import STYLE
 
@@ -167,10 +168,18 @@ def empty_state(message: str) -> str:
     )
 
 
+def _marvel_logo() -> str:
+    """Render the supplied full Marvel Rivals logo asset used in the footer."""
+
+    if not MARVEL_LOGO_URI:
+        return ""
+    return f'<img class="mr-footer__logo" src="{MARVEL_LOGO_URI}" alt="Marvel Rivals" />'
+
+
 def footer(content: str = "数据页") -> str:
     return (
         '<footer class="mr-footer">'
-        '<span>漫威争锋</span>'
+        f'<span class="mr-footer__brand">{_marvel_logo()}</span>'
         f'<span>{escape_text(content)}</span>'
         '</footer>'
     )

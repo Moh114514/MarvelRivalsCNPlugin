@@ -142,15 +142,19 @@ body{font-size:17px}
 
 .mr-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:170px;padding:28px;border:2px solid var(--mr-purple);background:var(--mr-paper-strong);color:var(--mr-muted-strong);text-align:center}
 .mr-empty__mark{margin-bottom:10px;color:var(--mr-purple);font-size:14px;font-weight:950;letter-spacing:.18em}
-.mr-footer{display:flex;justify-content:space-between;gap:16px;margin-top:40px;padding-top:15px;border-top:3px solid var(--mr-ink);color:var(--mr-purple);font-size:14px;font-weight:900;letter-spacing:.1em;line-height:1.5}
+.mr-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:40px;padding-top:15px;border-top:3px solid var(--mr-ink);color:var(--mr-purple);font-size:14px;font-weight:900;letter-spacing:.1em;line-height:1.5}
+.mr-footer__brand{position:relative;display:inline-block;flex:0 0 128px;width:128px;height:54px;overflow:hidden;background:transparent}
+.mr-footer__logo{display:block;width:100%;height:100%;object-fit:contain}
 
 .mr-meta-source{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0 0 24px;padding:12px 16px;border-left:6px solid var(--mr-yellow);background:var(--mr-purple-deep);color:var(--mr-text);font-size:15px;font-weight:750;line-height:1.5}
 .mr-meta-list,.mr-meta-single{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mr-meta-list--trend{grid-template-columns:1fr}
 .mr-meta-list--ranked,.mr-meta-list--unranked{grid-template-columns:1fr}
 .mr-meta-list--rank-breakdown{grid-template-rows:repeat(5,minmax(0,auto));grid-auto-flow:column}
 .mr-meta-row{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:14px;align-items:center;min-height:92px;padding:15px 18px;border-bottom:2px solid var(--mr-line);border-left:6px solid var(--mr-purple);background:var(--mr-paper-strong)}
 .mr-meta-row--unranked{grid-template-columns:minmax(0,1fr) auto}
-.mr-meta-row--trend{grid-template-columns:minmax(0,1fr) minmax(0,2.6fr);align-items:stretch}
+.mr-meta-row--trend{grid-template-columns:minmax(150px,.85fr) minmax(0,3.15fr);align-items:stretch}
+.mr-meta-row--trend.mr-meta-row--empty .mr-meta-row__body{grid-column:1/-1}
 .mr-meta-row:first-child{border-top:5px solid var(--mr-yellow);padding-top:10px}
 .mr-meta-list--rank-breakdown .mr-meta-row:nth-child(6){border-top:5px solid var(--mr-yellow);padding-top:10px}
 .mr-meta-row__index{color:var(--mr-purple);font-size:30px;font-weight:950;line-height:1}
@@ -158,11 +162,11 @@ body{font-size:17px}
 .mr-meta-row__title{color:var(--mr-ink-text);font-size:20px;font-weight:950;line-height:1.2;overflow-wrap:anywhere}
 .mr-meta-row__detail{color:var(--mr-muted-strong);font-size:15px;line-height:1.35;overflow-wrap:anywhere}
 .mr-meta-row__value{color:var(--mr-purple-deep);font-size:clamp(25px,3vw,36px);font-weight:950;line-height:1;white-space:nowrap}
-.mr-trend-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.mr-trend-metric{display:grid;align-content:center;gap:4px;padding:9px 12px;border-left:2px solid var(--mr-line);background:var(--mr-paper)}
-.mr-trend-metric__label{color:var(--mr-muted-strong);font-size:14px;font-weight:850}
-.mr-trend-metric__value{color:var(--mr-purple-deep);font-size:25px;line-height:1}
-.mr-trend-metric__delta{color:var(--mr-muted-strong);font-size:14px;font-weight:850}
+.mr-trend-metrics{display:grid;min-width:0;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.mr-trend-metric{display:grid;min-width:0;align-content:center;gap:4px;padding:9px 12px;border-left:2px solid var(--mr-line);background:var(--mr-paper)}
+.mr-trend-metric__label{min-width:0;color:var(--mr-muted-strong);font-size:14px;font-weight:850;line-height:1.15;overflow-wrap:anywhere}
+.mr-trend-metric__value{min-width:0;color:var(--mr-purple-deep);font-size:clamp(25px,2.1vw,28px);font-variant-numeric:tabular-nums;line-height:1;white-space:nowrap}
+.mr-trend-metric__delta{min-width:0;color:var(--mr-muted-strong);font-size:14px;font-weight:850;line-height:1.15;white-space:nowrap}
 .mr-rank-segments{display:grid;gap:18px}
 .mr-rank-segment{padding-top:4px;border-top:4px solid var(--mr-purple)}
 .mr-rank-segment__title{margin:0 0 10px;color:var(--mr-purple-deep);font-size:22px;font-weight:950}
