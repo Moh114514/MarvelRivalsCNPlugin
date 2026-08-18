@@ -35,6 +35,7 @@ from .models import (
     HeroRankSeries,
     RankMonster,
     RankMonsterBoard,
+    RankSegment,
     SeasonDelta,
     RawHeroMetaPayload,
 )
@@ -125,6 +126,10 @@ class MetaService:
         self,
         seasons: Sequence[str] | None,
     ) -> list[RawHeroMetaPayload]:
+        codes = self._historical_codes(seasons)
+        return list(await asyncio.gather(*(self.get_raw_hero_meta(code) for code in codes)))
+
+    def _historical_codes(self, seasons: Sequence[str] | None) -> list[str]:
         requested = list(seasons or self.default_historical_seasons())
         if not requested:
             raise MetaQueryError("至少需要一个赛季")
@@ -133,7 +138,42 @@ class MetaService:
             code = self.season_code(season)
             if code not in codes:
                 codes.append(code)
-        return list(await asyncio.gather(*(self.get_raw_hero_meta(code) for code in codes)))
+        return codes
+
+    async def _load_historical_payloads_partial(
+        self,
+        seasons: Sequence[str] | None,
+    ) -> tuple[list[str], list[RawHeroMetaPayload | None]]:
+        """Load a trend as a partial series while keeping strict callers strict."""
+
+        codes = self._historical_codes(seasons)
+        loaded = await asyncio.gather(
+            *(self.get_raw_hero_meta(code) for code in codes),
+            return_exceptions=True,
+        )
+        payloads: list[RawHeroMetaPayload | None] = []
+        for code, value in zip(codes, loaded):
+            if isinstance(value, MetaDataSourceError):
+                logger.warning(
+                    "Meta source=%s season=%s trend_partial_failure=%s",
+                    getattr(self.source, "SOURCE_NAME", type(self.source).__name__),
+                    code,
+                    type(value).__name__,
+                )
+                payloads.append(None)
+                continue
+            if isinstance(value, Exception):
+                raise value
+            payloads.append(value)
+        if not any(payloads):
+            first_error = next(
+                (value for value in loaded if isinstance(value, MetaDataSourceError)),
+                None,
+            )
+            if first_error is not None:
+                raise first_error
+            raise MetaQueryError("没有可用的历史赛季数据")
+        return codes, payloads
 
     @staticmethod
     def _history_context(
@@ -495,23 +535,43 @@ class MetaService:
             rank_key = normalize_rank(rank)
         except (TypeError, ValueError) as exc:
             raise MetaQueryError(str(exc)) from exc
-        payloads = await self._load_historical_payloads(seasons)
+        codes, payloads = await self._load_historical_payloads_partial(seasons)
         points: list[HeroRankPoint] = []
         found = False
-        for payload in payloads:
-            result = self._results_by_hero(payload, rank_key).get(hero_id)
+        previous_result: HeroMetaResult | None = None
+        for code, payload in zip(codes, payloads):
+            result = self._results_by_hero(payload, rank_key).get(hero_id) if payload else None
             found = found or result is not None
-            season_identity = season_identity_from_rivalsmeta_code(payload.season)
+            season_identity = season_identity_from_rivalsmeta_code(code)
             points.append(
                 HeroRankPoint(
-                    season_code=str(payload.season),
+                    season_code=code,
                     season_label=season_identity.label,
                     result=result,
+                    win_rate_delta=self._delta(
+                        result.win_rate if result else None,
+                        previous_result.win_rate if previous_result else None,
+                    ),
+                    pick_rate_delta=self._delta(
+                        result.pick_rate if result else None,
+                        previous_result.pick_rate if previous_result else None,
+                    ),
+                    ban_rate_delta=self._delta(
+                        result.ban_rate if result else None,
+                        previous_result.ban_rate if previous_result else None,
+                    ),
                 )
             )
+            previous_result = result
         if not found:
             raise MetaQueryError(f"没有找到英雄“{hero_name}”的历史环境数据")
-        source, timestamps, fetched_at, stale = self._history_context(payloads)
+        usable_payloads = [payload for payload in payloads if payload is not None]
+        source, usable_timestamps, fetched_at, stale = self._history_context(usable_payloads)
+        timestamp_by_code = {
+            str(payload.season): _as_datetime(payload.source_timestamp)
+            for payload in usable_payloads
+        }
+        timestamps = tuple(timestamp_by_code.get(code) for code in codes)
         return HeroRankSeries(
             hero_id=hero_id,
             hero_name=get_hero_name(hero_id),
@@ -640,6 +700,16 @@ class MetaService:
         }
         win_median = median(result.win_rate for result in eligible_results.values()) if eligible_results else 0.0
         pick_median = median(result.pick_rate for result in eligible_results.values()) if eligible_results else 0.0
+        ban_applies = key == "cold_strong" and rank_key not in {"1", "2"}
+        if ban_applies and eligible_results and any(
+            result.ban_rate is None for result in eligible_results.values()
+        ):
+            raise MetaQueryError("当前段位 Ban 数据不足，无法执行完整冷门强者判定")
+        ban_median = (
+            median(result.ban_rate for result in eligible_results.values() if result.ban_rate is not None)
+            if ban_applies
+            else None
+        )
         items: list[HeroMetaInsight] = []
         for hero_id, result in eligible_results.items():
             previous = previous_results.get(hero_id)
@@ -651,6 +721,8 @@ class MetaService:
                     continue
             elif key == "cold_strong":
                 if result.win_rate < win_median or result.pick_rate >= pick_median:
+                    continue
+                if ban_applies and (ban_median is None or result.ban_rate >= ban_median):
                     continue
             elif result.win_rate >= win_median or result.pick_rate < pick_median:
                 continue
@@ -670,8 +742,19 @@ class MetaService:
                 f"且当前样本场次 ≥ {minimum_matches}"
             )
         elif key == "cold_strong":
-            items.sort(key=lambda item: (item.result.win_rate, -item.result.pick_rate), reverse=True)
-            rule = f"胜率不低于环境中位数、选取率低于环境中位数，且样本场次 ≥ {minimum_matches}"
+            items.sort(
+                key=lambda item: (
+                    item.result.win_rate,
+                    -item.result.pick_rate,
+                    -(item.result.ban_rate or 0.0),
+                ),
+                reverse=True,
+            )
+            ban_rule = "、Ban率低于环境中位数" if ban_applies else "；青铜/白银不纳入 Ban率判断"
+            rule = (
+                f"胜率不低于环境中位数、选取率低于环境中位数{ban_rule}，"
+                f"且样本场次 ≥ {minimum_matches}"
+            )
         else:
             items.sort(key=lambda item: (item.result.pick_rate, -item.result.win_rate), reverse=True)
             rule = f"选取率不低于环境中位数、胜率低于环境中位数，且样本场次 ≥ {minimum_matches}"
@@ -703,59 +786,71 @@ class MetaService:
         season: str | None = None,
         limit: int | None = None,
         minimum_matches: int = 100,
+        minimum_win_rate_delta: float = 2.0,
     ) -> RankMonsterBoard:
-        """Find rank-specialist heroes from one season-wide payload."""
+        """Filter rank-specialists by segment without turning them into a leaderboard."""
 
         try:
             limit = None if limit is None else max(0, int(limit))
         except (TypeError, ValueError) as exc:
             raise MetaQueryError(str(exc)) from exc
         minimum_matches = self._positive_matches(minimum_matches)
+        try:
+            minimum_win_rate_delta = float(minimum_win_rate_delta)
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError("分段胜率差阈值必须是数字") from exc
+        if minimum_win_rate_delta < 0:
+            raise MetaQueryError("分段胜率差阈值不能小于 0")
         payloads = await self._load_historical_payloads((season or self.default_historical_seasons(1)[0],))
         payload = payloads[0]
         all_results = self._results_by_hero(payload, "all", sort_by="win_rate")
-        candidates: list[RankMonster] = []
+        segments: list[RankSegment] = []
         for rank_code in rank_codes("all"):
             ranked = self._results_by_hero(payload, rank_code, sort_by="win_rate")
-            eligible = [
-                item
-                for item in ranked.values()
-                if item.matches >= minimum_matches and item.hero_id in all_results
-            ]
-            if not eligible:
-                continue
-            result = max(
-                eligible,
+            candidates: list[RankMonster] = []
+            for result in ranked.values():
+                overall = all_results.get(result.hero_id)
+                if overall is None or result.matches < minimum_matches:
+                    continue
+                delta = result.win_rate - overall.win_rate
+                if delta < minimum_win_rate_delta:
+                    continue
+                candidates.append(
+                    RankMonster(
+                        rank_code=rank_code,
+                        rank_label=get_rank_label(rank_code),
+                        result=result,
+                        win_rate_delta=delta,
+                    )
+                )
+            candidates.sort(
                 key=lambda item: (
-                    item.win_rate - all_results[item.hero_id].win_rate,
-                    item.win_rate,
-                    item.matches,
+                    item.win_rate_delta if item.win_rate_delta is not None else float("-inf"),
+                    item.result.win_rate,
+                    item.result.matches,
                 ),
+                reverse=True,
             )
-            overall = all_results[result.hero_id]
-            candidates.append(
-                RankMonster(
+            if limit is not None:
+                candidates = candidates[:limit]
+            segments.append(
+                RankSegment(
                     rank_code=rank_code,
                     rank_label=get_rank_label(rank_code),
-                    result=result,
-                    win_rate_delta=(result.win_rate - overall.win_rate) if overall else None,
+                    items=candidates,
                 )
             )
-        candidates.sort(
-            key=lambda item: (
-                item.win_rate_delta is not None,
-                item.win_rate_delta if item.win_rate_delta is not None else float("-inf"),
-                item.result.win_rate,
-            ),
-            reverse=True,
-        )
         source, timestamps, fetched_at, stale = self._history_context(payloads)
         identity = season_identity_from_rivalsmeta_code(payload.season)
         return RankMonsterBoard(
             season_code=str(payload.season),
             season_label=identity.label,
-            rule=f"每个段位取相对全段位胜率差值最高的英雄，最低样本场次 ≥ {minimum_matches}；默认展示全部可用段位",
-            items=candidates[:limit],
+            rule=(
+                f"按游戏段位顺序列出所有满足条件的英雄：该段位样本场次 ≥ {minimum_matches}，"
+                f"且该段位胜率比英雄自身全段位胜率高至少 {minimum_win_rate_delta:.1f}pp；"
+                "不进行跨段位排名"
+            ),
+            segments=segments,
             source=source,
             source_timestamps=timestamps,
             source_timestamp=self._latest_timestamp(timestamps),

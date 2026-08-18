@@ -104,7 +104,7 @@ def _metric_section(title: str, metric: str, results: Iterable[HeroMetaResult], 
     return (
         '<section class="mr-section mr-meta-section">'
         + section_title(title, kicker)
-        + f'<div class="mr-meta-list">{body}</div>'
+        + f'<div class="mr-meta-list mr-meta-list--ranked">{body}</div>'
         + '</section>'
     )
 
@@ -294,28 +294,50 @@ def _delta(value: float | None) -> str:
     return "—" if value is None else f"{value:+.2f}pp"
 
 
+def _trend_delta(value: float | None) -> str:
+    if value is None:
+        return "基准"
+    if value > 0:
+        return f"▲ {value:+.2f}pp"
+    if value < 0:
+        return f"▼ {value:+.2f}pp"
+    return "→ 0.00pp"
+
+
 def build_meta_trend_html(series: HeroRankSeries) -> str:
     rows = []
-    for index, point in enumerate(series.points, 1):
+    for point in series.points:
         result = point.result
         if result is None:
-            detail = "暂无该赛季数据"
-            value = "—"
-        else:
-            detail = (
-                f"选取率 {_percent(result.pick_rate)} · Ban率 {_percent(result.ban_rate)} · "
-                f"场次 {_count(result.matches)}"
+            rows.append(
+                '<article class="mr-meta-row mr-meta-row--trend mr-meta-row--empty">'
+                '<div class="mr-meta-row__body">'
+                f'<strong class="mr-meta-row__title">{_value(point.season_label)}</strong>'
+                '<span class="mr-meta-row__detail">暂无该赛季数据</span>'
+                '</div></article>'
             )
-            value = _percent(result.win_rate)
+            continue
+        def metric(label: str, value: str, delta: float | None) -> str:
+            return (
+                '<div class="mr-trend-metric">'
+                f'<span class="mr-trend-metric__label">{_value(label)}</span>'
+                f'<strong class="mr-trend-metric__value">{_value(value)}</strong>'
+                f'<span class="mr-trend-metric__delta">{_value(_trend_delta(delta))}</span>'
+                '</div>'
+            )
+
         rows.append(
-            '<article class="mr-meta-row">'
-            f'<span class="mr-meta-row__index">{_value(f"{index:02d}")}</span>'
+            '<article class="mr-meta-row mr-meta-row--trend">'
             '<div class="mr-meta-row__body">'
             f'<strong class="mr-meta-row__title">{_value(point.season_label)}</strong>'
-            f'<span class="mr-meta-row__detail">{escape_text(detail)}</span>'
+            '<span class="mr-meta-row__detail">相对上一赛季的指标变化</span>'
             '</div>'
-            f'<strong class="mr-meta-row__value">{_value(value)}</strong>'
-            '</article>'
+            '<div class="mr-trend-metrics">'
+            + metric("胜率", _percent(result.win_rate), point.win_rate_delta)
+            + metric("选取率", _percent(result.pick_rate), point.pick_rate_delta)
+            + metric("Ban率", _percent(result.ban_rate), point.ban_rate_delta)
+            + metric("样本场次", _count(result.matches), None)
+            + '</div></article>'
         )
     content = (
         page_header(
@@ -366,7 +388,7 @@ def build_meta_version_changes_html(changes: HeroMetaVersionChanges) -> str:
         body.append(
             '<section class="mr-section mr-meta-section">'
             + section_title(title, "SEASON DELTA")
-            + f'<div class="mr-meta-list">{rows or empty_state("暂无可比较数据")}</div>'
+            + f'<div class="mr-meta-list mr-meta-list--ranked">{rows or empty_state("暂无可比较数据")}</div>'
             + '</section>'
         )
     content = (
@@ -391,14 +413,15 @@ def build_meta_insights_html(insights: HeroMetaInsights) -> str:
         "hot_trap": "热门低胜率英雄",
     }.get(insights.insight_type, "历史洞察")
     rows = []
-    for index, item in enumerate(insights.items, 1):
+    for item in insights.items:
         result = item.result
         details = f"胜率 {_percent(result.win_rate)} · 选取率 {_percent(result.pick_rate)} · 场次 {_count(result.matches)}"
+        if insights.insight_type == "cold_strong":
+            details += f" · Ban率 {_percent(result.ban_rate)}"
         if item.win_rate_delta is not None:
             details += f" · 胜率变化 {_delta(item.win_rate_delta)}"
         rows.append(
-            '<article class="mr-meta-row">'
-            f'<span class="mr-meta-row__index">{_value(f"{index:02d}")}</span>'
+            '<article class="mr-meta-row mr-meta-row--unranked">'
             '<div class="mr-meta-row__body">'
             f'<strong class="mr-meta-row__title">{_value(result.hero_name)}</strong>'
             f'<span class="mr-meta-row__detail">{escape_text(details)}</span>'
@@ -422,25 +445,32 @@ def build_meta_insights_html(insights: HeroMetaInsights) -> str:
         + '<section class="mr-section mr-meta-section">'
         + section_title("筛选结果", "TRANSPARENT RULE")
         + f'<div class="mr-help-note">{escape_text(insights.rule)}</div>'
-        + f'<div class="mr-meta-list">{"".join(rows) or empty_state("暂无满足条件的英雄")}</div>'
+        + f'<div class="mr-meta-list mr-meta-list--unranked">{"".join(rows) or empty_state("暂无满足条件的英雄")}</div>'
         + '</section>'
     )
     return page_shell(content, watermark="META INSIGHT")
 
 
 def build_rank_monsters_html(board: RankMonsterBoard) -> str:
-    rows = []
-    for index, item in enumerate(board.items, 1):
-        result = item.result
-        rows.append(
-            '<article class="mr-meta-row">'
-            f'<span class="mr-meta-row__index">{_value(f"{index:02d}")}</span>'
-            '<div class="mr-meta-row__body">'
-            f'<strong class="mr-meta-row__title">{_value(item.rank_label)} · {_value(result.hero_name)}</strong>'
-            f'<span class="mr-meta-row__detail">胜率 {_percent(result.win_rate)} · 场次 {_count(result.matches)}</span>'
-            '</div>'
-            f'<strong class="mr-meta-row__value">{_value(_delta(item.win_rate_delta))}</strong>'
-            '</article>'
+    sections = []
+    for segment in board.segments:
+        rows = []
+        for item in segment.items:
+            result = item.result
+            rows.append(
+                '<article class="mr-meta-row mr-meta-row--unranked">'
+                '<div class="mr-meta-row__body">'
+                f'<strong class="mr-meta-row__title">{_value(result.hero_name)}</strong>'
+                f'<span class="mr-meta-row__detail">胜率 {_percent(result.win_rate)} · 场次 {_count(result.matches)}</span>'
+                '</div>'
+                f'<strong class="mr-meta-row__value">{_value(_delta(item.win_rate_delta))}</strong>'
+                '</article>'
+            )
+        sections.append(
+            '<section class="mr-rank-segment">'
+            f'<h3 class="mr-rank-segment__title">{_value(segment.rank_label)}</h3>'
+            f'<div class="mr-meta-list mr-meta-list--unranked">{"".join(rows) or empty_state("暂无符合条件的英雄")}</div>'
+            '</section>'
         )
     content = (
         page_header(
@@ -455,7 +485,7 @@ def build_rank_monsters_html(board: RankMonsterBoard) -> str:
         + '<section class="mr-section mr-meta-section">'
         + section_title("分段专项表现", "RANK SPECIALIST")
         + f'<div class="mr-help-note">{escape_text(board.rule)}</div>'
-        + f'<div class="mr-meta-list">{"".join(rows) or empty_state("暂无满足条件的分段数据")}</div>'
+        + f'<div class="mr-rank-segments">{"".join(sections) or empty_state("暂无满足条件的分段数据")}</div>'
         + '</section>'
     )
     return page_shell(content, watermark="RANK SPECIALIST")

@@ -52,8 +52,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 0.14.11", metadata)
-        self.assertIn('"0.14.11"', main)
+        self.assertIn("version: 0.14.12", metadata)
+        self.assertIn('"0.14.12"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -97,9 +97,10 @@ class TestAstrBotPackage(unittest.TestCase):
         for command in (
             "帮助", "漫威帮助", "绑定账号", "绑定漫威", "解绑账号", "解绑漫威",
             "最近对局", "最近", "英雄数据", "英雄", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
-            "英雄趋势", "版本变化", "版本黑马", "冷门强者", "热门低胜率", "热门陷阱", "分段怪物",
+            "英雄趋势", "版本变化", "版本黑马", "冷门强者", "分段怪物",
         ):
             self.assertIn(f'@filter.command("{command}")', main)
+        self.assertIn('@filter.command("热门低胜率", alias={"热门陷阱"})', main)
         self.assertNotIn('@filter.command("help")', main)
 
     def test_httpx_dependency_is_declared(self):
@@ -112,7 +113,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.11")
+        self.assertEqual(validate_source(PLUGIN_DIR), "0.14.12")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

@@ -166,17 +166,31 @@ def format_hero_meta_trend(series: HeroRankSeries) -> str:
     """Format a cross-season hero series without recomputing metrics."""
 
     lines = [f"英雄趋势 | {series.hero_name} | {series.rank_label}", *_history_source_lines(series)]
-    lines.extend(("", "赛季             胜率       选取率      Ban率       场次"))
+    lines.extend(("", "趋势指标（括号内为较上一赛季变化）"))
     for point in series.points:
         result = point.result
         if result is None:
             lines.append(f"{point.season_label:<14} 暂无数据")
             continue
+        def trend(metric: str, delta: float | None) -> str:
+            value = _percent(getattr(result, metric))
+            change = "基准" if delta is None else _trend_delta(delta)
+            return f"{value}（{change}）"
+
         lines.append(
-            f"{point.season_label:<14} {_percent(result.win_rate):>8} "
-            f"{_percent(result.pick_rate):>10} {_percent(result.ban_rate):>10} {result.matches:,}"
+            f"{point.season_label}  胜率 {trend('win_rate', point.win_rate_delta)} | "
+            f"选取率 {trend('pick_rate', point.pick_rate_delta)} | "
+            f"Ban率 {trend('ban_rate', point.ban_rate_delta)} | 样本 {result.matches:,}"
         )
     return "\n".join(lines)
+
+
+def _trend_delta(value: float) -> str:
+    if value > 0:
+        return f"▲ {value:+.2f}pp"
+    if value < 0:
+        return f"▼ {value:+.2f}pp"
+    return "→ 0.00pp"
 
 
 def _delta_line(index: int, item: Any, metric: str) -> str:
@@ -230,30 +244,39 @@ def format_meta_insights(insights: HeroMetaInsights) -> str:
         lines.append("暂无满足条件的英雄。")
         return "\n".join(lines)
     lines.extend(("", "结果"))
-    for index, item in enumerate(insights.items, 1):
+    for item in insights.items:
         result = item.result
-        details = [f"胜率 {_percent(result.win_rate)}", f"选取率 {_percent(result.pick_rate)}", f"场次 {result.matches:,}"]
+        details = [
+            f"胜率 {_percent(result.win_rate)}",
+            f"选取率 {_percent(result.pick_rate)}",
+            f"Ban率 {_percent(result.ban_rate)}",
+            f"场次 {result.matches:,}",
+        ]
         if item.win_rate_delta is not None:
             details.append(f"胜率变化 {_delta(item.win_rate_delta)}")
         if item.pick_rate_delta is not None:
             details.append(f"选取率变化 {_delta(item.pick_rate_delta)}")
-        lines.append(f"{index}. {result.hero_name}  " + " · ".join(details))
+        lines.append(f"{result.hero_name}  " + " · ".join(details))
     return "\n".join(lines)
 
 
 def format_rank_monsters(board: RankMonsterBoard) -> str:
     lines = [f"分段怪物 | {board.season_label}", *_history_source_lines(board), "", f"规则：{board.rule}"]
-    if not board.items:
+    if not board.segments or not board.items:
         lines.append("暂无满足条件的分段数据。")
         return "\n".join(lines)
-    lines.extend(("", "结果"))
-    for index, item in enumerate(board.items, 1):
-        result = item.result
-        delta = _delta(item.win_rate_delta)
-        lines.append(
-            f"{index}. {item.rank_label} · {result.hero_name}  "
-            f"胜率 {_percent(result.win_rate)} · 相对全段 {delta} · 场次 {result.matches:,}"
-        )
+    lines.extend(("", "按游戏段位顺序展示"))
+    for segment in board.segments:
+        lines.extend(("", f"【{segment.rank_label}】"))
+        if not segment.items:
+            lines.append("暂无符合条件的英雄")
+            continue
+        for item in segment.items:
+            result = item.result
+            lines.append(
+                f"{result.hero_name}  胜率 {_percent(result.win_rate)} · "
+                f"相对全段 {_delta(item.win_rate_delta)} · 场次 {result.matches:,}"
+            )
     return "\n".join(lines)
 
 

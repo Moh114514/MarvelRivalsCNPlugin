@@ -15,7 +15,9 @@ from marvel_rivals_bot.meta.models import (
     HeroRankSeries,
     RankMonster,
     RankMonsterBoard,
+    RankSegment,
 )
+from marvel_rivals_bot.meta.errors import MetaDataSourceError
 from marvel_rivals_bot.meta.service import MetaService
 from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
 from rendering.pages.meta import (
@@ -37,6 +39,12 @@ def _payload(season: int, *, improved: bool = False, missing_bans: bool = False)
         "timestamp": 1720000000 + season,
         "heroes": [
             {
+                "rank": "3",
+                "heroes": [
+                    {"hero_id": 1020, "matches": 100, "wins": 80, "wr_matches": 100, "wr_wins": 80, "mirror_matches": 0},
+                ],
+            },
+            {
                 "rank": "5",
                 "heroes": [
                     {"hero_id": 1020, "matches": 100, "wins": 60, "wr_matches": 100, "wr_wins": first_wr, "mirror_matches": 0},
@@ -45,7 +53,7 @@ def _payload(season: int, *, improved: bool = False, missing_bans: bool = False)
             }
         ],
         "bans": None if missing_bans else [
-            {"rank": "5", "bans": [{"hero_id": 1020, "bans": 10}, {"hero_id": 1036, "bans": 5}]}
+            {"rank": "5", "bans": [{"hero_id": 1020, "bans": 5}, {"hero_id": 1036, "bans": 10}]}
         ],
     }
 
@@ -105,6 +113,23 @@ class TestHistoricalMetaService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([point.season_label for point in series.points], ["S9上半赛季", "S9下半赛季"])
         self.assertEqual(series.points[0].result.win_rate, 50.0)
         self.assertEqual(series.points[1].result.win_rate, 60.0)
+        self.assertEqual(series.points[1].win_rate_delta, 10.0)
+
+    async def test_trend_keeps_a_missing_season_when_one_history_request_fails(self):
+        source = FakeHistoricalSource()
+        original = source.get_hero_stats
+
+        async def fail_one_season(season):
+            if str(season) == "19":
+                raise MetaDataSourceError("temporary upstream failure")
+            return await original(season)
+
+        source.get_hero_stats = fail_one_season
+        service = MetaService(source, cache_root=PLUGIN_DIR / "tmp-meta-historical-partial")
+        service.cache.save = lambda *args, **kwargs: None
+        series = await service.get_hero_meta_trend("曼蒂斯", seasons=("S9", "S9.5"), rank="钻石")
+        self.assertIsNotNone(series.points[0].result)
+        self.assertIsNone(series.points[1].result)
 
     async def test_version_changes_aggregate_deltas_and_preserve_missing_ban(self):
         changes = await self.service.get_meta_version_changes("S9", "S9.5", rank="钻石")
@@ -144,13 +169,38 @@ class TestHistoricalMetaService(unittest.IsolatedAsyncioTestCase):
 
         cold = await self.service.get_meta_insights("cold_strong", season="S9.5", rank="钻石", minimum_matches=1)
         self.assertEqual(cold.items[0].result.hero_name, "曼蒂斯")
+        self.assertIn("Ban率低于", cold.rule)
         hot = await self.service.get_meta_insights("hot_trap", season="S9.5", rank="钻石", minimum_matches=1)
         self.assertEqual(hot.items[0].result.hero_name, "蜘蛛侠")
 
-    async def test_rank_monsters_compare_rank_result_with_all_rank(self):
+    async def test_rank_monsters_group_all_qualifying_results_by_rank(self):
         board = await self.service.get_rank_monsters(season="S9.5", minimum_matches=1)
-        self.assertEqual(board.items[0].rank_label, "钻石")
-        self.assertEqual(board.items[0].result.hero_name, "曼蒂斯")
+        self.assertEqual([segment.rank_label for segment in board.segments], [
+            "青铜", "白银", "黄金", "铂金", "钻石", "大师", "天神", "永恒", "万物之上",
+        ])
+        self.assertEqual(board.segments[2].items[0].result.hero_name, "曼蒂斯")
+        self.assertNotIn("1.", format_rank_monsters(board))
+
+    async def test_cold_strong_skips_ban_for_bronze_and_silver(self):
+        result = await self.service.get_meta_insights(
+            "cold_strong", season="S9.5", rank="青铜", minimum_matches=1
+        )
+        self.assertIn("青铜/白银不纳入", result.rule)
+
+    async def test_cold_strong_rejects_missing_ban_for_other_ranks(self):
+        source = FakeHistoricalSource()
+        original = source.get_hero_stats
+
+        async def without_bans(season):
+            result = await original(season)
+            result.bans = None
+            return result
+
+        source.get_hero_stats = without_bans
+        service = MetaService(source, cache_root=PLUGIN_DIR / "tmp-meta-historical-cold-missing")
+        service.cache.save = lambda *args, **kwargs: None
+        with self.assertRaisesRegex(ValueError, "Ban 数据不足"):
+            await service.get_meta_insights("cold_strong", season="S9.5", rank="钻石", minimum_matches=1)
 
 
 class TestHistoricalMetaPresentation(unittest.TestCase):
@@ -170,7 +220,9 @@ class TestHistoricalMetaPresentation(unittest.TestCase):
             True,
         )
         self.monsters = RankMonsterBoard(
-            "19", "S9下半赛季", "透明规则", [RankMonster("5", "钻石", result, 2.0)],
+            "19", "S9下半赛季", "透明规则", [
+                RankSegment("5", "钻石", [RankMonster("5", "钻石", result, 2.0)])
+            ],
             "RivalsMeta", (timestamp,), timestamp, timestamp, True,
         )
 

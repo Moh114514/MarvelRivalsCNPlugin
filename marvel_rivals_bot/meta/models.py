@@ -138,6 +138,9 @@ class HeroRankPoint:
     season_code: str
     season_label: str
     result: HeroMetaResult | None
+    win_rate_delta: float | None = None
+    pick_rate_delta: float | None = None
+    ban_rate_delta: float | None = None
 
 
 @dataclass(slots=True)
@@ -227,7 +230,7 @@ class HeroMetaInsights:
 
 @dataclass(slots=True)
 class RankMonster:
-    """A hero that stands out in one rank compared with all ranks."""
+    """One hero that passes the rank-specialist filter."""
 
     rank_code: str
     rank_label: str
@@ -236,18 +239,33 @@ class RankMonster:
 
 
 @dataclass(slots=True)
+class RankSegment:
+    """All qualifying heroes for one rank, kept in game rank order."""
+
+    rank_code: str
+    rank_label: str
+    items: list[RankMonster]
+
+
+@dataclass(slots=True)
 class RankMonsterBoard:
-    """Rank-specialist heroes from one season."""
+    """Rank-specialist filter results grouped by rank, not a leaderboard."""
 
     season_code: str
     season_label: str
     rule: str
-    items: list[RankMonster]
+    segments: list[RankSegment]
     source: str
     source_timestamps: tuple[datetime | None, ...]
     source_timestamp: datetime | None
     fetched_at: datetime
     stale: bool = False
+
+    @property
+    def items(self) -> list[RankMonster]:
+        """Compatibility view for callers that used the old flat board."""
+
+        return [item for segment in self.segments for item in segment.items]
 
 
 # Names used by earlier design notes remain available without introducing a

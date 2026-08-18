@@ -99,7 +99,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.11", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.12", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -143,7 +143,7 @@ class MarvelRivalsPlugin(Star):
 对比同一环境中的两个英雄（默认生成图片）
 
 /英雄趋势 <英雄名称> [段位] [赛季...]
-查询英雄跨赛季的胜率、选取率和 Ban 率变化（默认最近四个赛季）
+查询英雄跨赛季的胜率、选取率、Ban 率和样本变化（默认最近四个赛季）
 
 /版本变化 <旧赛季> <新赛季> [段位]
 比较两个赛季快照的胜率、选取率和 Ban 率变化（默认生成图片）
@@ -152,13 +152,13 @@ class MarvelRivalsPlugin(Star):
 按透明规则查询赛季黑马（默认当前赛季与上一赛季）
 
 /冷门强者 [段位] [赛季]
-查询高胜率且低选取率的英雄
+查询高胜率、低选取率且低 Ban 率的英雄（青铜/白银不计算 Ban 率）
 
 /热门低胜率 [段位] [赛季]
 查询高选取率但低胜率的英雄（兼容 /热门陷阱）
 
 /分段怪物 [赛季]
-查询各段位中相对全段位胜率差值最高的英雄
+按段位顺序列出相对自身全段位胜率高至少 2pp 的英雄，不进行跨段位排名
 
 段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
@@ -806,8 +806,7 @@ class MarvelRivalsPlugin(Star):
         if result is not None:
             yield result
 
-    @filter.command("热门低胜率")
-    @filter.command("热门陷阱")
+    @filter.command("热门低胜率", alias={"热门陷阱"})
     async def meta_hot_trap(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
         """查询高选取率但低胜率的英雄。"""
         result = await self._meta_filter_insight(event, "hot_trap", arg1, arg2)
