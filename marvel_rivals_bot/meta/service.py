@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
+import asyncio
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime, timezone
+from collections.abc import Sequence
+from statistics import median
 from typing import Any
 
 from ..datasource.base import DataSourceError
@@ -25,6 +28,14 @@ from .models import (
     HeroMetaResult,
     HeroMetaSegment,
     HeroMetaSegments,
+    HeroMetaInsight,
+    HeroMetaInsights,
+    HeroMetaVersionChanges,
+    HeroRankPoint,
+    HeroRankSeries,
+    RankMonster,
+    RankMonsterBoard,
+    SeasonDelta,
     RawHeroMetaPayload,
 )
 
@@ -85,6 +96,117 @@ class MetaService:
         )
         self.fresh_seconds = max(0.0, float(fresh_seconds))
         self._memory: dict[str, _MemoryRecord] = {}
+
+    def default_historical_seasons(self, count: int = 4) -> tuple[str, ...]:
+        """Return the latest known season names in chronological order."""
+
+        try:
+            size = int(count)
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError("历史赛季数量必须是正整数") from exc
+        if size < 1:
+            raise MetaQueryError("历史赛季数量必须是正整数")
+        current = int(self.season_code())
+        first = max(1, current - size + 1)
+        return tuple(
+            season_identity_from_rivalsmeta_code(code).canonical_name
+            for code in range(first, current + 1)
+        )
+
+    def previous_season(self, season: str | None = None) -> str:
+        """Return the canonical name immediately before a requested season."""
+
+        code = int(self.season_code(season))
+        if code <= 1:
+            raise MetaQueryError("S0 没有更早的可比较赛季")
+        return season_identity_from_rivalsmeta_code(code - 1).canonical_name
+
+    async def _load_historical_payloads(
+        self,
+        seasons: Sequence[str] | None,
+    ) -> list[RawHeroMetaPayload]:
+        requested = list(seasons or self.default_historical_seasons())
+        if not requested:
+            raise MetaQueryError("至少需要一个赛季")
+        codes: list[str] = []
+        for season in requested:
+            code = self.season_code(season)
+            if code not in codes:
+                codes.append(code)
+        return list(await asyncio.gather(*(self.get_raw_hero_meta(code) for code in codes)))
+
+    @staticmethod
+    def _history_context(
+        payloads: Sequence[RawHeroMetaPayload],
+    ) -> tuple[str, tuple[datetime | None, ...], datetime, bool]:
+        if not payloads:
+            raise MetaQueryError("没有可用的历史赛季数据")
+        timestamps = tuple(_as_datetime(payload.source_timestamp) for payload in payloads)
+        fetched_values = [payload.fetched_at for payload in payloads if payload.fetched_at is not None]
+        fetched_at = max(fetched_values) if fetched_values else datetime.now(timezone.utc)
+        return payloads[-1].source, timestamps, fetched_at, any(payload.stale for payload in payloads)
+
+    @staticmethod
+    def _latest_timestamp(timestamps: Sequence[datetime | None]) -> datetime | None:
+        valid = [value for value in timestamps if value is not None]
+        if not valid:
+            return None
+        return max(
+            valid,
+            key=lambda value: (
+                value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+            ).timestamp(),
+        )
+
+    @staticmethod
+    def _results_by_hero(
+        payload: RawHeroMetaPayload,
+        rank: str,
+        *,
+        sort_by: str = "matches",
+    ) -> dict[int, HeroMetaResult]:
+        return {
+            result.hero_id: result
+            for result in calculate_hero_results(
+                payload.heroes,
+                payload.bans,
+                rank=rank,
+                sort_by=sort_by,
+            )
+        }
+
+    @staticmethod
+    def _delta(current: float | None, previous: float | None) -> float | None:
+        if current is None or previous is None:
+            return None
+        return current - previous
+
+    @staticmethod
+    def _rank_deltas(
+        deltas: Sequence[SeasonDelta],
+        metric: str,
+        *,
+        rising: bool,
+        limit: int,
+    ) -> list[SeasonDelta]:
+        available = [item for item in deltas if getattr(item, metric) is not None]
+        if rising:
+            available = [item for item in available if getattr(item, metric) > 0]
+            available.sort(key=lambda item: (getattr(item, metric), item.current.matches), reverse=True)
+        else:
+            available = [item for item in available if getattr(item, metric) < 0]
+            available.sort(key=lambda item: (getattr(item, metric), -item.current.matches))
+        return available[: max(0, int(limit))]
+
+    @staticmethod
+    def _positive_matches(value: Any) -> int:
+        try:
+            matches = int(value)
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError("最低样本场次必须是正整数") from exc
+        if matches < 1:
+            raise MetaQueryError("最低样本场次必须是正整数")
+        return matches
 
     def season_code(self, season: str | None = None) -> str:
         value = str(season or "").strip()
@@ -357,6 +479,288 @@ class MetaService:
             source_timestamp=source_timestamp,
             fetched_at=payload.fetched_at or datetime.now(timezone.utc),
             stale=payload.stale,
+        )
+
+    async def get_hero_meta_trend(
+        self,
+        hero_name: str,
+        *,
+        seasons: Sequence[str] | None = None,
+        rank: str = "all",
+    ) -> HeroRankSeries:
+        """Return one hero's WR/Pick/Ban series across historical seasons."""
+
+        try:
+            hero_id = get_hero_id(hero_name)
+            rank_key = normalize_rank(rank)
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError(str(exc)) from exc
+        payloads = await self._load_historical_payloads(seasons)
+        points: list[HeroRankPoint] = []
+        found = False
+        for payload in payloads:
+            result = self._results_by_hero(payload, rank_key).get(hero_id)
+            found = found or result is not None
+            season_identity = season_identity_from_rivalsmeta_code(payload.season)
+            points.append(
+                HeroRankPoint(
+                    season_code=str(payload.season),
+                    season_label=season_identity.label,
+                    result=result,
+                )
+            )
+        if not found:
+            raise MetaQueryError(f"没有找到英雄“{hero_name}”的历史环境数据")
+        source, timestamps, fetched_at, stale = self._history_context(payloads)
+        return HeroRankSeries(
+            hero_id=hero_id,
+            hero_name=get_hero_name(hero_id),
+            rank_key=rank_key,
+            rank_label=get_rank_label(rank_key),
+            points=points,
+            source=source,
+            source_timestamps=timestamps,
+            source_timestamp=self._latest_timestamp(timestamps),
+            fetched_at=fetched_at,
+            stale=stale,
+        )
+
+    async def get_meta_version_changes(
+        self,
+        previous_season: str,
+        current_season: str,
+        *,
+        rank: str = "all",
+        limit: int = 5,
+    ) -> HeroMetaVersionChanges:
+        """Compare two season snapshots without inventing a composite score."""
+
+        try:
+            rank_key = normalize_rank(rank)
+            limit = max(0, int(limit))
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError(str(exc)) from exc
+        previous_code = self.season_code(previous_season)
+        current_code = self.season_code(current_season)
+        if int(previous_code) >= int(current_code):
+            raise MetaQueryError("版本变化请按旧赛季到新赛季指定，且两个赛季必须不同")
+        payloads = await self._load_historical_payloads((previous_code, current_code))
+        if len(payloads) != 2:
+            raise MetaQueryError("版本变化需要两个不同的赛季")
+        previous_payload, current_payload = payloads
+        previous = self._results_by_hero(previous_payload, rank_key)
+        current = self._results_by_hero(current_payload, rank_key)
+        deltas = [
+            SeasonDelta(
+                hero_id=hero_id,
+                hero_name=current_result.hero_name,
+                previous=previous_result,
+                current=current_result,
+                win_rate_delta=self._delta(current_result.win_rate, previous_result.win_rate),
+                pick_rate_delta=self._delta(current_result.pick_rate, previous_result.pick_rate),
+                ban_rate_delta=self._delta(current_result.ban_rate, previous_result.ban_rate),
+            )
+            for hero_id in sorted(previous.keys() & current.keys())
+            for previous_result, current_result in [(previous[hero_id], current[hero_id])]
+        ]
+        source, timestamps, fetched_at, stale = self._history_context(payloads)
+        previous_identity = season_identity_from_rivalsmeta_code(previous_payload.season)
+        current_identity = season_identity_from_rivalsmeta_code(current_payload.season)
+        return HeroMetaVersionChanges(
+            previous_season_code=str(previous_payload.season),
+            previous_season_label=previous_identity.label,
+            current_season_code=str(current_payload.season),
+            current_season_label=current_identity.label,
+            rank_key=rank_key,
+            rank_label=get_rank_label(rank_key),
+            win_rate_up=self._rank_deltas(deltas, "win_rate_delta", rising=True, limit=limit),
+            win_rate_down=self._rank_deltas(deltas, "win_rate_delta", rising=False, limit=limit),
+            pick_rate_up=self._rank_deltas(deltas, "pick_rate_delta", rising=True, limit=limit),
+            pick_rate_down=self._rank_deltas(deltas, "pick_rate_delta", rising=False, limit=limit),
+            ban_rate_up=self._rank_deltas(deltas, "ban_rate_delta", rising=True, limit=limit),
+            ban_rate_down=self._rank_deltas(deltas, "ban_rate_delta", rising=False, limit=limit),
+            source=source,
+            source_timestamps=timestamps,
+            source_timestamp=self._latest_timestamp(timestamps),
+            fetched_at=fetched_at,
+            stale=stale,
+        )
+
+    async def get_meta_insights(
+        self,
+        insight_type: str,
+        *,
+        season: str | None = None,
+        previous_season: str | None = None,
+        rank: str = "all",
+        limit: int = 5,
+        minimum_matches: int = 100,
+    ) -> HeroMetaInsights:
+        """Build transparent black-horse, cold-strong, or hot-low-WR boards."""
+
+        aliases = {
+            "black_horse": "black_horse",
+            "版本黑马": "black_horse",
+            "cold_strong": "cold_strong",
+            "冷门强者": "cold_strong",
+            "hot_trap": "hot_trap",
+            "热门陷阱": "hot_trap",
+            "热门低胜率": "hot_trap",
+        }
+        key = aliases.get(str(insight_type).strip().lower(), str(insight_type).strip())
+        if key not in {"black_horse", "cold_strong", "hot_trap"}:
+            raise MetaQueryError(f"未知历史洞察类型：{insight_type}")
+        try:
+            rank_key = normalize_rank(rank)
+            limit = max(0, int(limit))
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError(str(exc)) from exc
+        minimum_matches = self._positive_matches(minimum_matches)
+        current_name = season or self.default_historical_seasons(1)[0]
+        self.season_code(current_name)
+        if key == "black_horse":
+            previous_name = previous_season or self.previous_season(current_name)
+            previous_code = self.season_code(previous_name)
+            current_code = self.season_code(current_name)
+            if int(previous_code) >= int(current_code):
+                raise MetaQueryError("版本黑马请按旧赛季到新赛季指定，且两个赛季必须不同")
+            payloads = await self._load_historical_payloads((previous_code, current_code))
+        else:
+            previous_name = None
+            payloads = await self._load_historical_payloads((current_name,))
+        current_payload = payloads[-1]
+        current_results = self._results_by_hero(current_payload, rank_key)
+        previous_results = (
+            self._results_by_hero(payloads[0], rank_key) if key == "black_horse" else {}
+        )
+        eligible_results = {
+            hero_id: result
+            for hero_id, result in current_results.items()
+            if result.matches >= minimum_matches
+        }
+        win_median = median(result.win_rate for result in eligible_results.values()) if eligible_results else 0.0
+        pick_median = median(result.pick_rate for result in eligible_results.values()) if eligible_results else 0.0
+        items: list[HeroMetaInsight] = []
+        for hero_id, result in eligible_results.items():
+            previous = previous_results.get(hero_id)
+            win_delta = self._delta(result.win_rate, previous.win_rate if previous else None)
+            pick_delta = self._delta(result.pick_rate, previous.pick_rate if previous else None)
+            ban_delta = self._delta(result.ban_rate, previous.ban_rate if previous else None)
+            if key == "black_horse":
+                if previous is None or win_delta is None or result.win_rate < win_median or win_delta < 2.0:
+                    continue
+            elif key == "cold_strong":
+                if result.win_rate < win_median or result.pick_rate >= pick_median:
+                    continue
+            elif result.win_rate >= win_median or result.pick_rate < pick_median:
+                continue
+            items.append(
+                HeroMetaInsight(
+                    result=result,
+                    previous=previous,
+                    win_rate_delta=win_delta,
+                    pick_rate_delta=pick_delta,
+                    ban_rate_delta=ban_delta,
+                )
+            )
+        if key == "black_horse":
+            items.sort(key=lambda item: (item.win_rate_delta or float("-inf"), item.result.win_rate), reverse=True)
+            rule = (
+                f"当前胜率不低于环境中位数，较上一赛季提升至少 2.0pp，"
+                f"且当前样本场次 ≥ {minimum_matches}"
+            )
+        elif key == "cold_strong":
+            items.sort(key=lambda item: (item.result.win_rate, -item.result.pick_rate), reverse=True)
+            rule = f"胜率不低于环境中位数、选取率低于环境中位数，且样本场次 ≥ {minimum_matches}"
+        else:
+            items.sort(key=lambda item: (item.result.pick_rate, -item.result.win_rate), reverse=True)
+            rule = f"选取率不低于环境中位数、胜率低于环境中位数，且样本场次 ≥ {minimum_matches}"
+        source, timestamps, fetched_at, stale = self._history_context(payloads)
+        current_identity = season_identity_from_rivalsmeta_code(current_payload.season)
+        previous_identity = (
+            season_identity_from_rivalsmeta_code(payloads[0].season) if key == "black_horse" else None
+        )
+        return HeroMetaInsights(
+            insight_type=key,
+            season_code=str(current_payload.season),
+            season_label=current_identity.label,
+            previous_season_code=str(payloads[0].season) if key == "black_horse" else None,
+            previous_season_label=previous_identity.label if previous_identity else None,
+            rank_key=rank_key,
+            rank_label=get_rank_label(rank_key),
+            rule=rule,
+            items=items[:limit],
+            source=source,
+            source_timestamps=timestamps,
+            source_timestamp=self._latest_timestamp(timestamps),
+            fetched_at=fetched_at,
+            stale=stale,
+        )
+
+    async def get_rank_monsters(
+        self,
+        *,
+        season: str | None = None,
+        limit: int | None = None,
+        minimum_matches: int = 100,
+    ) -> RankMonsterBoard:
+        """Find rank-specialist heroes from one season-wide payload."""
+
+        try:
+            limit = None if limit is None else max(0, int(limit))
+        except (TypeError, ValueError) as exc:
+            raise MetaQueryError(str(exc)) from exc
+        minimum_matches = self._positive_matches(minimum_matches)
+        payloads = await self._load_historical_payloads((season or self.default_historical_seasons(1)[0],))
+        payload = payloads[0]
+        all_results = self._results_by_hero(payload, "all", sort_by="win_rate")
+        candidates: list[RankMonster] = []
+        for rank_code in rank_codes("all"):
+            ranked = self._results_by_hero(payload, rank_code, sort_by="win_rate")
+            eligible = [
+                item
+                for item in ranked.values()
+                if item.matches >= minimum_matches and item.hero_id in all_results
+            ]
+            if not eligible:
+                continue
+            result = max(
+                eligible,
+                key=lambda item: (
+                    item.win_rate - all_results[item.hero_id].win_rate,
+                    item.win_rate,
+                    item.matches,
+                ),
+            )
+            overall = all_results[result.hero_id]
+            candidates.append(
+                RankMonster(
+                    rank_code=rank_code,
+                    rank_label=get_rank_label(rank_code),
+                    result=result,
+                    win_rate_delta=(result.win_rate - overall.win_rate) if overall else None,
+                )
+            )
+        candidates.sort(
+            key=lambda item: (
+                item.win_rate_delta is not None,
+                item.win_rate_delta if item.win_rate_delta is not None else float("-inf"),
+                item.result.win_rate,
+            ),
+            reverse=True,
+        )
+        source, timestamps, fetched_at, stale = self._history_context(payloads)
+        identity = season_identity_from_rivalsmeta_code(payload.season)
+        return RankMonsterBoard(
+            season_code=str(payload.season),
+            season_label=identity.label,
+            rule=f"每个段位取相对全段位胜率差值最高的英雄，最低样本场次 ≥ {minimum_matches}；默认展示全部可用段位",
+            items=candidates[:limit],
+            source=source,
+            source_timestamps=timestamps,
+            source_timestamp=self._latest_timestamp(timestamps),
+            fetched_at=fetched_at,
+            stale=stale,
         )
 
     async def get_single_hero_meta_board(

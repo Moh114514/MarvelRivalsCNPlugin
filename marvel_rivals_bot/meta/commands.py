@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from ..reference.ranks import normalize_rank
+from ..reference.seasons import season_identity_from_name
 
 
 class MetaCommandError(ValueError):
@@ -38,6 +39,13 @@ class MetaCommandArgs:
     season: str | None = None
     rank: str = "all"
     sort_by: str = "win_rate"
+
+
+@dataclass(slots=True)
+class HistoricalMetaCommandArgs:
+    hero_name: str | None = None
+    seasons: tuple[str, ...] = ()
+    rank: str = "all"
 
 
 _SEASON_RE = re.compile(r"^[sS](?:0|[1-9]\d*(?:\.5|上半赛季|下半赛季)?)$")
@@ -107,3 +115,68 @@ def parse_meta_command_args(
     if require_sort and not sort_seen:
         raise MetaCommandError("请提供一个排序指标，例如：胜率、选取率、Ban率或场次")
     return result
+
+
+def parse_historical_meta_command_args(
+    *parts: str,
+    require_hero: bool = False,
+    allow_rank: bool = True,
+    min_seasons: int = 0,
+    max_seasons: int | None = None,
+) -> HistoricalMetaCommandArgs:
+    """Parse history commands without making season order positional."""
+
+    tokens: list[str] = []
+    for part in parts:
+        if part and str(part).strip():
+            tokens.extend(str(part).split())
+
+    seasons: list[str] = []
+    rank = "all"
+    rank_seen = False
+    remaining: list[str] = []
+    for token in tokens:
+        if _SEASON_RE.fullmatch(token):
+            try:
+                canonical = season_identity_from_name(token).canonical_name
+            except ValueError as exc:
+                raise MetaCommandError(str(exc)) from exc
+            if canonical in seasons:
+                raise MetaCommandError("只能指定不同的赛季")
+            seasons.append(canonical)
+            continue
+        try:
+            rank_key = normalize_rank(token)
+        except ValueError:
+            remaining.append(token)
+        else:
+            if not allow_rank:
+                raise MetaCommandError("该命令不接受段位筛选")
+            if rank_seen:
+                raise MetaCommandError("只能指定一个段位")
+            rank = rank_key
+            rank_seen = True
+
+    if require_hero:
+        if not remaining:
+            raise MetaCommandError("请提供英雄中文名称，例如：曼蒂斯")
+        hero_name = " ".join(remaining)
+    elif remaining:
+        raise MetaCommandError(f"无法识别参数：{' '.join(remaining)}")
+    else:
+        hero_name = None
+
+    if len(seasons) < max(0, int(min_seasons)):
+        raise MetaCommandError(f"至少需要指定{int(min_seasons)}个不同的赛季")
+    if max_seasons is not None and len(seasons) > int(max_seasons):
+        raise MetaCommandError(f"最多只能指定{int(max_seasons)}个赛季")
+    return HistoricalMetaCommandArgs(hero_name=hero_name, seasons=tuple(seasons), rank=rank)
+
+
+__all__ = [
+    "HistoricalMetaCommandArgs",
+    "MetaCommandArgs",
+    "MetaCommandError",
+    "parse_historical_meta_command_args",
+    "parse_meta_command_args",
+]

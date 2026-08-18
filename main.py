@@ -10,13 +10,20 @@ try:
     from .marvel_rivals_bot.services.rivals import RivalsService
     from .marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
-    from .marvel_rivals_bot.meta.commands import parse_meta_command_args
+    from .marvel_rivals_bot.meta.commands import (
+        parse_historical_meta_command_args,
+        parse_meta_command_args,
+    )
     from .marvel_rivals_bot.meta.errors import MetaDataSourceError
     from .marvel_rivals_bot.meta.formatters import (
         format_hero_meta_board,
         format_hero_meta_comparison,
         format_hero_meta_overview,
         format_hero_meta_segments,
+        format_hero_meta_trend,
+        format_meta_insights,
+        format_meta_version_changes,
+        format_rank_monsters,
         format_single_hero_meta,
     )
     from .marvel_rivals_bot.meta.service import MetaService
@@ -40,13 +47,20 @@ except ImportError:
     from marvel_rivals_bot.services.rivals import RivalsService
     from marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
-    from marvel_rivals_bot.meta.commands import parse_meta_command_args
+    from marvel_rivals_bot.meta.commands import (
+        parse_historical_meta_command_args,
+        parse_meta_command_args,
+    )
     from marvel_rivals_bot.meta.errors import MetaDataSourceError
     from marvel_rivals_bot.meta.formatters import (
         format_hero_meta_board,
         format_hero_meta_comparison,
         format_hero_meta_overview,
         format_hero_meta_segments,
+        format_hero_meta_trend,
+        format_meta_insights,
+        format_meta_version_changes,
+        format_rank_monsters,
         format_single_hero_meta,
     )
     from marvel_rivals_bot.meta.service import MetaService
@@ -85,7 +99,7 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.10", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "0.14.11", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -127,6 +141,24 @@ class MarvelRivalsPlugin(Star):
 
 /英雄对比 <英雄1> <英雄2> [段位] [赛季]
 对比同一环境中的两个英雄（默认生成图片）
+
+/英雄趋势 <英雄名称> [段位] [赛季...]
+查询英雄跨赛季的胜率、选取率和 Ban 率变化（默认最近四个赛季）
+
+/版本变化 <旧赛季> <新赛季> [段位]
+比较两个赛季快照的胜率、选取率和 Ban 率变化（默认生成图片）
+
+/版本黑马 [段位] [旧赛季] [新赛季]
+按透明规则查询赛季黑马（默认当前赛季与上一赛季）
+
+/冷门强者 [段位] [赛季]
+查询高胜率且低选取率的英雄
+
+/热门低胜率 [段位] [赛季]
+查询高选取率但低胜率的英雄（兼容 /热门陷阱）
+
+/分段怪物 [赛季]
+查询各段位中相对全段位胜率差值最高的英雄
 
 段位支持全段位、钻石+、大师+、天神+、永恒+；已绑定账号可省略 UID；赛季支持 S0、S9、S9.5、S9上半赛季、S9下半赛季。"""
 
@@ -447,6 +479,19 @@ class MarvelRivalsPlugin(Star):
             logger.warning(f"Meta 数据源错误：{type(error).__name__}")
         return "查询失败：英雄环境数据源暂时不可用，请稍后重试"
 
+    async def _render_meta_result(self, event, model, fallback: str, renderer) -> object | None:
+        try:
+            image_url = await renderer(model)
+        except Exception as exc:
+            if logger:
+                logger.warning(f"Meta 图片渲染失败，回退普通文本：{exc}")
+            return event.plain_result(fallback)
+        if self.qq_card_sender.supports(event):
+            if not await self._send_image(event, image_url):
+                return event.plain_result(fallback)
+            return None
+        return event.image_result(image_url)
+
     @filter.command("英雄环境")
     async def hero_meta(self, event: AstrMessageEvent, arg1: str = "", arg2: str = "", arg3: str = ""):
         """查询指定赛季和段位的全局英雄环境，不接受排序指标。"""
@@ -638,6 +683,152 @@ class MarvelRivalsPlugin(Star):
                     yield event.plain_result(fallback)
             else:
                 yield event.image_result(image_url)
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("英雄趋势")
+    async def hero_meta_trend(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+        arg4: str = "",
+        arg5: str = "",
+        arg6: str = "",
+    ):
+        """查询一个英雄跨多个赛季的环境趋势。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_historical_meta_command_args(
+                arg1, arg2, arg3, arg4, arg5, arg6, require_hero=True
+            )
+            series = await self.meta_service.get_hero_meta_trend(
+                args.hero_name or "",
+                seasons=args.seasons or None,
+                rank=args.rank,
+            )
+            fallback = format_hero_meta_trend(series)
+            result = await self._render_meta_result(event, series, fallback, self.image_renderer.meta_trend)
+            if result is not None:
+                yield result
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("版本变化")
+    async def meta_version_changes(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+    ):
+        """比较两个赛季快照的英雄环境变化。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_historical_meta_command_args(arg1, arg2, arg3, min_seasons=2, max_seasons=2)
+            changes = await self.meta_service.get_meta_version_changes(
+                args.seasons[0], args.seasons[1], rank=args.rank
+            )
+            fallback = format_meta_version_changes(changes)
+            result = await self._render_meta_result(
+                event, changes, fallback, self.image_renderer.meta_version_changes
+            )
+            if result is not None:
+                yield result
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("版本黑马")
+    async def meta_black_horse(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+    ):
+        """按透明阈值查询当前赛季相对上一赛季的黑马。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_historical_meta_command_args(arg1, arg2, arg3, max_seasons=2)
+            previous = args.seasons[0] if len(args.seasons) == 2 else None
+            current = args.seasons[-1] if args.seasons else None
+            insights = await self.meta_service.get_meta_insights(
+                "black_horse",
+                season=current,
+                previous_season=previous,
+                rank=args.rank,
+            )
+            fallback = format_meta_insights(insights)
+            result = await self._render_meta_result(
+                event, insights, fallback, self.image_renderer.meta_insights
+            )
+            if result is not None:
+                yield result
+        except ValueError as exc:
+            yield event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    async def _meta_filter_insight(self, event, insight_type: str, *parts: str):
+        if self.meta_service is None:
+            return event.plain_result(self._meta_unavailable())
+        try:
+            args = parse_historical_meta_command_args(*parts, max_seasons=1)
+            insights = await self.meta_service.get_meta_insights(
+                insight_type,
+                season=args.seasons[0] if args.seasons else None,
+                rank=args.rank,
+            )
+            fallback = format_meta_insights(insights)
+            return await self._render_meta_result(event, insights, fallback, self.image_renderer.meta_insights)
+        except ValueError as exc:
+            return event.plain_result(f"参数错误：{exc}")
+        except MetaDataSourceError as exc:
+            return event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("冷门强者")
+    async def meta_cold_strong(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """查询高胜率且低选取率的英雄。"""
+        result = await self._meta_filter_insight(event, "cold_strong", arg1, arg2)
+        if result is not None:
+            yield result
+
+    @filter.command("热门低胜率")
+    @filter.command("热门陷阱")
+    async def meta_hot_trap(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """查询高选取率但低胜率的英雄。"""
+        result = await self._meta_filter_insight(event, "hot_trap", arg1, arg2)
+        if result is not None:
+            yield result
+
+    @filter.command("分段怪物")
+    async def meta_rank_monsters(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """查询各段位中相对全段位表现突出的英雄。"""
+        if self.meta_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_historical_meta_command_args(arg1, arg2, allow_rank=False, max_seasons=1)
+            board = await self.meta_service.get_rank_monsters(
+                season=args.seasons[0] if args.seasons else None,
+            )
+            fallback = format_rank_monsters(board)
+            result = await self._render_meta_result(event, board, fallback, self.image_renderer.rank_monsters)
+            if result is not None:
+                yield result
         except ValueError as exc:
             yield event.plain_result(f"参数错误：{exc}")
         except MetaDataSourceError as exc:

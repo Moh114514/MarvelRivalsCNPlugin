@@ -9,8 +9,12 @@ try:
     from ..marvel_rivals_bot.meta.models import (
         HeroMetaBoard,
         HeroMetaComparison,
+        HeroMetaInsights,
         HeroMetaOverview,
         HeroMetaSegments,
+        HeroMetaVersionChanges,
+        HeroRankSeries,
+        RankMonsterBoard,
     )
     from ..marvel_rivals_bot.analytics.models import PlayerMetaProfile
 except ImportError:
@@ -18,8 +22,12 @@ except ImportError:
     from marvel_rivals_bot.meta.models import (
         HeroMetaBoard,
         HeroMetaComparison,
+        HeroMetaInsights,
         HeroMetaOverview,
         HeroMetaSegments,
+        HeroMetaVersionChanges,
+        HeroRankSeries,
+        RankMonsterBoard,
     )
     from marvel_rivals_bot.analytics.models import PlayerMetaProfile
 
@@ -29,9 +37,13 @@ from .pages import (
     build_match_detail_html,
     build_meta_board_html,
     build_meta_comparison_html,
+    build_meta_insights_html,
     build_meta_overview_html,
     build_meta_segments_html,
     build_meta_single_html,
+    build_meta_trend_html,
+    build_meta_version_changes_html,
+    build_rank_monsters_html,
     build_player_hero_pool_html,
     build_player_meta_environment_html,
     build_player_signature_html,
@@ -75,6 +87,18 @@ class RivalsImageRenderer:
 
     async def meta_comparison(self, comparison: HeroMetaComparison) -> str:
         return await self._html_render(build_meta_comparison_html(comparison), {}, options=PNG_OPTIONS)
+
+    async def meta_trend(self, series: HeroRankSeries) -> str:
+        return await self._html_render(build_meta_trend_html(series), {}, options=PNG_OPTIONS)
+
+    async def meta_version_changes(self, changes: HeroMetaVersionChanges) -> str:
+        return await self._html_render(build_meta_version_changes_html(changes), {}, options=PNG_OPTIONS)
+
+    async def meta_insights(self, insights: HeroMetaInsights) -> str:
+        return await self._html_render(build_meta_insights_html(insights), {}, options=PNG_OPTIONS)
+
+    async def rank_monsters(self, board: RankMonsterBoard) -> str:
+        return await self._html_render(build_rank_monsters_html(board), {}, options=PNG_OPTIONS)
 
     async def player_meta_environment(self, profile: PlayerMetaProfile) -> str:
         return await self._html_render(build_player_meta_environment_html(profile), {}, options=PNG_OPTIONS)

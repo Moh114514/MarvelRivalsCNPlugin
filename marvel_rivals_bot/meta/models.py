@@ -129,3 +129,128 @@ class HeroMetaComparison:
     source_timestamp: datetime | None
     fetched_at: datetime
     stale: bool = False
+
+
+@dataclass(slots=True)
+class HeroRankPoint:
+    """One hero's calculated Meta snapshot in a historical season."""
+
+    season_code: str
+    season_label: str
+    result: HeroMetaResult | None
+
+
+@dataclass(slots=True)
+class HeroRankSeries:
+    """A cross-season series for one hero and one rank context."""
+
+    hero_id: int
+    hero_name: str
+    rank_key: str
+    rank_label: str
+    points: list[HeroRankPoint]
+    source: str
+    source_timestamps: tuple[datetime | None, ...]
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False
+
+
+@dataclass(slots=True)
+class SeasonDelta:
+    """Metric deltas between two season snapshots for one hero."""
+
+    hero_id: int
+    hero_name: str
+    previous: HeroMetaResult
+    current: HeroMetaResult
+    win_rate_delta: float | None
+    pick_rate_delta: float | None
+    ban_rate_delta: float | None
+
+
+@dataclass(slots=True)
+class HeroMetaVersionChanges:
+    """Ranked metric changes between two Meta season snapshots."""
+
+    previous_season_code: str
+    previous_season_label: str
+    current_season_code: str
+    current_season_label: str
+    rank_key: str
+    rank_label: str
+    win_rate_up: list[SeasonDelta]
+    win_rate_down: list[SeasonDelta]
+    pick_rate_up: list[SeasonDelta]
+    pick_rate_down: list[SeasonDelta]
+    ban_rate_up: list[SeasonDelta]
+    ban_rate_down: list[SeasonDelta]
+    source: str
+    source_timestamps: tuple[datetime | None, ...]
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False
+
+
+@dataclass(slots=True)
+class HeroMetaInsight:
+    """One transparent historical or distribution-based insight."""
+
+    result: HeroMetaResult
+    previous: HeroMetaResult | None = None
+    win_rate_delta: float | None = None
+    pick_rate_delta: float | None = None
+    ban_rate_delta: float | None = None
+    rank_code: str | None = None
+    rank_label: str | None = None
+
+
+@dataclass(slots=True)
+class HeroMetaInsights:
+    """A filtered insight board with its user-facing rule."""
+
+    insight_type: str
+    season_code: str
+    season_label: str
+    previous_season_code: str | None
+    previous_season_label: str | None
+    rank_key: str
+    rank_label: str
+    rule: str
+    items: list[HeroMetaInsight]
+    source: str
+    source_timestamps: tuple[datetime | None, ...]
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False
+
+
+@dataclass(slots=True)
+class RankMonster:
+    """A hero that stands out in one rank compared with all ranks."""
+
+    rank_code: str
+    rank_label: str
+    result: HeroMetaResult
+    win_rate_delta: float | None
+
+
+@dataclass(slots=True)
+class RankMonsterBoard:
+    """Rank-specialist heroes from one season."""
+
+    season_code: str
+    season_label: str
+    rule: str
+    items: list[RankMonster]
+    source: str
+    source_timestamps: tuple[datetime | None, ...]
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False
+
+
+# Names used by earlier design notes remain available without introducing a
+# second set of ViewModels.
+HeroMetaTrend = HeroRankSeries
+HeroMetaDelta = SeasonDelta
