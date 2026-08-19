@@ -127,7 +127,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.5", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.6", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -300,6 +300,14 @@ class MarvelRivalsPlugin(Star):
 
     def _qq_id(self, event: AstrMessageEvent) -> str:
         return str(event.get_sender_id())
+
+    async def terminate(self):
+        """Release HTTP connection pools when AstrBot unloads the plugin."""
+
+        for source in (self.source, self.meta_source):
+            close = getattr(source, "aclose", None)
+            if callable(close):
+                await close()
 
     def _bound_uid(self, event: AstrMessageEvent) -> str | None:
         return self.bindings.get(self._qq_id(event))

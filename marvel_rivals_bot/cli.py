@@ -87,6 +87,8 @@ async def run(args: argparse.Namespace) -> None:
             print(format_match_detail(payload))
     except DataSourceError as exc:
         raise SystemExit(f"查询失败：{exc}") from exc
+    finally:
+        await source.aclose()
 
 
 def make_parser() -> argparse.ArgumentParser:

@@ -8,6 +8,16 @@ from marvel_rivals_bot.models import PlayerStats
 
 
 class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
+    async def test_owned_client_is_reused_and_closed_explicitly(self):
+        source = CNDataSource(env={"MRCN_API_BASE_URL": "https://example.test"})
+        first = source._request_client()
+        second = source._request_client()
+
+        self.assertIs(first, second)
+        self.assertFalse(first.is_closed)
+        await source.aclose()
+        self.assertTrue(first.is_closed)
+
     async def test_body_template_and_response_normalization(self):
         calls = []
 
@@ -187,13 +197,13 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
                     }]}
             elif request.url.path.endswith("/loadHeroCareer"):
                 data = {"careers": [{
-                    "heroId": body["heroIdList"][0],
+                    "heroId": hero_id,
                     "totalMatchCount": 1,
                     "totalMatchWinCount": 1,
                     "k": 180 if body["gameModeId"] == 1 else 206,
                     "d": 50 if body["gameModeId"] == 1 else 67,
                     "a": 100 if body["gameModeId"] == 1 else 184,
-                }]}
+                } for hero_id in body["heroIdList"]]}
             elif request.url.path.endswith("/loadSortHero"):
                 data = {"heros": [
                     {"heroId": hero_id, "matchCount": 1, "winCount": 1}

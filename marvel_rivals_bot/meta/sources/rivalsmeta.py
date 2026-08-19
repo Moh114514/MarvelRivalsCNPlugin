@@ -70,23 +70,35 @@ class RivalsMetaSource(MetaDataSource):
         if self.timeout <= 0:
             raise MetaDataSourceError("MRCN_META_TIMEOUT_SECONDS 必须大于 0")
         self._client = client
+        self._owned_client: httpx.AsyncClient | None = None
 
     @property
     def url(self) -> str:
         return f"{self.base_url}{self.path}"
 
+    def _request_client(self) -> httpx.AsyncClient:
+        if self._client is not None:
+            return self._client
+        if self._owned_client is None:
+            self._owned_client = httpx.AsyncClient(
+                timeout=self.timeout,
+                follow_redirects=True,
+                trust_env=False,
+            )
+        return self._owned_client
+
+    async def aclose(self) -> None:
+        """Close a client created by this source, if any."""
+
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
+
     async def get_hero_stats(self, season: str) -> RawHeroMetaPayload:
         season_value = str(season).strip()
         if not season_value or not season_value.isdigit():
             raise MetaDataSourceError("Meta season 不能为空")
-        if self._client is not None:
-            return await self._get_with_client(self._client, season_value)
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,
-            trust_env=False,
-        ) as client:
-            return await self._get_with_client(client, season_value)
+        return await self._get_with_client(self._request_client(), season_value)
 
     async def _get_with_client(self, client: httpx.AsyncClient, season: str) -> RawHeroMetaPayload:
         for attempt in range(2):

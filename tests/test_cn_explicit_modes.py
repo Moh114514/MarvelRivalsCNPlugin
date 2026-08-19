@@ -68,11 +68,13 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
                 }
             elif path.endswith("/loadHeroCareer"):
                 quick = body["gameModeId"] == 1
+                matches = {1031: (40 if quick else 10), 1032: (20 if quick else 25)}
+                wins = {1031: (20 if quick else 6), 1032: (10 if quick else 12)}
                 data = {"careers": [{
-                    "heroId": body["heroIdList"][0],
-                    "totalMatchCount": (40, 20)[body["heroIdList"][0] == 1032] if quick else (10, 25)[body["heroIdList"][0] == 1032],
-                    "totalMatchWinCount": (20, 10)[body["heroIdList"][0] == 1032] if quick else (6, 12)[body["heroIdList"][0] == 1032],
-                }]}
+                    "heroId": hero_id,
+                    "totalMatchCount": matches[hero_id],
+                    "totalMatchWinCount": wins[hero_id],
+                } for hero_id in body["heroIdList"]]}
             else:
                 self.fail(f"unexpected endpoint: {path}")
             return httpx.Response(200, json={"data": data})
@@ -90,8 +92,8 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([path for path, _body in calls].count("/api/game/player/loadCareer"), 2)
         self.assertEqual([path for path, _body in calls].count("/api/game/player/loadSortHero"), 2)
-        self.assertEqual([path for path, _body in calls].count("/api/game/player/loadHeroCareer"), 4)
-        self.assertTrue(all(len(body["heroIdList"]) == 1 for path, body in calls if path.endswith("/loadHeroCareer")))
+        self.assertEqual([path for path, _body in calls].count("/api/game/player/loadHeroCareer"), 2)
+        self.assertTrue(all(len(body["heroIdList"]) == 2 for path, body in calls if path.endswith("/loadHeroCareer")))
 
     async def test_configured_competitive_template_overrides_generic_template(self):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -159,19 +161,18 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
                     {"heroId": 1032, "matchCount": 888, "winCount": 888},
                 ]}
             elif path.endswith("/loadHeroCareer"):
-                hero_id = body["heroIdList"][0]
                 quick = body["gameModeId"] == 1
                 values = {
                     (1031, True): (0, 0),
                     (1031, False): (14, 9),
                     (1032, True): (3, 1),
                     (1032, False): (0, 0),
-                }[(hero_id, quick)]
+                }
                 data = {"careers": [{
                     "heroId": hero_id,
-                    "totalMatchCount": values[0],
-                    "totalMatchWinCount": values[1],
-                }]}
+                    "totalMatchCount": values[(hero_id, quick)][0],
+                    "totalMatchWinCount": values[(hero_id, quick)][1],
+                } for hero_id in body["heroIdList"]]}
             else:
                 self.fail(f"unexpected endpoint: {path}")
             return httpx.Response(200, json={"data": data})
@@ -220,6 +221,7 @@ class TestCNExplicitModes(unittest.IsolatedAsyncioTestCase):
         by_id = {hero.hero_id: hero for hero in stats.heroes}
         self.assertEqual(by_id["1031"].quick.matches, 4)
         self.assertIsNone(by_id["1031"].competitive.matches)
+        self.assertIsNone(by_id["1032"].quick.matches)
         self.assertEqual(by_id["1032"].competitive.matches, 0)
 
     async def test_profile_only_loader_does_not_request_statistics(self):

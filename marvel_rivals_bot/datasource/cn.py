@@ -302,6 +302,34 @@ class CNDataSource(RivalsDataSource):
                 '"matchUids":["{match_uid}"]', '"matchUids":{match_uids}'
             )
         self._client = client
+        self._owned_client: httpx.AsyncClient | None = None
+
+    def _request_client(self) -> httpx.AsyncClient:
+        """Return the injected client or lazily create one for this source.
+
+        A source is normally long-lived for the lifetime of the plugin.  Keep
+        the fallback client alive as well so repeated CN requests can reuse
+        its connection pool and keep-alive connections.  Injected clients
+        remain owned by the caller and are never closed here.
+        """
+
+        if self._client is not None:
+            return self._client
+        if self._owned_client is None:
+            self._owned_client = httpx.AsyncClient(
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+                proxy=self.proxy,
+                trust_env=self.trust_env,
+            )
+        return self._owned_client
+
+    async def aclose(self) -> None:
+        """Close a client created by this data source, if any."""
+
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
 
     @staticmethod
     def _normalize_season(season: Any) -> str:
@@ -331,13 +359,7 @@ class CNDataSource(RivalsDataSource):
         if not path:
             raise DataSourceError("该接口尚未配置，请设置对应的 MRCN_*_PATH")
         url = f"{self.base_url}/{path.lstrip('/')}"
-        own_client = self._client is None
-        client = self._client or httpx.AsyncClient(
-            timeout=self.timeout,
-            verify=self.verify_ssl,
-            proxy=self.proxy,
-            trust_env=self.trust_env,
-        )
+        client = self._request_client()
         try:
             template = body_template or self.body_template
             player_uid = int(uid) if uid.isdigit() else uid
@@ -354,9 +376,6 @@ class CNDataSource(RivalsDataSource):
             raise DataSourceError(f"国服接口返回 HTTP {exc.response.status_code}") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise DataSourceError(f"国服接口请求失败: {exc}") from exc
-        finally:
-            if own_client:
-                await client.aclose()
         if not isinstance(payload, dict):
             raise DataSourceError("国服接口返回格式不是 JSON 对象")
         self._raise_for_business_error(payload)
@@ -366,13 +385,7 @@ class CNDataSource(RivalsDataSource):
         if not path:
             return {"data": params}
         url = f"{self.base_url}/{path.lstrip('/')}"
-        own_client = self._client is None
-        client = self._client or httpx.AsyncClient(
-            timeout=self.timeout,
-            verify=self.verify_ssl,
-            proxy=self.proxy,
-            trust_env=self.trust_env,
-        )
+        client = self._request_client()
         try:
             if self.debug:
                 print(f"[request] GET {path} params={json.dumps(params, ensure_ascii=False, separators=(',', ':'))}")
@@ -386,9 +399,6 @@ class CNDataSource(RivalsDataSource):
             raise DataSourceError(f"国服接口返回 HTTP {exc.response.status_code}") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise DataSourceError(f"国服接口请求失败: {exc}") from exc
-        finally:
-            if own_client:
-                await client.aclose()
         if not isinstance(payload, dict):
             raise DataSourceError("国服接口返回格式不是 JSON 对象")
         self._raise_for_business_error(payload)
@@ -643,8 +653,12 @@ class CNDataSource(RivalsDataSource):
         data_payload, data, response_uid = await self._load_account_data(response_uid)
         responses = {"role": role, "data": data_payload}
 
-        career_quick = await self.load_career(uid, season, GameMode.QUICK)
-        career_competitive = await self.load_career(uid, season, GameMode.COMPETITIVE)
+        career_quick, career_competitive, sort_quick, sort_competitive = await asyncio.gather(
+            self.load_career(uid, season, GameMode.QUICK),
+            self.load_career(uid, season, GameMode.COMPETITIVE),
+            self.load_sort_hero(uid, season, GameMode.QUICK),
+            self.load_sort_hero(uid, season, GameMode.COMPETITIVE),
+        )
         responses["career_quick"] = career_quick
         responses["career_competitive"] = career_competitive
         quick_stats = _mode_stats(career_quick.get("data", career_quick))
@@ -669,8 +683,6 @@ class CNDataSource(RivalsDataSource):
             competitive=competitive_stats,
         )
 
-        sort_quick = await self.load_sort_hero(uid, season, GameMode.QUICK)
-        sort_competitive = await self.load_sort_hero(uid, season, GameMode.COMPETITIVE)
         responses["sort_hero_quick"] = sort_quick
         responses["sort_hero_competitive"] = sort_competitive
         heroes = self._merge_heroes(
@@ -679,6 +691,43 @@ class CNDataSource(RivalsDataSource):
         )
         heroes = await self._enrich_sort_hero_candidates(uid, season, heroes)
         return PlayerStats(profile=profile, summary=career_summary, heroes=heroes, season=season, raw=responses)
+
+    async def _load_hero_mode_batch(
+        self,
+        uid: str,
+        hero_ids: list[int],
+        season: str,
+        game_mode: GameMode,
+        fallback_semaphore: asyncio.Semaphore | None = None,
+    ) -> dict[str, ModeStats]:
+        """Load all selected heroes for one mode with one batch request."""
+
+        try:
+            payload = await self.load_hero_career(uid, hero_ids, season, game_mode)
+            parsed = self.parse_hero_career(payload, hero_ids, game_mode)
+        except DataSourceError as exc:
+            logger.warning(
+                "CN HeroCareer batch failed season=%s mode=%s heroes=%s error=%s",
+                season,
+                self._mode_suffix(game_mode),
+                len(hero_ids),
+                exc,
+            )
+            # Preserve the old per-hero degradation path when the observed
+            # batch endpoint rejects a request.  This is an error-only
+            # fallback; successful batch responses still use one request per
+            # mode and missing rows remain missing rather than being guessed.
+            semaphore = fallback_semaphore if fallback_semaphore is not None else asyncio.Semaphore(4)
+            results = await asyncio.gather(*(
+                self._load_one_hero_mode(uid, str(hero_id), season, game_mode, semaphore)
+                for hero_id in hero_ids
+            ))
+            return {
+                str(hero_id): stats
+                for hero_id, stats in zip(hero_ids, results)
+                if stats is not None
+            }
+        return {hero.hero_id: hero.total for hero in parsed}
 
     async def _load_one_hero_mode(
         self,
@@ -749,24 +798,23 @@ class CNDataSource(RivalsDataSource):
         if not selected:
             return heroes
 
-        semaphore = asyncio.Semaphore(4)
-        specs = [
-            (hero, game_mode)
-            for hero in selected
-            for game_mode in (GameMode.QUICK, GameMode.COMPETITIVE)
-        ]
-        tasks = [
-            self._load_one_hero_mode(uid, str(hero.hero_id), season, game_mode, semaphore)
-            for hero, game_mode in specs
-        ]
-        results = await asyncio.gather(*tasks)
-        for (hero, game_mode), stats in zip(specs, results):
-            if stats is None:
-                continue
-            if game_mode is GameMode.QUICK:
-                hero.quick = self._merge_mode_stats(hero.quick, stats)
-            else:
-                hero.competitive = self._merge_mode_stats(hero.competitive, stats)
+        hero_ids = [int(hero.hero_id) for hero in selected]
+        fallback_semaphore = asyncio.Semaphore(4)
+        quick_stats, competitive_stats = await asyncio.gather(
+            self._load_hero_mode_batch(
+                uid, hero_ids, season, GameMode.QUICK, fallback_semaphore
+            ),
+            self._load_hero_mode_batch(
+                uid, hero_ids, season, GameMode.COMPETITIVE, fallback_semaphore
+            ),
+        )
+        for hero in selected:
+            quick = quick_stats.get(str(hero.hero_id))
+            competitive = competitive_stats.get(str(hero.hero_id))
+            if quick is not None:
+                hero.quick = self._merge_mode_stats(hero.quick, quick)
+            if competitive is not None:
+                hero.competitive = self._merge_mode_stats(hero.competitive, competitive)
                 hero.ranked = hero.competitive
             self._refresh_hero_total(hero)
 
@@ -822,8 +870,10 @@ class CNDataSource(RivalsDataSource):
         season = self._normalize_season(season or self.default_season)
         await self.validate_uid(uid)
         hero_ids = [int(hero_id)] if hero_id.isdigit() else [hero_id]
-        quick = await self.load_hero_career(uid, hero_ids, season, GameMode.QUICK)
-        competitive = await self.load_hero_career(uid, hero_ids, season, GameMode.COMPETITIVE)
+        quick, competitive = await asyncio.gather(
+            self.load_hero_career(uid, hero_ids, season, GameMode.QUICK),
+            self.load_hero_career(uid, hero_ids, season, GameMode.COMPETITIVE),
+        )
         hero = PlayerHeroStats(hero_id=hero_id, hero_name=get_hero_name(hero_id))
         self._enrich_heroes([hero], quick, "quick")
         self._enrich_heroes([hero], competitive, "competitive")
