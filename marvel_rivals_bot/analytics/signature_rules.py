@@ -9,6 +9,11 @@ from typing import Any
 SIGNATURE_PRIOR_MATCHES = 20
 SIGNATURE_STABILITY_MIN_MATCHES = 1
 
+SICKNESS_MIN_TOTAL_MATCHES = 10
+SICKNESS_MIN_COMPETITIVE_MATCHES = 5
+SICKNESS_MIN_QUICK_MATCHES = 20
+SICKNESS_META_PROTECTION_DELTA = 2.0
+
 CLASSIFICATION_ORDER = {
     "招牌绝活": 0,
     "强势绝活": 1,
@@ -72,37 +77,149 @@ def stability_counts(
     return positive_weight * 100 / total_weight, effective, positive
 
 
-def calculate_sick_score(
-    actual_win_rate: float | None,
-    competitive_matches: int,
-    adjusted_delta: float | None,
-    meta_coverage: float,
-    rank_specific_coverage: float,
-    classification: str,
-) -> float:
-    """Score high-volume heroes with a reliable, below-Meta career delta."""
+def _score_from_cap(value: float | None, cap: float) -> float | None:
+    if value is None:
+        return None
+    try:
+        return min(100.0, max(0.0, float(value) / cap * 100))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
-    if actual_win_rate is None or adjusted_delta is None:
+
+def calculate_play_index(
+    competitive_matches: int,
+    quick_matches: int,
+    usage_share: float,
+) -> float:
+    """Return how much a player keeps returning to a hero, on a 0-100 scale.
+
+    Competitive volume has 40% weight, Quick volume 20%, and the hero's
+    share of all games 40%. Each signal saturates instead of growing without
+    bound, so one very large number cannot dominate the whole ranking.
+    """
+
+    competitive = _score_from_cap(competitive_matches, 50) or 0.0
+    quick = _score_from_cap(quick_matches, 50) or 0.0
+    share = _score_from_cap(usage_share, 20) or 0.0
+    return round(competitive * 0.40 + quick * 0.20 + share * 0.40, 4)
+
+
+def calculate_weakness_index(
+    meta_disadvantage: float | None,
+    personal_competitive_disadvantage: float | None,
+    personal_quick_disadvantage: float | None,
+) -> float:
+    """Combine available below-baseline signals into a 0-100 score.
+
+    Meta, personal Competitive, and personal Quick disadvantages are capped
+    at 8pp, 8pp, and 10pp respectively. Missing signals are omitted and the
+    remaining weights are renormalized, so partial history is still useful.
+    """
+
+    signals = (
+        (meta_disadvantage, 8.0, 0.55),
+        (personal_competitive_disadvantage, 8.0, 0.30),
+        (personal_quick_disadvantage, 10.0, 0.15),
+    )
+    weighted = 0.0
+    weight_total = 0.0
+    for value, cap, weight in signals:
+        normalized = _score_from_cap(value, cap)
+        if normalized is None:
+            continue
+        weighted += normalized * weight
+        weight_total += weight
+    if weight_total == 0:
         return 0.0
-    matches = max(0, int(competitive_matches))
-    coverage = min(float(meta_coverage), float(rank_specific_coverage))
+    return round(weighted / weight_total, 4)
+
+
+def is_sickness_candidate(
+    *,
+    total_matches: int,
+    competitive_matches: int,
+    quick_matches: int,
+    has_win_rate: bool,
+    adjusted_delta: float | None,
+    comparable_matches: int,
+) -> bool:
+    """Apply the soft volume floor and protect obvious Meta-relative stars."""
+
+    total = max(0, int(total_matches or 0))
+    competitive = max(0, int(competitive_matches or 0))
+    quick = max(0, int(quick_matches or 0))
+    if not has_win_rate:
+        return False
+    if not (
+        total >= SICKNESS_MIN_TOTAL_MATCHES
+        or competitive >= SICKNESS_MIN_COMPETITIVE_MATCHES
+        or quick >= SICKNESS_MIN_QUICK_MATCHES
+    ):
+        return False
     if (
-        classification != "常用英雄"
-        or matches < 20
-        or coverage < 60
-        or float(adjusted_delta) > -2.0
+        adjusted_delta is not None
+        and int(comparable_matches or 0) >= 20
+        and float(adjusted_delta) >= SICKNESS_META_PROTECTION_DELTA
+    ):
+        return False
+    return True
+
+
+def calculate_sick_score(
+    *,
+    play_index: float,
+    weakness_index: float,
+    total_matches: int,
+    competitive_matches: int,
+    quick_matches: int,
+    has_win_rate: bool,
+    adjusted_delta: float | None,
+    comparable_matches: int,
+) -> float:
+    """Return the entertainment-oriented sickness index.
+
+    This is intentionally a relative ranking score rather than a diagnosis:
+    ``play_index * weakness_index / 100``.
+    """
+
+    if not is_sickness_candidate(
+        total_matches=total_matches,
+        competitive_matches=competitive_matches,
+        quick_matches=quick_matches,
+        has_win_rate=has_win_rate,
+        adjusted_delta=adjusted_delta,
+        comparable_matches=comparable_matches,
     ):
         return 0.0
-    expected_loss = (-float(adjusted_delta) / 100) * matches
-    return expected_loss if expected_loss >= 1.0 else 0.0
+    try:
+        return round(max(0.0, float(play_index)) * max(0.0, float(weakness_index)) / 100, 4)
+    except (TypeError, ValueError):
+        return 0.0
 
 
-def sick_hero_sort_key(item: Any) -> tuple[float, int, float]:
-    """Sort the most costly high-volume, below-baseline heroes first."""
+def sickness_severity(score: float | None) -> str:
+    """Translate the continuous score into a plain-language display label."""
+
+    value = max(0.0, float(score or 0.0))
+    if value >= 70:
+        return "重度"
+    if value >= 40:
+        return "明显"
+    if value >= 15:
+        return "轻微"
+    if value > 0:
+        return "疑似"
+    return "暂无"
+
+
+def sick_hero_sort_key(item: Any) -> tuple[float, float, float, int, float]:
+    """Sort by sickness index, then repeated use and weakness evidence."""
 
     return (
         -float(getattr(item, "sick_score", 0.0) or 0.0),
-        -int(getattr(item, "competitive_matches", 0) or 0),
+        -float(getattr(item, "play_index", 0.0) or 0.0),
+        -float(getattr(item, "weakness_index", 0.0) or 0.0),
+        -int(getattr(item, "total_matches", 0) or 0),
         float(getattr(item, "actual_win_rate", 100.0) or 100.0),
     )
 
@@ -244,13 +361,21 @@ __all__ = [
     "CLASSIFICATION_ORDER",
     "SIGNATURE_PRIOR_MATCHES",
     "SIGNATURE_STABILITY_MIN_MATCHES",
+    "SICKNESS_MIN_COMPETITIVE_MATCHES",
+    "SICKNESS_MIN_QUICK_MATCHES",
+    "SICKNESS_MIN_TOTAL_MATCHES",
+    "SICKNESS_META_PROTECTION_DELTA",
     "adjust_delta",
     "build_signature_tags",
     "calculate_confidence",
+    "calculate_play_index",
     "calculate_sick_score",
+    "calculate_weakness_index",
     "calculate_stability",
     "classify_signature",
     "classification_sort_key",
+    "is_sickness_candidate",
     "sick_hero_sort_key",
+    "sickness_severity",
     "stability_counts",
 ]

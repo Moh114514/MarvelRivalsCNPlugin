@@ -147,6 +147,13 @@ class CareerHeroSignature:
     tags: tuple[str, ...]
     seasons: tuple[HeroSeasonPerformance, ...]
     sick_score: float = 0.0
+    quick_wins: int | None = None
+    quick_win_rate: float | None = None
+    play_index: float = 0.0
+    weakness_index: float = 0.0
+    meta_disadvantage: float | None = None
+    personal_competitive_disadvantage: float | None = None
+    personal_quick_disadvantage: float | None = None
 
 
 @dataclass(slots=True)

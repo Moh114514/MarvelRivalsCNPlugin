@@ -86,6 +86,13 @@ class TestSignatureRendering(unittest.TestCase):
             tags=(),
             seasons=(),
             sick_score=5.0,
+            quick_wins=8,
+            quick_win_rate=40.0,
+            play_index=80.0,
+            weakness_index=50.0,
+            meta_disadvantage=5.0,
+            personal_competitive_disadvantage=3.0,
+            personal_quick_disadvantage=2.0,
         )
         profile = PlayerSignatureProfile(
             uid="123",
@@ -104,8 +111,10 @@ class TestSignatureRendering(unittest.TestCase):
         )
         html = build_player_sickness_html(profile)
         self.assertIn("绝症英雄排名 Top 10", html)
-        self.assertIn("预计少赢", html)
-        self.assertIn("5.0 场", html)
+        self.assertIn("爱玩指数", html)
+        self.assertIn("菜度指数", html)
+        self.assertIn("5.0", html)
+        self.assertIn("Meta 劣势", html)
         self.assertIn("绝症指数", html)
         self.assertIn("测试英雄&lt;&amp;&gt;", html)
         self.assertIn("判定说明", html)

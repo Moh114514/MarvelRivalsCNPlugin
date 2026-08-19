@@ -28,16 +28,19 @@ from .signature_rules import (
     adjust_delta,
     build_signature_tags,
     calculate_confidence,
+    calculate_play_index,
     calculate_sick_score,
+    calculate_weakness_index,
     classify_signature,
     classification_sort_key,
+    is_sickness_candidate,
     sick_hero_sort_key,
     stability_counts,
 )
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 4
+SIGNATURE_CACHE_SCHEMA_VERSION = 5
 SICKNESS_TOP_N = 10
 
 
@@ -353,20 +356,7 @@ class PlayerSignatureService:
         meta_stale = any(bool(getattr(board, "stale", False)) for board in meta_boards.values())
         partial = partial or meta_failures > 0 or meta_stale
         signatures = self._build_signatures(profile, active_seasons, meta_boards)
-        signatures = [
-            replace(
-                item,
-                sick_score=calculate_sick_score(
-                    actual_win_rate=item.actual_win_rate,
-                    competitive_matches=item.comparable_matches,
-                    adjusted_delta=item.adjusted_delta,
-                    meta_coverage=item.meta_coverage,
-                    rank_specific_coverage=item.rank_specific_coverage,
-                    classification=item.classification,
-                ),
-            )
-            for item in signatures
-        ]
+        signatures = self._add_sickness_scores(signatures)
         total_matches = sum(item.total_matches for item in signatures)
         competitive_matches = sum(item.competitive_matches for item in signatures)
         comparable_matches = sum(item.comparable_matches for item in signatures)
@@ -396,7 +386,17 @@ class PlayerSignatureService:
             favorite = next((item for item in signatures if item.hero_id == favorite.hero_id), favorite)
         sick_heroes = tuple(
             sorted(
-                (item for item in signatures if item.sick_score > 0),
+                (
+                    item for item in signatures
+                    if is_sickness_candidate(
+                        total_matches=item.total_matches,
+                        competitive_matches=item.competitive_matches,
+                        quick_matches=item.quick_matches,
+                        has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
+                        adjusted_delta=item.adjusted_delta,
+                        comparable_matches=item.comparable_matches,
+                    )
+                ),
                 key=sick_hero_sort_key,
         )[:SICKNESS_TOP_N]
         )
@@ -425,6 +425,65 @@ class PlayerSignatureService:
         self._memory_profiles[uid] = (time.monotonic(), result)
         self.cache.save_profile(result)
         return result
+
+    @staticmethod
+    def _add_sickness_scores(
+        signatures: list[CareerHeroSignature],
+    ) -> list[CareerHeroSignature]:
+        """Add the relative sickness ranking signals to each hero."""
+
+        enriched: list[CareerHeroSignature] = []
+        for item in signatures:
+            meta_disadvantage = (
+                max(0.0, -float(item.adjusted_delta))
+                if item.adjusted_delta is not None
+                else None
+            )
+            personal_competitive = _leave_one_out_disadvantage(
+                item,
+                signatures,
+                matches_attr="competitive_matches",
+                wins_attr="competitive_wins",
+                rate_attr="actual_win_rate",
+            )
+            personal_quick = _leave_one_out_disadvantage(
+                item,
+                signatures,
+                matches_attr="quick_matches",
+                wins_attr="quick_wins",
+                rate_attr="quick_win_rate",
+            )
+            play_index = calculate_play_index(
+                competitive_matches=item.competitive_matches,
+                quick_matches=item.quick_matches,
+                usage_share=item.usage_share,
+            )
+            weakness_index = calculate_weakness_index(
+                meta_disadvantage=meta_disadvantage,
+                personal_competitive_disadvantage=personal_competitive,
+                personal_quick_disadvantage=personal_quick,
+            )
+            enriched.append(
+                replace(
+                    item,
+                    sick_score=calculate_sick_score(
+                        play_index=play_index,
+                        weakness_index=weakness_index,
+                        total_matches=item.total_matches,
+                        competitive_matches=item.competitive_matches,
+                        quick_matches=item.quick_matches,
+                        has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
+                        adjusted_delta=item.adjusted_delta,
+                        comparable_matches=item.comparable_matches,
+                    ),
+                    play_index=play_index,
+                    weakness_index=weakness_index,
+                    meta_disadvantage=meta_disadvantage,
+                    personal_competitive_disadvantage=personal_competitive,
+                    personal_quick_disadvantage=personal_quick,
+                )
+            )
+        return enriched
 
     async def _get_profile_history(self, uid: str) -> PlayerProfile:
         loader = getattr(self.rivals_service, "get_player_profile_history", None)
@@ -513,6 +572,8 @@ class PlayerSignatureService:
         for hero_id in hero_ids:
             rows: list[HeroSeasonPerformance] = []
             total_matches = quick_matches = competitive_matches = 0
+            quick_wins_known = True
+            quick_wins_total = 0
             wins_known = True
             competitive_wins_total = 0
             comparable_matches = comparable_wins = 0
@@ -533,6 +594,10 @@ class PlayerSignatureService:
                     active += 1
                 if c > 0:
                     competitive += 1
+                if hero.quick_wins is None and q > 0:
+                    quick_wins_known = False
+                elif hero.quick_wins is not None and q > 0:
+                    quick_wins_total += max(0, int(hero.quick_wins))
                 if hero.competitive_wins is None and c > 0:
                     wins_known = False
                 elif hero.competitive_wins is not None and c > 0:
@@ -633,6 +698,12 @@ class PlayerSignatureService:
                 classification=classification,
                 tags=(),
                 seasons=tuple(rows),
+                quick_wins=quick_wins_total if quick_wins_known else None,
+                quick_win_rate=(
+                    quick_wins_total * 100 / quick_matches
+                    if quick_wins_known and quick_matches
+                    else None
+                ),
             ))
         return result
 
@@ -687,6 +758,38 @@ def _meta_result(board: Any, hero_id: str) -> Any | None:
 
 def _coverage(numerator: int, denominator: int) -> float:
     return numerator * 100 / denominator if denominator else 0.0
+
+
+def _leave_one_out_disadvantage(
+    item: CareerHeroSignature,
+    signatures: list[CareerHeroSignature],
+    *,
+    matches_attr: str,
+    wins_attr: str,
+    rate_attr: str,
+) -> float | None:
+    """Compare a hero with the player's other heroes in the same mode."""
+
+    item_rate = getattr(item, rate_attr, None)
+    item_matches = int(getattr(item, matches_attr, 0) or 0)
+    item_wins = getattr(item, wins_attr, None)
+    if item_rate is None or item_matches <= 0 or item_wins is None:
+        return None
+    other_matches = 0
+    other_wins = 0
+    for other in signatures:
+        if other.hero_id == item.hero_id:
+            continue
+        matches = int(getattr(other, matches_attr, 0) or 0)
+        wins = getattr(other, wins_attr, None)
+        if matches <= 0 or wins is None:
+            continue
+        other_matches += matches
+        other_wins += max(0, int(wins))
+    if other_matches <= 0:
+        return None
+    baseline = other_wins * 100 / other_matches
+    return max(0.0, baseline - float(item_rate))
 
 
 def _is_favorite_eligible(item: CareerHeroSignature) -> bool:

@@ -156,13 +156,18 @@ class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Meta", rendered)
         self.assertIn(profile.meta_source_timestamp, rendered)
 
-    async def test_sick_ranking_uses_meta_deficit_and_excludes_signature_heroes(self):
+    async def test_sick_ranking_uses_continuous_meta_score_and_protects_meta_stars(self):
         profile = await PlayerSignatureService(
             FakeSickRivals(), FakeSickMeta(), cache_root=None
         ).get_player_signature("123")
 
         self.assertEqual(profile.sick_heroes[0].hero_id, "1027")
         self.assertAlmostEqual(profile.sick_heroes[0].actual_win_rate, 20.0)
+        self.assertAlmostEqual(profile.sick_heroes[0].quick_win_rate, 20.0)
+        self.assertGreater(profile.sick_heroes[0].play_index, 0.0)
+        self.assertGreater(profile.sick_heroes[0].weakness_index, 0.0)
+        self.assertGreater(profile.sick_heroes[0].meta_disadvantage, 0.0)
+        self.assertGreater(profile.sick_heroes[0].personal_competitive_disadvantage, 0.0)
         self.assertGreater(profile.sick_heroes[0].sick_score, 1.0)
         self.assertIn("1026", {item.hero_id for item in profile.signature_heroes})
         self.assertNotIn("1026", {item.hero_id for item in profile.sick_heroes})
