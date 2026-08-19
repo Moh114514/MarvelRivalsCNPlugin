@@ -199,7 +199,7 @@ class MarvelRivalsPlugin(Star):
 按快速与竞技总场次查看英雄池，并核对竞技表现
 
 /我的绝活 [UID]
-跨赛季分析长期真正擅长的英雄；不接受赛季或最低场次参数
+跨赛季分析长期真正擅长的英雄，默认展示 Top 5；不接受赛季或最低场次参数
 
 /我的绝症 [UID]
 查看使用量较高但相对同期、同段位 Meta 表现明显偏低的英雄 Top 10
@@ -955,7 +955,7 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的绝活")
     async def my_signature(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """跨赛季分析玩家长期真正擅长的英雄，只接受可选 UID。"""
+        """跨赛季分析玩家长期真正擅长的英雄，默认展示 Top 5，只接受可选 UID。"""
         if self.player_signature_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
