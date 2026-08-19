@@ -125,7 +125,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.1", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -960,7 +960,7 @@ class MarvelRivalsPlugin(Star):
             if not uid:
                 yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
                 return
-            profile = await self.player_signature_service.get_player_signature(uid, top_n=3)
+            profile = await self.player_signature_service.get_player_signature(uid, top_n=5)
             fallback = format_player_signature(profile)
             try:
                 image_url = await self.image_renderer.player_signature(profile)

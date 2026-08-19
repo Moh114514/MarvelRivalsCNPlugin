@@ -49,7 +49,7 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(signature, [("image", "signature.png")])
         plugin.player_meta_service.get_player_environment.assert_awaited_once_with("123", season="S9.5")
         plugin.player_signature_service.get_player_signature.assert_awaited_once_with(
-            "123", top_n=3,
+            "123", top_n=5,
         )
 
     async def test_missing_binding_is_explicit(self):
@@ -76,7 +76,7 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
             "1287101468", season="S9.5"
         )
         plugin.player_signature_service.get_player_signature.assert_awaited_once_with(
-            "1287101468", top_n=3
+            "1287101468", top_n=5
         )
 
     async def test_signature_legacy_season_and_minimum_arguments_return_migration_hint(self):

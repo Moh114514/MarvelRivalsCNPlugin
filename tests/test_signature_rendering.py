@@ -50,7 +50,9 @@ class TestSignatureRendering(unittest.TestCase):
             failed_seasons=(),
         )
         html = build_player_signature_html(profile)
-        self.assertIn("生涯绝活 Top 3", html)
+        self.assertIn("生涯绝活 Top 5", html)
+        self.assertIn("名词说明", html)
+        self.assertIn("有效环境（有效赛季）", html)
         self.assertIn("招牌绝活", html)
         self.assertIn("玩家&lt;&amp;&gt;", html)
         self.assertIn("黑豹&lt;&amp;&gt;", html)

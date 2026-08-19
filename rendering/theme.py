@@ -216,6 +216,11 @@ body{font-size:17px}
 .mr-signature-card__metrics strong{color:var(--mr-purple-deep);font-size:25px;font-weight:950;line-height:1.05;white-space:nowrap}
 .mr-signature-card__quality{grid-column:2/-1;padding-top:2px;border-top:2px solid var(--mr-line-soft)}
 .mr-signature-footer{margin-top:24px}
+.mr-signature-glossary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mr-signature-glossary__item{display:grid;gap:7px;min-height:92px;padding:15px 17px;border-left:5px solid var(--mr-purple);border-bottom:2px solid var(--mr-line);background:var(--mr-paper-strong);color:var(--mr-ink-text)}
+.mr-signature-glossary__item:nth-child(1),.mr-signature-glossary__item:nth-child(3){border-left-color:var(--mr-yellow)}
+.mr-signature-glossary__item strong{color:var(--mr-purple-deep);font-size:18px;font-weight:950;line-height:1.2}
+.mr-signature-glossary__item span{color:var(--mr-muted-strong);font-size:15px;line-height:1.5}
 
 @media (max-width:900px){
   .mr-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -242,6 +247,7 @@ body{font-size:17px}
   .mr-meta-list--rank-breakdown{grid-template-rows:none;grid-auto-flow:row}
   .mr-meta-list--rank-breakdown .mr-meta-row:nth-child(6){border-top:0;padding-top:15px}
   .mr-player-meta-list{grid-template-columns:1fr}
+  .mr-signature-glossary{grid-template-columns:1fr}
   .mr-signature-card{grid-template-columns:48px minmax(0,1fr);gap:12px}
   .mr-signature-card__metrics{grid-column:2;border-left:0;border-top:2px solid var(--mr-line)}
   .mr-signature-card__quality{grid-column:2}

@@ -124,7 +124,7 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
         else:
             lines.extend(("", "暂未形成数据上明确的长期绝活，以下为最接近的英雄。"))
         return "\n".join(lines)
-    lines.extend(("", "生涯绝活 Top 3"))
+    lines.extend(("", "生涯绝活 Top 5"))
     for index, item in enumerate(profile.signature_heroes, 1):
         tags = " · ".join((item.classification, *item.tags))
         lines.extend(

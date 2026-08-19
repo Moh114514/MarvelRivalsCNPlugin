@@ -35,7 +35,7 @@ from .signature_rules import (
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 1
+SIGNATURE_CACHE_SCHEMA_VERSION = 2
 
 
 class SeasonAggregationPolicy(str, Enum):
@@ -253,7 +253,7 @@ class PlayerSignatureService:
         self._request_semaphore: asyncio.Semaphore | None = None
         self._memory_profiles: dict[str, tuple[float, PlayerSignatureProfile]] = {}
 
-    async def get_player_signature(self, uid: str, *, top_n: int = 3) -> PlayerSignatureProfile:
+    async def get_player_signature(self, uid: str, *, top_n: int = 5) -> PlayerSignatureProfile:
         normalized_uid = str(uid).strip()
         if not normalized_uid.isdigit():
             raise PlayerMetaQueryError("UID 必须是数字")
@@ -382,7 +382,7 @@ class PlayerSignatureService:
             total_matches=total_matches,
             competitive_matches=competitive_matches,
             meta_coverage=meta_coverage,
-            signature_heroes=tuple(signatures[:3]),
+            signature_heroes=tuple(signatures[:5]),
             favorite_hero=favorite,
             partial=partial,
             failed_seasons=tuple(failed_seasons),
