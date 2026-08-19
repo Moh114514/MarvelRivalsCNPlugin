@@ -28,13 +28,15 @@ try:
     )
     from .marvel_rivals_bot.meta.service import MetaService
     from .marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
-    from .marvel_rivals_bot.analytics.commands import parse_player_meta_args
+    from .marvel_rivals_bot.analytics.commands import parse_player_meta_args, parse_signature_args
     from .marvel_rivals_bot.analytics.formatters import (
         format_player_environment,
         format_player_hero_pool,
         format_player_signature,
+        format_player_sickness,
     )
     from .marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
+    from .marvel_rivals_bot.analytics.signature import PlayerSignatureService
     from .qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -65,13 +67,15 @@ except ImportError:
     )
     from marvel_rivals_bot.meta.service import MetaService
     from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
-    from marvel_rivals_bot.analytics.commands import parse_player_meta_args
+    from marvel_rivals_bot.analytics.commands import parse_player_meta_args, parse_signature_args
     from marvel_rivals_bot.analytics.formatters import (
         format_player_environment,
         format_player_hero_pool,
         format_player_signature,
+        format_player_sickness,
     )
     from marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
+    from marvel_rivals_bot.analytics.signature import PlayerSignatureService
     from qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -99,7 +103,31 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
     filter = _Filter()
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.0.0", "")
+def _safe_int_config(config: dict, key: str, default: int, minimum: int = 1) -> int:
+    try:
+        value = int(config.get(key, default))
+        if value < minimum:
+            raise ValueError
+        return value
+    except (TypeError, ValueError):
+        if logger:
+            logger.warning(f"配置 {key} 无效，已使用安全默认值 {default}")
+        return default
+
+
+def _safe_float_config(config: dict, key: str, default: float, minimum: float = 0.0) -> float:
+    try:
+        value = float(config.get(key, default))
+        if value < minimum:
+            raise ValueError
+        return value
+    except (TypeError, ValueError):
+        if logger:
+            logger.warning(f"配置 {key} 无效，已使用安全默认值 {default}")
+        return default
+
+
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.4", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -170,8 +198,11 @@ class MarvelRivalsPlugin(Star):
 /我的英雄池 [UID] [赛季]
 按快速与竞技总场次查看英雄池，并核对竞技表现
 
-/我的绝活 [UID] [赛季] [最低总场次]
-查看满足总场次、竞技至少 5 场和同段位表现要求的英雄；可用数字参数调整最低总场次，默认 20
+/我的绝活 [UID]
+跨赛季分析长期真正擅长的英雄；不接受赛季或最低场次参数
+
+/我的绝症 [UID]
+查看使用量较高但相对同期、同段位 Meta 表现明显偏低的英雄 Top 10
 """
 
     def __init__(self, context: Context, config=None):
@@ -181,7 +212,14 @@ class MarvelRivalsPlugin(Star):
         env_config = {key: value for key, value in os.environ.items() if key.startswith("MRCN_")}
         env_config.update(configured)
         self.source = CNDataSource(env=env_config)
-        self.service = RivalsService(self.source, float(env_config.get("MRCN_CACHE_SECONDS", "60")))
+        signature_batch_size = _safe_int_config(env_config, "MRCN_SIGNATURE_HERO_BATCH_SIZE", 32)
+        signature_concurrency = _safe_int_config(env_config, "MRCN_SIGNATURE_MAX_CONCURRENCY", 4)
+        self.service = RivalsService(
+            self.source,
+            _safe_float_config(env_config, "MRCN_CACHE_SECONDS", 60),
+            hero_batch_size=signature_batch_size,
+            hero_max_concurrency=signature_concurrency,
+        )
         self.qq_card_sender = QQOfficialCardSender()
         self.image_renderer = MatchImageRenderer(self.html_render)
         data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
@@ -236,6 +274,26 @@ class MarvelRivalsPlugin(Star):
 
         self.player_meta_service = (
             PlayerMetaService(self.service, self.meta_service)
+            if self.meta_service is not None
+            else None
+        )
+        self.player_signature_service = (
+            PlayerSignatureService(
+                self.service,
+                self.meta_service,
+                cache_root=plugin_data_root,
+                hero_batch_size=signature_batch_size,
+                max_concurrency=signature_concurrency,
+                season_policy=(
+                    env_config.get("MRCN_SIGNATURE_SEASON_POLICY", "independent")
+                    if str(env_config.get("MRCN_SIGNATURE_SEASON_POLICY", "independent")).lower()
+                    in {"independent", "cumulative"}
+                    else "independent"
+                ),
+                result_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_RESULT_CACHE_SECONDS", 900),
+                historical_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_HISTORY_CACHE_SECONDS", 7 * 86400),
+                current_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_CURRENT_CACHE_SECONDS", 1800),
+            )
             if self.meta_service is not None
             else None
         )
@@ -897,28 +955,54 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的绝活")
     async def my_signature(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """查询个人英雄胜率高于同段位环境的英雄，可用数字参数调整最低总场次。"""
-        if self.player_meta_service is None:
+        """跨赛季分析玩家长期真正擅长的英雄，只接受可选 UID。"""
+        if self.player_signature_service is None:
             yield event.plain_result(self._meta_unavailable())
             return
         try:
-            args = parse_player_meta_args(
-                arg1, arg2, allow_minimum_matches=True, allow_uid=True
-            )
+            args = parse_signature_args(arg1, arg2)
             uid = args.uid or self._bound_uid(event)
             if not uid:
                 yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
                 return
-            signature_kwargs = {"season": args.season}
-            if args.minimum_matches_provided:
-                signature_kwargs["minimum_matches"] = args.minimum_matches
-            profile = await self.player_meta_service.get_player_signature(uid, **signature_kwargs)
+            profile = await self.player_signature_service.get_player_signature(uid, top_n=5)
             fallback = format_player_signature(profile)
             try:
                 image_url = await self.image_renderer.player_signature(profile)
             except Exception as exc:
                 if logger:
                     logger.warning(f"我的绝活图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except (ValueError, DataSourceError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("我的绝症")
+    async def my_sickness(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """查看高使用量且相对同期 Meta 表现明显偏低的英雄 Top 10。"""
+        if self.player_signature_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_signature_args(arg1, arg2)
+            uid = args.uid or self._bound_uid(event)
+            if not uid:
+                yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
+                return
+            profile = await self.player_signature_service.get_player_signature(uid, top_n=5)
+            fallback = format_player_sickness(profile)
+            try:
+                image_url = await self.image_renderer.player_sickness(profile)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"我的绝症图片渲染失败，回退普通文本：{exc}")
                 yield event.plain_result(fallback)
                 return
             if self.qq_card_sender.supports(event):

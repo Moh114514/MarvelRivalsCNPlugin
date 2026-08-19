@@ -113,18 +113,43 @@ def _mode_stats_is_empty(value: ModeStats) -> bool:
 
 
 def _rank_level(value: Any, season: str = "19") -> int | None:
-    if not isinstance(value, (str, Mapping)) or not value:
+    try:
+        return _rank_levels(value).get(str(int(season)))
+    except (TypeError, ValueError):
         return None
+
+
+def _rank_levels(value: Any) -> dict[str, int]:
+    """Parse CN ``rankGameSeason`` into ``season_code -> rank_level``."""
+
+    if not isinstance(value, (str, Mapping)) or not value:
+        return {}
     try:
         seasons = json.loads(value) if isinstance(value, str) else value
-        current = seasons.get(f"10010{int(season):02d}") if isinstance(seasons, dict) else None
-        rank = json.loads(current) if isinstance(current, str) else current
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(rank, dict):
-        return None
-    level = _number(rank, "level")
-    return int(level) if level is not None else None
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(seasons, Mapping):
+        return {}
+
+    result: dict[str, int] = {}
+    for key, raw_rank in seasons.items():
+        key_text = str(key)
+        if key_text.startswith("10010") and key_text[5:].isdigit():
+            season_code = str(int(key_text[5:]))
+        elif key_text.isdigit():
+            season_code = str(int(key_text))
+        else:
+            continue
+        try:
+            rank = json.loads(raw_rank) if isinstance(raw_rank, str) else raw_rank
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(rank, Mapping):
+            continue
+        level = _number(rank, "level")
+        if level is not None:
+            result[season_code] = int(level)
+    return result
 
 
 def _rank_text(value: Any, season: str = "19") -> str:
@@ -132,7 +157,11 @@ def _rank_text(value: Any, season: str = "19") -> str:
         return ""
     try:
         seasons = json.loads(value) if isinstance(value, str) else value
-        current = seasons.get(f"10010{int(season):02d}") if isinstance(seasons, dict) else None
+        if isinstance(seasons, Mapping):
+            season_code = str(int(season))
+            current = seasons.get(f"10010{int(season):02d}", seasons.get(season_code))
+        else:
+            current = None
         rank = json.loads(current) if isinstance(current, str) else current
     except (json.JSONDecodeError, TypeError):
         return value
@@ -547,6 +576,7 @@ class CNDataSource(RivalsDataSource):
             rank_level=_rank_level(data.get("rankGameSeason"), season) or _count(
                 data, "rankLevel", "rankLevelId", "currentRankLevel"
             ),
+            rank_history=_rank_levels(data.get("rankGameSeason")),
         )
 
     @staticmethod
@@ -597,6 +627,11 @@ class CNDataSource(RivalsDataSource):
         response_uid = self._validate_response_uid(uid, role)
         _data_payload, data, response_uid = await self._load_account_data(response_uid)
         return self._build_profile(data, role, response_uid, season)
+
+    async def get_player_profile_history(self, uid: str) -> PlayerProfile:
+        """Load the lightweight profile whose rank map covers all CN seasons."""
+
+        return await self.get_player_profile(uid)
 
     async def get_player(self, uid: str, season: str | None = None) -> PlayerStats:
         uid = str(uid).strip()
@@ -838,6 +873,23 @@ class CNDataSource(RivalsDataSource):
             self._refresh_hero_total(hero)
             result.append(hero)
         return result
+
+    def parse_hero_career(
+        self,
+        payload: dict[str, Any],
+        hero_ids: list[int | str],
+        game_mode: GameMode | int,
+    ) -> list[PlayerHeroStats]:
+        """Parse a batched HeroCareer response using the existing CN parser."""
+
+        mode = self._coerce_game_mode(game_mode)
+        requested = {str(item) for item in hero_ids}
+        scope = "quick" if mode is GameMode.QUICK else "competitive"
+        return [
+            hero
+            for hero in self._parse_heroes(payload, scope)
+            if hero.hero_id in requested
+        ]
 
     @classmethod
     def _merge_heroes(cls, *groups: list[PlayerHeroStats]) -> list[PlayerHeroStats]:

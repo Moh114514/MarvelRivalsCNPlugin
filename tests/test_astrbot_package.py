@@ -52,8 +52,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 1.0.0", metadata)
-        self.assertIn('"1.0.0"', main)
+        self.assertIn("version: 1.1.4", metadata)
+        self.assertIn('"1.1.4"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -81,14 +81,14 @@ class TestAstrBotPackage(unittest.TestCase):
         for text in (
             "/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试",
             "/英雄环境", "/英雄排行", "/英雄统计", "/英雄分段", "/英雄对比", "/英雄趋势", "/版本变化", "/版本黑马",
-            "/冷门强者", "/热门低胜率", "/分段怪物", "S0", "S9.5", "英雄名称",
+            "/冷门强者", "/热门低胜率", "/分段怪物", "/我的绝活", "/我的绝症", "S0", "S9.5", "英雄名称",
         ):
             self.assertIn(text, main)
         self.assertIn("/帮助\n显示完整指令帮助\n\n/绑定账号 <UID>\n", main)
 
     def test_player_meta_commands_are_documented_and_registered(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
-        for command in ("我的环境", "我的英雄池", "我的绝活"):
+        for command in ("我的环境", "我的英雄池", "我的绝活", "我的绝症"):
             self.assertIn(f'@filter.command("{command}")', main)
             self.assertIn(f"/{command}", main)
 
@@ -113,7 +113,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "1.0.0")
+        self.assertEqual(validate_source(PLUGIN_DIR), "1.1.4")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

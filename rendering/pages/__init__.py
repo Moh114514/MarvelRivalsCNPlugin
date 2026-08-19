@@ -17,10 +17,11 @@ from .meta import (
 from .player_meta import (
     build_player_hero_pool_html,
     build_player_meta_environment_html,
-    build_player_signature_html,
 )
 from .player import build_player_stats_html
 from .recent import build_recent_matches_html
+from .player_signature import build_player_signature_html
+from .player_sickness import build_player_sickness_html
 
 __all__ = [
     "build_help_html",
@@ -38,6 +39,7 @@ __all__ = [
     "build_player_hero_pool_html",
     "build_player_meta_environment_html",
     "build_player_signature_html",
+    "build_player_sickness_html",
     "build_player_stats_html",
     "build_recent_matches_html",
 ]

@@ -93,3 +93,86 @@ class PlayerMetaProfile:
     @property
     def minimum_competitive_matches(self) -> int:
         return self.minimum_ranked_matches
+
+
+@dataclass(slots=True)
+class HeroSeasonPerformance:
+    """One hero's competitive performance in one historical season."""
+
+    season_code: str
+    season_label: str
+    rank_level: int | None
+    rank_label: str | None
+    meta_rank_code: str
+    meta_rank_label: str
+    quick_matches: int
+    competitive_matches: int
+    competitive_wins: int | None
+    competitive_win_rate: float | None
+    meta_matches: int | None
+    meta_win_rate: float | None
+    meta_pick_rate: float | None
+    meta_ban_rate: float | None
+    raw_delta: float | None
+    rank_fallback: bool
+    meta_available: bool
+
+
+@dataclass(slots=True)
+class CareerHeroSignature:
+    """Aggregated, explainable career signature for one hero."""
+
+    hero_id: str
+    hero_name: str
+    total_matches: int
+    quick_matches: int
+    competitive_matches: int
+    competitive_wins: int | None
+    usage_share: float
+    actual_win_rate: float | None
+    expected_meta_win_rate: float | None
+    raw_delta: float | None
+    adjusted_delta: float | None
+    active_seasons: int
+    competitive_seasons: int
+    comparable_seasons: int
+    effective_seasons: int
+    positive_seasons: int
+    stability: float | None
+    comparable_matches: int
+    meta_coverage: float
+    rank_specific_coverage: float
+    confidence: str
+    classification: str
+    tags: tuple[str, ...]
+    seasons: tuple[HeroSeasonPerformance, ...]
+    sick_score: float = 0.0
+    quick_wins: int | None = None
+    quick_win_rate: float | None = None
+    play_index: float = 0.0
+    weakness_index: float = 0.0
+    meta_disadvantage: float | None = None
+    personal_competitive_disadvantage: float | None = None
+    personal_quick_disadvantage: float | None = None
+
+
+@dataclass(slots=True)
+class PlayerSignatureProfile:
+    """Stable ViewModel for cross-season player-specialty analysis."""
+
+    uid: str
+    player_name: str
+    first_season: str
+    latest_season: str
+    analyzed_seasons: tuple[str, ...]
+    total_matches: int
+    competitive_matches: int
+    meta_coverage: float
+    signature_heroes: tuple[CareerHeroSignature, ...]
+    favorite_hero: CareerHeroSignature | None
+    partial: bool
+    failed_seasons: tuple[str, ...]
+    meta_source: str = "RivalsMeta"
+    meta_source_timestamp: str | None = None
+    meta_stale: bool = False
+    sick_heroes: tuple[CareerHeroSignature, ...] = ()

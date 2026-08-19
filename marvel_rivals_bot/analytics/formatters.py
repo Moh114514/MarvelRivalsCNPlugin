@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .models import PlayerHeroMetaComparison, PlayerMetaProfile
+from .models import CareerHeroSignature, PlayerHeroMetaComparison, PlayerMetaProfile, PlayerSignatureProfile
+from .signature_rules import sickness_severity
 
 
 def _percent(value: float | None) -> str:
@@ -83,6 +84,8 @@ def format_player_hero_pool(profile: PlayerMetaProfile) -> str:
 
 
 def format_player_signature(profile: PlayerMetaProfile) -> str:
+    if isinstance(profile, PlayerSignatureProfile):
+        return _format_signature_profile(profile)
     lines = [
         f"我的绝活 | {profile.season_label} | {profile.meta_rank_label}",
         *_context(profile),
@@ -96,8 +99,108 @@ def format_player_signature(profile: PlayerMetaProfile) -> str:
     return "\n".join(lines)
 
 
+def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
+    scope = "—" if not profile.first_season else profile.first_season
+    if profile.latest_season and profile.latest_season != profile.first_season:
+        scope = f"{scope} → {profile.latest_season}"
+    lines = [
+        "我的绝活｜生涯综合",
+        f"玩家：{profile.player_name}（UID：{profile.uid}）",
+        f"统计范围：{scope}",
+        f"Meta 覆盖：{profile.meta_coverage:.0f}%",
+        f"生涯总场次：{_count(profile.total_matches)} · 竞技：{_count(profile.competitive_matches)}",
+    ]
+    if profile.partial:
+        lines.append("提示：部分历史赛季未能获取，以下为可用数据的阶段性结果")
+    if profile.meta_source_timestamp:
+        stale_text = "（部分为最近缓存）" if profile.meta_stale else ""
+        lines.append(
+            f"Meta 来源：{profile.meta_source} · 最新上游时间：{profile.meta_source_timestamp}{stale_text}"
+        )
+    if profile.failed_seasons:
+        lines.append(f"跳过赛季：{'、'.join(profile.failed_seasons)}")
+    if not profile.signature_heroes:
+        if profile.competitive_matches <= 0:
+            lines.extend(("", "暂无可用于竞技能力评估的数据。"))
+        else:
+            lines.extend(("", "暂未形成数据上明确的长期绝活，以下为最接近的英雄。"))
+        return "\n".join(lines)
+    lines.extend(("", "生涯绝活 Top 5"))
+    for index, item in enumerate(profile.signature_heroes, 1):
+        tags = " · ".join((item.classification, *item.tags))
+        lines.extend(
+            (
+                f"{index}. {item.hero_name}",
+                tags,
+                f"总计：{_count(item.total_matches)} 场 · 竞技：{_count(item.competitive_matches)} 场",
+                f"竞技胜率：{_percent(item.actual_win_rate)} · 同期 Meta：{_percent(item.expected_meta_win_rate)}",
+                f"环境领先：{_delta(item.raw_delta)} · 稳健领先：{_delta(item.adjusted_delta)}",
+                f"有效赛季：{item.effective_seasons} · 高于环境：{item.positive_seasons} · 稳定性：{_percent(item.stability)}",
+                f"可信度：{item.confidence} · Meta 覆盖：{item.meta_coverage:.0f}%",
+            )
+        )
+    lines.extend(
+        (
+            "",
+            "竞技表现按各赛季玩家历史段位与同期 Meta 进行校正",
+            "小样本已进行可信度收缩",
+            "快速模式仅参与英雄使用量统计",
+        )
+    )
+    return "\n".join(lines)
+
+
+def format_player_sickness(profile: PlayerSignatureProfile) -> str:
+    scope = "—" if not profile.first_season else profile.first_season
+    if profile.latest_season and profile.latest_season != profile.first_season:
+        scope = f"{scope} → {profile.latest_season}"
+    competitive_total = int(getattr(profile, "competitive_matches", 0) or 0)
+    total_matches = int(getattr(profile, "total_matches", competitive_total) or competitive_total)
+    quick_total = max(0, total_matches - competitive_total)
+    lines = [
+        "我的绝症",
+        f"玩家：{profile.player_name}（UID：{profile.uid}）",
+        f"统计范围：{scope}",
+        f"总场次：{_count(total_matches)} · 竞技：{_count(competitive_total)} · 快速：{_count(quick_total)}",
+        f"Meta 覆盖：{profile.meta_coverage:.0f}% · 绝症指数 = 爱玩指数 × 菜度指数 ÷ 100",
+        "这是“玩得多但表现相对差”的娱乐型相对排名，不是医学意义上的确诊。",
+        "候选范围：总场次≥10，或竞技≥5，或快速≥20；至少一个模式有胜率数据。明显高于同期 Meta 的英雄会被保护，不进入绝症榜。",
+    ]
+    if profile.partial:
+        lines.append("提示：部分历史赛季或 Meta 数据不可用，以下仅展示可确认结果。")
+    if profile.meta_source_timestamp:
+        stale_text = "（部分使用最近缓存）" if profile.meta_stale else ""
+        lines.append(
+            f"Meta 来源：{profile.meta_source} · 最新上游时间：{profile.meta_source_timestamp}{stale_text}"
+        )
+    lines.extend(("", "绝症英雄排名 Top 10"))
+    if not profile.sick_heroes:
+        lines.append("目前没有可用于相对排名的候选英雄。")
+        return "\n".join(lines)
+    for index, item in enumerate(profile.sick_heroes, 1):
+        lines.extend(
+            (
+                f"{index}. {item.hero_name}",
+                f"总计：{_count(item.total_matches)} 场 · 竞技：{_count(item.competitive_matches)} · 快速：{_count(item.quick_matches)} · 使用占比：{item.usage_share:.1f}%",
+                f"竞技胜率：{_percent(item.actual_win_rate)} · 快速胜率：{_percent(item.quick_win_rate)} · 同期 Meta：{_percent(item.expected_meta_win_rate)}",
+                f"Meta 劣势：{_delta(item.meta_disadvantage)} · 个人竞技劣势：{_delta(item.personal_competitive_disadvantage)} · 个人快速劣势：{_delta(item.personal_quick_disadvantage)}",
+                f"爱玩指数：{item.play_index:.1f} · 菜度指数：{item.weakness_index:.1f} · 绝症指数：{item.sick_score:.1f}（{sickness_severity(item.sick_score)}）",
+                f"稳健环境差值：{_delta(item.adjusted_delta)} · 可信度：{item.confidence} · Meta 覆盖：{item.meta_coverage:.0f}%",
+            )
+        )
+    lines.extend(
+        (
+            "",
+            "爱玩指数看竞技、快速场次和使用占比；菜度指数看可用的 Meta、个人竞技、个人快速劣势。",
+            "缺少某类数据时会按剩余信号重新分配权重；指数只用于相对排序，不代表实际损失。",
+        )
+    )
+    return "\n".join(lines)
+
+
 __all__ = [
     "format_player_environment",
     "format_player_hero_pool",
+    "format_player_sickness",
     "format_player_signature",
 ]

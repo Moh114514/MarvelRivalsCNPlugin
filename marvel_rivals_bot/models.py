@@ -38,6 +38,25 @@ class PlayerProfile:
     club_team_name: str = ""
     rank_game_season: str = ""
     rank_level: int | None = None
+    rank_history: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def rank_game_season_levels(self) -> dict[str, int]:
+        """Compatibility alias for the CN season-code to rank-level map."""
+
+        return self.rank_history
+
+    @property
+    def rank_levels_by_season(self) -> dict[str, int]:
+        """Compatibility alias used by older history-oriented callers."""
+
+        return self.rank_history
+
+    @property
+    def rank_game_seasons(self) -> dict[str, int]:
+        """Compatibility alias for callers using the upstream field name."""
+
+        return self.rank_history
 
 
 @dataclass(slots=True)

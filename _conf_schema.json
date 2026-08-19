@@ -51,6 +51,36 @@
     "type": "int",
     "default": 60
   },
+  "MRCN_SIGNATURE_HERO_BATCH_SIZE": {
+    "description": "Maximum hero IDs in one career request for cross-season specialty analysis",
+    "type": "int",
+    "default": 32
+  },
+  "MRCN_SIGNATURE_MAX_CONCURRENCY": {
+    "description": "Maximum concurrent CN/Meta requests during specialty analysis",
+    "type": "int",
+    "default": 4
+  },
+  "MRCN_SIGNATURE_SEASON_POLICY": {
+    "description": "Interpret CN season hero snapshots as independent or cumulative",
+    "type": "string",
+    "default": "independent"
+  },
+  "MRCN_SIGNATURE_RESULT_CACHE_SECONDS": {
+    "description": "Fresh cache duration for final player specialty profiles",
+    "type": "int",
+    "default": 900
+  },
+  "MRCN_SIGNATURE_HISTORY_CACHE_SECONDS": {
+    "description": "Cache duration for historical normalized HeroCareer season data",
+    "type": "int",
+    "default": 604800
+  },
+  "MRCN_SIGNATURE_CURRENT_CACHE_SECONDS": {
+    "description": "Cache duration for current normalized HeroCareer season data",
+    "type": "int",
+    "default": 1800
+  },
   "MRCN_META_ENABLED": {
     "description": "Enable third-party global hero Meta queries",
     "type": "bool",
