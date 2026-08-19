@@ -52,17 +52,34 @@ def _hero_card(index: int, item: Any) -> str:
     )
 
 
+def _sick_card(index: int, item: Any) -> str:
+    return (
+        '<article class="mr-sick-card">'
+        f'<div class="mr-sick-card__index">{index:02d}</div>'
+        '<div class="mr-sick-card__main">'
+        f'<div class="mr-sick-card__name">{escape_text(item.hero_name)}</div>'
+        f'<div class="mr-sick-card__detail">竞技 {item.competitive_matches:,} 场 · 竞技胜率 {escape_text(_percent(item.actual_win_rate))}</div>'
+        '</div>'
+        '<div class="mr-sick-card__score">'
+        '<span>绝症指数</span>'
+        f'<strong>{item.sick_score:.1f}</strong>'
+        '</div>'
+        '</article>'
+    )
+
+
 def _glossary() -> str:
     entries = (
-        ("有效环境（有效赛季）", "该英雄在某赛季竞技至少 5 场，并且能与同期 Meta 胜率比较的样本。优先使用历史段位 Meta，缺失时才回退全段位。"),
-        ("Meta 覆盖", "该英雄竞技场次中，成功找到同期 Meta 数据并完成比较的比例；覆盖不足会降低可信度。"),
-        ("同期 Meta", "RivalsMeta 第三方统计中，与玩家该赛季、该段位环境对应的英雄预期胜率。"),
-        ("稳健领先", "玩家竞技胜率减同期 Meta 胜率，并用 20 场先验向 0pp 收缩，降低小样本偶然性。"),
-        ("长期稳定性", "各个有效赛季中领先 Meta 的竞技场次占比；每个赛季最多计 20 场，避免单个赛季压过长期表现。"),
-        ("可信度", "根据可比较竞技场次分级，并结合 Meta 覆盖和历史段位覆盖进行降级。"),
-        ("绝活分类", "招牌、强势、潜力、待验证和常用根据竞技样本量、稳健领先、稳定性和 Meta 覆盖综合判定，不是官方称号。"),
-        ("快速 / 竞技", "快速模式只参与使用量和本命判断；竞技模式才参与胜率、Meta 对比和绝活分类。"),
-        ("本命英雄", "在满足最低使用量的前提下，生涯总使用量最高的英雄；它不等同于绝活分类。"),
+        ("有效环境（有效赛季）", "该英雄在某赛季竞技模式只要出过场就计入。它表示玩家确实在这个赛季使用过该英雄，不等于一定有足够样本比较 Meta。"),
+        ("同期 Meta", "RivalsMeta 的第三方统计：尽量使用玩家该赛季、该历史段位对应的英雄胜率；没有对应段位数据时才回退全段位。它不是官方数据。"),
+        ("稳健领先", "玩家竞技胜率比同期 Meta 高多少个百分点，并对小样本向 0pp 拉回。比如实际高 10pp，但只有很少场次，显示的稳健领先会小于 10pp。"),
+        ("长期稳定性", "在能拿到同期 Meta 的有效赛季里，玩家领先 Meta 的竞技场次占比；每个赛季最多按 20 场计权，避免某个超长赛季完全盖过其他赛季。"),
+        ("可信度", "看可比较的竞技场次有多少，再结合 Meta 覆盖和历史段位覆盖评估证据强弱；场次少或覆盖低时会降为较低等级。"),
+        ("绝活分类", "招牌绝活=场次充分、长期领先且稳定；强势绝活=已有较多场次并明显领先；潜力绝活=场次还少但领先明显；待验证=刚有少量正向表现；常用英雄=使用过但证据还不足。"),
+        ("标签：常青绝活 / 长期专精 / 新晋绝活 / 逆版本绝活 / 本命英雄", "常青绝活=多赛季稳定领先；长期专精=使用赛季多且竞技场次多；新晋绝活=近期使用占比高且表现领先；逆版本绝活=同期 Meta 偏弱但你明显领先；本命英雄=满足最低使用量后，生涯总使用量最高。"),
+        ("Meta 覆盖", "这个英雄的竞技场次里，有多少场能找到同期 Meta 数据并完成比较；覆盖越高，结论越完整。"),
+        ("快速 / 竞技", "快速模式只用来统计使用量和本命判断；竞技模式才用于胜率、Meta 对比、稳定性和绝活分类。"),
+        ("绝症 Top 3", "从竞技出场过的英雄中，找低于你生涯竞技平均胜率、且暴露场次较高的角色。绝症指数=低于个人平均的百分点 × 竞技场次，指数越高越优先。"),
     )
     cards = "".join(
         f'<article class="mr-signature-glossary__item">'
@@ -126,6 +143,21 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
         content += empty_state("暂无可用于竞技能力评估的数据")
     else:
         content += empty_state("暂未形成数据上明确的长期绝活，以下暂无可比较候选")
+    content += '</section>'
+    content += '<section class="mr-section mr-sick-section">'
+    content += section_title("绝症 Top 3", "HIGH USAGE / LOW WIN RATE")
+    if profile.sick_heroes:
+        if profile.competitive_baseline_win_rate is not None:
+            content += (
+                '<div class="mr-meta-source">'
+                f'你的生涯竞技平均胜率：{profile.competitive_baseline_win_rate:.1f}%；指数越高，表示输得越多且暴露越大。'
+                '</div>'
+            )
+        content += '<div class="mr-sick-list">'
+        content += "".join(_sick_card(index, item) for index, item in enumerate(profile.sick_heroes, 1))
+        content += '</div>'
+    else:
+        content += empty_state("暂时没有找到场次较高且低于个人竞技平均胜率的英雄。")
     content += '</section>'
     content += _glossary()
     content += (

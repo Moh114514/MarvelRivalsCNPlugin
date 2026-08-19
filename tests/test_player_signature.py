@@ -68,6 +68,23 @@ class FakeStaleMeta(FakeMeta):
         return board
 
 
+class FakeSickRivals(FakeRivals):
+    async def get_hero_profiles_batch(self, uid, hero_ids, season, game_mode, *, batch_size=32):
+        values = await super().get_hero_profiles_batch(
+            uid, hero_ids, season, game_mode, batch_size=batch_size
+        )
+        if season in self.rows:
+            if game_mode is GameMode.QUICK:
+                values.append(PlayerHeroStats(
+                    hero_id="1027", hero_name="测试低胜率英雄", quick=ModeStats(matches=5, wins=0)
+                ))
+            else:
+                values.append(PlayerHeroStats(
+                    hero_id="1027", hero_name="测试低胜率英雄", competitive=ModeStats(matches=5, wins=0)
+                ))
+        return values
+
+
 class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
     async def test_joins_each_season_to_its_historical_rank_and_weights_meta(self):
         rivals = FakeRivals()
@@ -112,6 +129,16 @@ class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
         rendered = format_player_signature(profile)
         self.assertIn("Meta", rendered)
         self.assertIn(profile.meta_source_timestamp, rendered)
+
+    async def test_sick_top_three_uses_high_exposure_below_baseline_heroes(self):
+        profile = await PlayerSignatureService(
+            FakeSickRivals(), FakeMeta(), cache_root=None
+        ).get_player_signature("123")
+
+        self.assertIsNotNone(profile.competitive_baseline_win_rate)
+        self.assertEqual(len(profile.sick_heroes), 1)
+        self.assertEqual(profile.sick_heroes[0].hero_id, "1027")
+        self.assertGreater(profile.sick_heroes[0].sick_score, 0)
 
 
 if __name__ == "__main__":

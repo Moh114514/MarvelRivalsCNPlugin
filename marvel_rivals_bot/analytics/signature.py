@@ -28,14 +28,16 @@ from .signature_rules import (
     adjust_delta,
     build_signature_tags,
     calculate_confidence,
+    calculate_sick_score,
     classify_signature,
     classification_sort_key,
+    sick_hero_sort_key,
     stability_counts,
 )
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 2
+SIGNATURE_CACHE_SCHEMA_VERSION = 3
 
 
 class SeasonAggregationPolicy(str, Enum):
@@ -210,6 +212,15 @@ class SignatureCache:
                     if payload.get("meta_source_timestamp") is not None else None
                 ),
                 meta_stale=bool(payload.get("meta_stale", False)),
+                sick_heroes=tuple(
+                    _signature_from_dict(item)
+                    for item in payload.get("sick_heroes", [])
+                    if isinstance(item, dict)
+                ),
+                competitive_baseline_win_rate=(
+                    float(payload["competitive_baseline_win_rate"])
+                    if payload.get("competitive_baseline_win_rate") is not None else None
+                ),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -345,6 +356,18 @@ class PlayerSignatureService:
         meta_stale = any(bool(getattr(board, "stale", False)) for board in meta_boards.values())
         partial = partial or meta_failures > 0 or meta_stale
         signatures = self._build_signatures(profile, active_seasons, meta_boards)
+        competitive_baseline = _competitive_baseline(signatures)
+        signatures = [
+            replace(
+                item,
+                sick_score=calculate_sick_score(
+                    item.actual_win_rate,
+                    item.competitive_matches,
+                    competitive_baseline,
+                ),
+            )
+            for item in signatures
+        ]
         total_matches = sum(item.total_matches for item in signatures)
         competitive_matches = sum(item.competitive_matches for item in signatures)
         comparable_matches = sum(item.comparable_matches for item in signatures)
@@ -372,6 +395,12 @@ class PlayerSignatureService:
                 for item in signatures
             ]
             favorite = next((item for item in signatures if item.hero_id == favorite.hero_id), favorite)
+        sick_heroes = tuple(
+            sorted(
+                (item for item in signatures if item.sick_score > 0),
+                key=sick_hero_sort_key,
+            )[:3]
+        )
         signatures.sort(key=classification_sort_key)
         result = PlayerSignatureProfile(
             uid=uid,
@@ -392,6 +421,8 @@ class PlayerSignatureService:
             ),
             meta_source_timestamp=_latest_meta_timestamp(meta_boards.values()),
             meta_stale=meta_stale,
+            sick_heroes=sick_heroes,
+            competitive_baseline_win_rate=competitive_baseline,
         )
         self._memory_profiles[uid] = (time.monotonic(), result)
         self.cache.save_profile(result)
@@ -506,7 +537,7 @@ class PlayerSignatureService:
                     competitive += 1
                 if hero.competitive_wins is None and c > 0:
                     wins_known = False
-                elif hero.competitive_wins is not None:
+                elif hero.competitive_wins is not None and c > 0:
                     competitive_wins_total += max(0, int(hero.competitive_wins))
                 hero_name = hero.hero_name or hero_name
 
@@ -549,9 +580,18 @@ class PlayerSignatureService:
                 ))
             if total_matches <= 0:
                 continue
-            actual = comparable_wins * 100 / comparable_matches if comparable_matches else None
+            comparable_actual = comparable_wins * 100 / comparable_matches if comparable_matches else None
+            actual = (
+                competitive_wins_total * 100 / competitive_matches
+                if wins_known and competitive_matches
+                else None
+            )
             expected = expected_wins * 100 / comparable_matches if comparable_matches else None
-            raw_delta = actual - expected if actual is not None and expected is not None else None
+            raw_delta = (
+                comparable_actual - expected
+                if comparable_actual is not None and expected is not None
+                else None
+            )
             adjusted = adjust_delta(raw_delta, comparable_matches, SIGNATURE_PRIOR_MATCHES)
             stability, effective, positive = stability_counts(rows)
             comparable_seasons = sum(1 for row in rows if row.raw_delta is not None)
@@ -651,6 +691,20 @@ def _coverage(numerator: int, denominator: int) -> float:
     return numerator * 100 / denominator if denominator else 0.0
 
 
+def _competitive_baseline(signatures: list[CareerHeroSignature]) -> float | None:
+    matches = sum(
+        item.competitive_matches
+        for item in signatures
+        if item.competitive_wins is not None
+    )
+    wins = sum(
+        int(item.competitive_wins or 0)
+        for item in signatures
+        if item.competitive_wins is not None
+    )
+    return wins * 100 / matches if matches else None
+
+
 def _is_favorite_eligible(item: CareerHeroSignature) -> bool:
     return item.total_matches >= 30 or item.usage_share >= 20
 
@@ -684,6 +738,8 @@ def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
         "meta_source": profile.meta_source,
         "meta_source_timestamp": profile.meta_source_timestamp,
         "meta_stale": profile.meta_stale,
+        "sick_heroes": [asdict(item) for item in profile.sick_heroes],
+        "competitive_baseline_win_rate": profile.competitive_baseline_win_rate,
     }
 
 

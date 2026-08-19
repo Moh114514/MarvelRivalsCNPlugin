@@ -138,6 +138,20 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 f"可信度：{item.confidence} · Meta 覆盖：{item.meta_coverage:.0f}%",
             )
         )
+    lines.extend(("", "绝症 Top 3"))
+    if profile.sick_heroes:
+        if profile.competitive_baseline_win_rate is not None:
+            lines.append(f"判定基线：你的生涯竞技平均胜率 {_percent(profile.competitive_baseline_win_rate)}")
+        for index, item in enumerate(profile.sick_heroes, 1):
+            lines.extend(
+                (
+                    f"{index}. {item.hero_name}",
+                    f"竞技场次：{_count(item.competitive_matches)} · 竞技胜率：{_percent(item.actual_win_rate)}",
+                    f"绝症指数：{item.sick_score:.1f}（低于个人平均的百分点 × 竞技场次）",
+                )
+            )
+    else:
+        lines.append("暂时没有找到场次较高且低于个人竞技平均胜率的英雄。")
     lines.extend(
         (
             "",

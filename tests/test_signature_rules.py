@@ -4,9 +4,11 @@ from types import SimpleNamespace
 from marvel_rivals_bot.analytics.signature_rules import (
     adjust_delta,
     calculate_confidence,
+    calculate_sick_score,
     calculate_stability,
     classify_signature,
     classification_sort_key,
+    stability_counts,
 )
 from marvel_rivals_bot.analytics.signature import SeasonAggregationPolicy, _NormalizedHero, _NormalizedSeason, PlayerSignatureService
 
@@ -22,7 +24,21 @@ class TestSignatureRules(unittest.TestCase):
             SimpleNamespace(competitive_matches=20, raw_delta=-1),
             SimpleNamespace(competitive_matches=20, raw_delta=1),
         ]
-        self.assertAlmostEqual(calculate_stability(seasons), 50.0)
+        self.assertAlmostEqual(calculate_stability(seasons), 21 / 41 * 100)
+
+    def test_any_competitive_appearance_is_an_effective_season(self):
+        seasons = [
+            SimpleNamespace(competitive_matches=1, raw_delta=None),
+            SimpleNamespace(competitive_matches=2, raw_delta=3.0),
+        ]
+        stability, effective, positive = stability_counts(seasons)
+        self.assertEqual(effective, 2)
+        self.assertEqual(positive, 1)
+        self.assertAlmostEqual(stability, 100.0)
+
+    def test_sick_score_combines_win_rate_deficit_and_exposure(self):
+        self.assertAlmostEqual(calculate_sick_score(40.0, 30, 50.0), 300.0)
+        self.assertEqual(calculate_sick_score(55.0, 30, 50.0), 0.0)
 
     def test_confidence_downgrades_incomplete_coverage(self):
         self.assertEqual(calculate_confidence(100, 100, 100), "很高")

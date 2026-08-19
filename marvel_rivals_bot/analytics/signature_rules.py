@@ -7,7 +7,7 @@ from typing import Any
 
 
 SIGNATURE_PRIOR_MATCHES = 20
-SIGNATURE_STABILITY_MIN_MATCHES = 5
+SIGNATURE_STABILITY_MIN_MATCHES = 1
 
 CLASSIFICATION_ORDER = {
     "招牌绝活": 0,
@@ -43,9 +43,9 @@ def stability_counts(
 ) -> tuple[float | None, int, int]:
     """Return weighted stability, effective season count and positive count.
 
-    A season is effective only when it has enough competitive games and a
-    same-season Meta comparison.  Its weight is capped at 20 games so a
-    single very long season cannot erase the historical signal.
+    Any season with at least one competitive game is effective. Stability
+    only uses seasons with a same-season Meta comparison, weighted by
+    competitive games and capped at 20 games per season.
     """
 
     effective = 0
@@ -55,12 +55,14 @@ def stability_counts(
     for season in seasons:
         matches = getattr(season, "competitive_matches", None)
         delta = getattr(season, "raw_delta", None)
-        if matches is None or int(matches) < min_competitive_matches or delta is None:
+        if matches is None or int(matches) < min_competitive_matches:
+            continue
+        effective += 1
+        if delta is None:
             continue
         weight = min(int(matches), 20)
         if weight <= 0:
             continue
-        effective += 1
         total_weight += weight
         if float(delta) > 0:
             positive += 1
@@ -68,6 +70,30 @@ def stability_counts(
     if total_weight == 0:
         return None, effective, positive
     return positive_weight * 100 / total_weight, effective, positive
+
+
+def calculate_sick_score(
+    actual_win_rate: float | None,
+    competitive_matches: int,
+    baseline_win_rate: float | None,
+) -> float:
+    """Score high-exposure heroes whose win rate trails the player's baseline."""
+
+    if actual_win_rate is None or baseline_win_rate is None:
+        return 0.0
+    matches = max(0, int(competitive_matches))
+    deficit = max(0.0, float(baseline_win_rate) - float(actual_win_rate))
+    return deficit * matches
+
+
+def sick_hero_sort_key(item: Any) -> tuple[float, int, float]:
+    """Sort the most costly high-volume, below-baseline heroes first."""
+
+    return (
+        -float(getattr(item, "sick_score", 0.0) or 0.0),
+        -int(getattr(item, "competitive_matches", 0) or 0),
+        float(getattr(item, "actual_win_rate", 100.0) or 100.0),
+    )
 
 
 def calculate_stability(
@@ -210,8 +236,10 @@ __all__ = [
     "adjust_delta",
     "build_signature_tags",
     "calculate_confidence",
+    "calculate_sick_score",
     "calculate_stability",
     "classify_signature",
     "classification_sort_key",
+    "sick_hero_sort_key",
     "stability_counts",
 ]
