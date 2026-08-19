@@ -201,6 +201,21 @@ body{font-size:17px}
 .mr-player-meta-row__delta--positive{color:var(--mr-purple)}
 .mr-player-meta-row__delta--negative{color:var(--mr-red)}
 .mr-player-meta-row__detail{display:flex;flex-wrap:wrap;gap:4px 12px}
+.mr-signature-list{display:grid;gap:16px}
+.mr-signature-card{display:grid;grid-template-columns:64px minmax(170px,1.1fr) minmax(260px,1.8fr);gap:18px;align-items:stretch;padding:18px 20px;border-left:7px solid var(--mr-purple);border-bottom:2px solid var(--mr-line);background:var(--mr-paper-strong);color:var(--mr-ink-text)}
+.mr-signature-card:first-child{border-top:5px solid var(--mr-yellow);padding-top:13px}
+.mr-signature-card--negative{border-left-color:var(--mr-red)}
+.mr-signature-card__index{color:var(--mr-purple);font-size:34px;font-weight:950;line-height:1}
+.mr-signature-card__main{min-width:0;display:grid;align-content:start;gap:7px}
+.mr-signature-card__name{color:var(--mr-ink-text);font-size:26px;font-weight:950;line-height:1.1;overflow-wrap:anywhere}
+.mr-signature-card__tags{color:var(--mr-purple);font-size:16px;font-weight:900;line-height:1.35;overflow-wrap:anywhere}
+.mr-signature-card__stats,.mr-signature-card__quality{display:flex;flex-wrap:wrap;gap:5px 14px;color:var(--mr-muted-strong);font-size:15px;line-height:1.4}
+.mr-signature-card__metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-left:2px solid var(--mr-line)}
+.mr-signature-card__metrics>div{display:grid;align-content:center;gap:6px;padding:5px 14px;border-right:2px solid var(--mr-line)}
+.mr-signature-card__metrics span{color:var(--mr-muted-strong);font-size:14px;font-weight:850;line-height:1.2}
+.mr-signature-card__metrics strong{color:var(--mr-purple-deep);font-size:25px;font-weight:950;line-height:1.05;white-space:nowrap}
+.mr-signature-card__quality{grid-column:2/-1;padding-top:2px;border-top:2px solid var(--mr-line-soft)}
+.mr-signature-footer{margin-top:24px}
 
 @media (max-width:900px){
   .mr-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -227,6 +242,9 @@ body{font-size:17px}
   .mr-meta-list--rank-breakdown{grid-template-rows:none;grid-auto-flow:row}
   .mr-meta-list--rank-breakdown .mr-meta-row:nth-child(6){border-top:0;padding-top:15px}
   .mr-player-meta-list{grid-template-columns:1fr}
+  .mr-signature-card{grid-template-columns:48px minmax(0,1fr);gap:12px}
+  .mr-signature-card__metrics{grid-column:2;border-left:0;border-top:2px solid var(--mr-line)}
+  .mr-signature-card__quality{grid-column:2}
   .mr-player-meta-row--comparison{grid-template-columns:52px minmax(0,1fr) minmax(100px,auto) minmax(100px,auto);gap:12px}
   .mr-player-meta-row--comparison .mr-player-meta-row__metric--personal{grid-column:3;grid-row:1}
   .mr-player-meta-row--comparison .mr-player-meta-row__metric--meta{grid-column:4;grid-row:1}
@@ -269,6 +287,12 @@ body{font-size:17px}
   .mr-player-meta-row__index{font-size:25px}
   .mr-player-meta-row__hero strong{font-size:18px}
   .mr-player-meta-row__value{font-size:27px}
+  .mr-signature-card{grid-template-columns:40px minmax(0,1fr);padding:14px 12px}
+  .mr-signature-card__index{font-size:27px}
+  .mr-signature-card__name{font-size:21px}
+  .mr-signature-card__metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mr-signature-card__metrics>div{min-height:62px;padding:8px 10px}
+  .mr-signature-card__metrics strong{font-size:23px}
   .mr-player-meta-row--comparison{grid-template-columns:40px minmax(0,1fr) minmax(76px,auto);gap:8px}
   .mr-player-meta-row--comparison .mr-player-meta-row__metric{font-size:13px}
   .mr-player-meta-row--comparison .mr-player-meta-row__metric--personal{grid-column:2;grid-row:2}

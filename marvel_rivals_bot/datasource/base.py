@@ -30,6 +30,11 @@ class RivalsDataSource(ABC):
 
         return (await self.get_player(uid, season)).profile
 
+    async def get_player_profile_history(self, uid: str) -> PlayerProfile:
+        """Return profile data including any source-provided rank history."""
+
+        return await self.get_player_profile(uid)
+
     async def load_career(self, uid: str, season: str | None, game_mode: GameMode) -> dict:
         raise NotImplementedError
 

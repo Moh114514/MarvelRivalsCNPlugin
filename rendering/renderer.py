@@ -16,7 +16,7 @@ try:
         HeroRankSeries,
         RankMonsterBoard,
     )
-    from ..marvel_rivals_bot.analytics.models import PlayerMetaProfile
+    from ..marvel_rivals_bot.analytics.models import PlayerMetaProfile, PlayerSignatureProfile
 except ImportError:
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
     from marvel_rivals_bot.meta.models import (
@@ -29,7 +29,7 @@ except ImportError:
         HeroRankSeries,
         RankMonsterBoard,
     )
-    from marvel_rivals_bot.analytics.models import PlayerMetaProfile
+    from marvel_rivals_bot.analytics.models import PlayerMetaProfile, PlayerSignatureProfile
 
 from .pages import (
     build_help_html,
@@ -106,7 +106,7 @@ class RivalsImageRenderer:
     async def player_hero_pool(self, profile: PlayerMetaProfile) -> str:
         return await self._html_render(build_player_hero_pool_html(profile), {}, options=PNG_OPTIONS)
 
-    async def player_signature(self, profile: PlayerMetaProfile) -> str:
+    async def player_signature(self, profile: PlayerMetaProfile | PlayerSignatureProfile) -> str:
         return await self._html_render(build_player_signature_html(profile), {}, options=PNG_OPTIONS)
 
 

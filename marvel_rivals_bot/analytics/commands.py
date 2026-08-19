@@ -16,6 +16,11 @@ class PlayerMetaCommandArgs:
     minimum_matches_provided: bool = False
 
 
+@dataclass(slots=True)
+class SignatureCommandArgs:
+    uid: str | None = None
+
+
 def parse_player_meta_args(
     *parts: str,
     allow_minimum_matches: bool = False,
@@ -74,4 +79,51 @@ def parse_player_meta_args(
     )
 
 
-__all__ = ["PlayerMetaCommandArgs", "parse_player_meta_args"]
+def parse_signature_args(*parts: str) -> SignatureCommandArgs:
+    """Parse the V2 command, which accepts only an optional UID."""
+
+    tokens: list[str] = []
+    for part in parts:
+        if part and str(part).strip():
+            tokens.extend(str(part).split())
+    uid: str | None = None
+    for token in tokens:
+        normalized = token.strip()
+        lowered = normalized.lower()
+        explicit = None
+        for prefix in ("uid:", "uid=", "playeruid:", "playeruid="):
+            if lowered.startswith(prefix):
+                explicit = normalized[len(prefix):].strip()
+                if not explicit.isdigit():
+                    raise ValueError("UID 必须是数字")
+                break
+        if explicit is not None:
+            if uid is not None:
+                raise ValueError("只能指定一个 UID")
+            uid = explicit
+            continue
+        try:
+            parse_season_name(normalized)
+        except ValueError:
+            if normalized.isdigit():
+                if len(normalized) < 6:
+                    raise ValueError(
+                        "/我的绝活 已取消最低场次参数，系统会自动根据样本量评估可信度"
+                    )
+                if uid is not None:
+                    raise ValueError("只能指定一个 UID")
+                uid = normalized
+                continue
+            raise ValueError("/我的绝活 只接受 UID，不再接受赛季参数")
+        raise ValueError(
+            "/我的绝活 已改为跨赛季生涯分析，不再接受赛季参数；如需单赛季英雄表现，请使用 /我的英雄池"
+        )
+    return SignatureCommandArgs(uid=uid)
+
+
+__all__ = [
+    "PlayerMetaCommandArgs",
+    "SignatureCommandArgs",
+    "parse_player_meta_args",
+    "parse_signature_args",
+]

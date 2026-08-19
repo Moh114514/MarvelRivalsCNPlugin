@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime
-from typing import TypeVar
+from collections.abc import Mapping
+from typing import Any, TypeVar
 
-from ..datasource.base import DataSourceError, RivalsDataSource
+from ..datasource.base import DataSourceError, GameMode, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..reference.heroes import format_hero_name, get_hero_id
-from ..models import HeroQueryResult, ModeStats, PlayerProfile, PlayerStats
+from ..models import HeroQueryResult, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
 from ..reference.seasons import season_identity_from_cn_code, season_identity_from_name
@@ -30,9 +32,19 @@ def parse_season_name(value: str) -> str:
 
 
 class RivalsService:
-    def __init__(self, source: RivalsDataSource, cache_seconds: float = 60):
+    def __init__(
+        self,
+        source: RivalsDataSource,
+        cache_seconds: float = 60,
+        *,
+        hero_batch_size: int = 32,
+        hero_max_concurrency: int = 4,
+    ):
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
+        self.hero_batch_size = max(1, int(hero_batch_size))
+        self.hero_max_concurrency = max(1, int(hero_max_concurrency))
+        self._hero_request_semaphore: asyncio.Semaphore | None = None
         self._player_cache: dict[str, tuple[float, PlayerStats]] = {}
         self._profile_cache: dict[str, tuple[float, PlayerProfile]] = {}
         self._matches_cache: dict[str, tuple[float, list[dict]]] = {}
@@ -67,6 +79,125 @@ class RivalsService:
             profile = (await self.source.get_player(uid, season_code)).profile
         self._profile_cache[cache_key] = (time.monotonic(), profile)
         return profile
+
+    async def get_player_profile_history(self, uid: str) -> PlayerProfile:
+        """Load the light profile history, with a legacy-source fallback."""
+
+        loader = getattr(self.source, "get_player_profile_history", None)
+        if callable(loader):
+            try:
+                return await loader(uid)
+            except NotImplementedError:
+                pass
+        profile_loader = getattr(self.source, "get_player_profile", None)
+        if callable(profile_loader):
+            return await profile_loader(uid)
+        return (await self.source.get_player(uid)).profile
+
+    async def get_hero_profiles_batch(
+        self,
+        uid: str,
+        hero_ids: list[int | str],
+        season: str | None,
+        game_mode: GameMode | int,
+        batch_size: int | None = None,
+    ) -> list[PlayerHeroStats]:
+        """Load returned HeroCareer rows in bounded batches.
+
+        Missing rows are omitted rather than represented by fabricated stats.
+        Sources without the batched loader retain a one-hero compatibility
+        fallback for existing fake and legacy adapters.
+        """
+
+        batch_size = self.hero_batch_size if batch_size is None else int(batch_size)
+        if batch_size <= 0:
+            raise DataSourceError("batch_size 必须是正整数")
+        season_text = str(season).strip() if season is not None else ""
+        season_code = str(int(season_text)) if season_text.isdigit() else self._season_code(season)
+        normalized_ids: list[int | str] = []
+        seen: set[str] = set()
+        for hero_id in hero_ids:
+            value = str(hero_id).strip()
+            if value and value not in seen:
+                normalized_ids.append(int(value) if value.isdigit() else value)
+                seen.add(value)
+        if not normalized_ids:
+            return []
+
+        chunks = [normalized_ids[index:index + batch_size] for index in range(0, len(normalized_ids), batch_size)]
+        if self._hero_request_semaphore is None:
+            self._hero_request_semaphore = asyncio.Semaphore(self.hero_max_concurrency)
+        loader = getattr(self.source, "load_hero_career", None)
+        inherited_loader = (
+            isinstance(self.source, RivalsDataSource)
+            and getattr(type(self.source), "load_hero_career", None)
+            is RivalsDataSource.load_hero_career
+        )
+        if callable(loader) and not inherited_loader:
+            try:
+                return await self._load_hero_batches(
+                    loader, uid, chunks, season_code, game_mode, self._hero_request_semaphore
+                )
+            except NotImplementedError:
+                pass
+        return await self._load_hero_legacy_fallback(uid, normalized_ids, season_code, game_mode)
+
+    async def _load_hero_batches(
+        self,
+        loader: Any,
+        uid: str,
+        chunks: list[list[int | str]],
+        season: str,
+        game_mode: GameMode | int,
+        semaphore: asyncio.Semaphore,
+    ) -> list[PlayerHeroStats]:
+        async def load_chunk(chunk: list[str]) -> list[PlayerHeroStats]:
+            async with semaphore:
+                payload = await loader(uid, chunk, season, game_mode)
+            parser = getattr(self.source, "parse_hero_career", None)
+            if callable(parser):
+                try:
+                    parsed = parser(payload, chunk, game_mode)
+                    if parsed is not None:
+                        return list(parsed)
+                except NotImplementedError:
+                    pass
+            return _parse_generic_hero_career(payload, chunk, game_mode)
+
+        groups = await asyncio.gather(*(load_chunk(chunk) for chunk in chunks))
+        result: list[PlayerHeroStats] = []
+        returned: set[str] = set()
+        for group in groups:
+            for hero in group:
+                if hero.hero_id not in returned:
+                    result.append(hero)
+                    returned.add(hero.hero_id)
+        return result
+
+    async def _load_hero_legacy_fallback(
+        self,
+        uid: str,
+        hero_ids: list[int | str],
+        season: str,
+        game_mode: GameMode | int,
+    ) -> list[PlayerHeroStats]:
+        async def load_one(hero_id: int | str) -> PlayerHeroStats | None:
+            if self._hero_request_semaphore is None:
+                self._hero_request_semaphore = asyncio.Semaphore(self.hero_max_concurrency)
+            async with self._hero_request_semaphore:
+                try:
+                    profile_loader = getattr(self.source, "get_hero_profile", None)
+                    if callable(profile_loader):
+                        profile = await profile_loader(uid, str(hero_id), season)
+                        return profile if isinstance(profile, PlayerHeroStats) else None
+                    payload = await self.source.get_hero(uid, str(hero_id), season)
+                except (DataSourceError, NotImplementedError):
+                    return None
+            parsed = _parse_generic_hero_career(payload, [hero_id], game_mode)
+            return parsed[0] if parsed else None
+
+        values = await asyncio.gather(*(load_one(hero_id) for hero_id in hero_ids))
+        return [value for value in values if value is not None]
 
     async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
         season_code = self._season_code(season)
@@ -159,6 +290,83 @@ def _fmt(value: int | float | None, fallback: str = "-") -> str:
     if value is None:
         return fallback
     return f"{value:.1f}" if isinstance(value, float) and not value.is_integer() else str(int(value))
+
+
+def _generic_hero_rows(payload: Any) -> list[dict[str, Any]]:
+    data = payload.get("data", payload) if isinstance(payload, Mapping) else payload
+    if isinstance(data, list):
+        rows = data
+    elif isinstance(data, Mapping):
+        rows = data.get("careers", data.get("heros", data.get("heroes", data.get("heroList", []))))
+    else:
+        rows = []
+    return [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+
+
+def _generic_number(row: Mapping[str, Any], *keys: str) -> int | float | None:
+    for key in keys:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value) if isinstance(value, str) and "." in value else int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _parse_generic_hero_career(
+    payload: Any,
+    hero_ids: list[int | str],
+    game_mode: GameMode | int,
+) -> list[PlayerHeroStats]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, PlayerHeroStats)]
+    requested = {str(item) for item in hero_ids}
+    try:
+        mode = GameMode(int(game_mode))
+    except (TypeError, ValueError):
+        mode = GameMode.COMPETITIVE
+    result: list[PlayerHeroStats] = []
+    for row in _generic_hero_rows(payload):
+        hero_id = str(row.get("heroId", row.get("id", "")))
+        if not hero_id or hero_id not in requested:
+            continue
+        matches = _generic_number(
+            row, "totalMatchCount", "matchCount", "matches", "totalMatches", "gameCount"
+        )
+        wins = _generic_number(
+            row, "totalMatchWinCount", "totalWinCount", "winCount", "wins"
+        )
+        win_rate = _generic_number(row, "winRate")
+        if win_rate is None and matches and wins is not None:
+            win_rate = wins * 100 / matches
+        scope = ModeStats(
+            matches=round(matches) if matches is not None else None,
+            wins=round(wins) if wins is not None else None,
+            win_rate=win_rate,
+            kills=_generic_number(row, "k", "kills"),
+            deaths=_generic_number(row, "d", "deaths"),
+            assists=_generic_number(row, "a", "assists"),
+            play_time_seconds=_generic_number(row, "totalPlayTime", "playTime"),
+        )
+        hero = PlayerHeroStats(
+            hero_id=hero_id,
+            hero_name=format_hero_name(hero_id),
+            raw=dict(row),
+        )
+        if mode is GameMode.QUICK:
+            hero.quick = scope
+        else:
+            hero.competitive = scope
+            hero.ranked = hero.competitive
+        hero.total = scope
+        hero.total_matches = scope.matches
+        hero.total_wins = scope.wins
+        hero.total_win_rate = scope.win_rate
+        hero.total_play_time_seconds = scope.play_time_seconds
+        result.append(hero)
+    return result
 
 
 def _duration(seconds: int | float | None) -> str:
