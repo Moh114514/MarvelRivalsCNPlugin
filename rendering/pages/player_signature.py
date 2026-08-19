@@ -52,22 +52,6 @@ def _hero_card(index: int, item: Any) -> str:
     )
 
 
-def _sick_card(index: int, item: Any) -> str:
-    return (
-        '<article class="mr-sick-card">'
-        f'<div class="mr-sick-card__index">{index:02d}</div>'
-        '<div class="mr-sick-card__main">'
-        f'<div class="mr-sick-card__name">{escape_text(item.hero_name)}</div>'
-        f'<div class="mr-sick-card__detail">竞技 {item.competitive_matches:,} 场 · 竞技胜率 {escape_text(_percent(item.actual_win_rate))}</div>'
-        '</div>'
-        '<div class="mr-sick-card__score">'
-        '<span>绝症指数</span>'
-        f'<strong>{item.sick_score:.1f}</strong>'
-        '</div>'
-        '</article>'
-    )
-
-
 def _glossary() -> str:
     entries = (
         ("有效环境（有效赛季）", "该英雄在某赛季竞技模式只要出过场就计入。它表示玩家确实在这个赛季使用过该英雄，不等于一定有足够样本比较 Meta。"),
@@ -79,7 +63,6 @@ def _glossary() -> str:
         ("标签：常青绝活 / 长期专精 / 新晋绝活 / 逆版本绝活 / 本命英雄", "常青绝活=多赛季稳定领先；长期专精=使用赛季多且竞技场次多；新晋绝活=近期使用占比高且表现领先；逆版本绝活=同期 Meta 偏弱但你明显领先；本命英雄=满足最低使用量后，生涯总使用量最高。"),
         ("Meta 覆盖", "这个英雄的竞技场次里，有多少场能找到同期 Meta 数据并完成比较；覆盖越高，结论越完整。"),
         ("快速 / 竞技", "快速模式只用来统计使用量和本命判断；竞技模式才用于胜率、Meta 对比、稳定性和绝活分类。"),
-        ("绝症 Top 3", "从竞技出场过的英雄中，找低于你生涯竞技平均胜率、且暴露场次较高的角色。绝症指数=低于个人平均的百分点 × 竞技场次，指数越高越优先。"),
     )
     cards = "".join(
         f'<article class="mr-signature-glossary__item">'
@@ -143,21 +126,6 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
         content += empty_state("暂无可用于竞技能力评估的数据")
     else:
         content += empty_state("暂未形成数据上明确的长期绝活，以下暂无可比较候选")
-    content += '</section>'
-    content += '<section class="mr-section mr-sick-section">'
-    content += section_title("绝症 Top 3", "HIGH USAGE / LOW WIN RATE")
-    if profile.sick_heroes:
-        if profile.competitive_baseline_win_rate is not None:
-            content += (
-                '<div class="mr-meta-source">'
-                f'你的生涯竞技平均胜率：{profile.competitive_baseline_win_rate:.1f}%；指数越高，表示输得越多且暴露越大。'
-                '</div>'
-            )
-        content += '<div class="mr-sick-list">'
-        content += "".join(_sick_card(index, item) for index, item in enumerate(profile.sick_heroes, 1))
-        content += '</div>'
-    else:
-        content += empty_state("暂时没有找到场次较高且低于个人竞技平均胜率的英雄。")
     content += '</section>'
     content += _glossary()
     content += (

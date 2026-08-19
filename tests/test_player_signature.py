@@ -76,13 +76,39 @@ class FakeSickRivals(FakeRivals):
         if season in self.rows:
             if game_mode is GameMode.QUICK:
                 values.append(PlayerHeroStats(
-                    hero_id="1027", hero_name="测试低胜率英雄", quick=ModeStats(matches=5, wins=0)
+                    hero_id="1027", hero_name="测试低胜率英雄", quick=ModeStats(matches=10, wins=2)
                 ))
             else:
                 values.append(PlayerHeroStats(
-                    hero_id="1027", hero_name="测试低胜率英雄", competitive=ModeStats(matches=5, wins=0)
+                    hero_id="1027", hero_name="测试低胜率英雄", competitive=ModeStats(matches=10, wins=2)
+                ))
+            if game_mode is GameMode.QUICK:
+                values.append(PlayerHeroStats(
+                    hero_id="1028", hero_name="测试高胜率英雄", quick=ModeStats(matches=10, wins=10)
+                ))
+            else:
+                values.append(PlayerHeroStats(
+                    hero_id="1028", hero_name="测试高胜率英雄", competitive=ModeStats(matches=10, wins=10)
                 ))
         return values
+
+
+class FakeSickMeta(FakeMeta):
+    async def get_hero_meta_board(self, **kwargs):
+        board = await super().get_hero_meta_board(**kwargs)
+        board.heroes.append(
+            HeroMetaResult(
+                1027, "测试低胜率英雄", 100, 50, 100, 50, 0, 10,
+                50.0, 5.0, 1.0,
+            )
+        )
+        board.heroes.append(
+            HeroMetaResult(
+                1028, "测试高胜率英雄", 100, 50, 100, 50, 0, 10,
+                50.0, 5.0, 1.0,
+            )
+        )
+        return board
 
 
 class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
@@ -130,15 +156,23 @@ class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Meta", rendered)
         self.assertIn(profile.meta_source_timestamp, rendered)
 
-    async def test_sick_top_three_uses_high_exposure_below_baseline_heroes(self):
+    async def test_sick_ranking_uses_meta_deficit_and_excludes_signature_heroes(self):
         profile = await PlayerSignatureService(
-            FakeSickRivals(), FakeMeta(), cache_root=None
+            FakeSickRivals(), FakeSickMeta(), cache_root=None
         ).get_player_signature("123")
 
-        self.assertIsNotNone(profile.competitive_baseline_win_rate)
-        self.assertEqual(len(profile.sick_heroes), 1)
         self.assertEqual(profile.sick_heroes[0].hero_id, "1027")
-        self.assertGreater(profile.sick_heroes[0].sick_score, 0)
+        self.assertAlmostEqual(profile.sick_heroes[0].actual_win_rate, 20.0)
+        self.assertGreater(profile.sick_heroes[0].sick_score, 1.0)
+        self.assertIn("1026", {item.hero_id for item in profile.signature_heroes})
+        self.assertNotIn("1026", {item.hero_id for item in profile.sick_heroes})
+        self.assertEqual(len(profile.sick_heroes), 1)
+
+    async def test_no_qualified_hero_does_not_fill_sickness_ranking(self):
+        profile = await PlayerSignatureService(
+            FakeRivals(), FakeMeta(), cache_root=None
+        ).get_player_signature("123")
+        self.assertEqual(profile.sick_heroes, ())
 
 
 if __name__ == "__main__":

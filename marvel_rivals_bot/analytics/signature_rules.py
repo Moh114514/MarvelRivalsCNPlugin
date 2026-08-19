@@ -75,15 +75,26 @@ def stability_counts(
 def calculate_sick_score(
     actual_win_rate: float | None,
     competitive_matches: int,
-    baseline_win_rate: float | None,
+    adjusted_delta: float | None,
+    meta_coverage: float,
+    rank_specific_coverage: float,
+    classification: str,
 ) -> float:
-    """Score high-exposure heroes whose win rate trails the player's baseline."""
+    """Score high-volume heroes with a reliable, below-Meta career delta."""
 
-    if actual_win_rate is None or baseline_win_rate is None:
+    if actual_win_rate is None or adjusted_delta is None:
         return 0.0
     matches = max(0, int(competitive_matches))
-    deficit = max(0.0, float(baseline_win_rate) - float(actual_win_rate))
-    return deficit * matches
+    coverage = min(float(meta_coverage), float(rank_specific_coverage))
+    if (
+        classification != "常用英雄"
+        or matches < 20
+        or coverage < 60
+        or float(adjusted_delta) > -2.0
+    ):
+        return 0.0
+    expected_loss = (-float(adjusted_delta) / 100) * matches
+    return expected_loss if expected_loss >= 1.0 else 0.0
 
 
 def sick_hero_sort_key(item: Any) -> tuple[float, int, float]:

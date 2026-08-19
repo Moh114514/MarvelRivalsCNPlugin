@@ -47,6 +47,7 @@ from .pages import (
     build_player_hero_pool_html,
     build_player_meta_environment_html,
     build_player_signature_html,
+    build_player_sickness_html,
     build_player_stats_html,
     build_recent_matches_html,
 )
@@ -108,6 +109,9 @@ class RivalsImageRenderer:
 
     async def player_signature(self, profile: PlayerMetaProfile | PlayerSignatureProfile) -> str:
         return await self._html_render(build_player_signature_html(profile), {}, options=PNG_OPTIONS)
+
+    async def player_sickness(self, profile: PlayerSignatureProfile) -> str:
+        return await self._html_render(build_player_sickness_html(profile), {}, options=PNG_OPTIONS)
 
 
 # Keep the old public name stable while callers migrate to the semantic name.

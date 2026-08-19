@@ -138,20 +138,6 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 f"可信度：{item.confidence} · Meta 覆盖：{item.meta_coverage:.0f}%",
             )
         )
-    lines.extend(("", "绝症 Top 3"))
-    if profile.sick_heroes:
-        if profile.competitive_baseline_win_rate is not None:
-            lines.append(f"判定基线：你的生涯竞技平均胜率 {_percent(profile.competitive_baseline_win_rate)}")
-        for index, item in enumerate(profile.sick_heroes, 1):
-            lines.extend(
-                (
-                    f"{index}. {item.hero_name}",
-                    f"竞技场次：{_count(item.competitive_matches)} · 竞技胜率：{_percent(item.actual_win_rate)}",
-                    f"绝症指数：{item.sick_score:.1f}（低于个人平均的百分点 × 竞技场次）",
-                )
-            )
-    else:
-        lines.append("暂时没有找到场次较高且低于个人竞技平均胜率的英雄。")
     lines.extend(
         (
             "",
@@ -163,8 +149,50 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
     return "\n".join(lines)
 
 
+def format_player_sickness(profile: PlayerSignatureProfile) -> str:
+    scope = "—" if not profile.first_season else profile.first_season
+    if profile.latest_season and profile.latest_season != profile.first_season:
+        scope = f"{scope} → {profile.latest_season}"
+    lines = [
+        "我的绝症",
+        f"玩家：{profile.player_name}（UID：{profile.uid}）",
+        f"统计范围：{scope}",
+        f"竞技总场次：{_count(profile.competitive_matches)} · Meta 覆盖：{profile.meta_coverage:.0f}%",
+        "候选规则：可比较竞技场次≥20、有效覆盖≥60%、稳健劣势≤-2pp、预计少赢≥1场，且不属于绝活分类。",
+    ]
+    if profile.partial:
+        lines.append("提示：部分历史赛季或 Meta 数据不可用，以下仅展示可确认结果。")
+    if profile.meta_source_timestamp:
+        stale_text = "（部分使用最近缓存）" if profile.meta_stale else ""
+        lines.append(
+            f"Meta 来源：{profile.meta_source} · 最新上游时间：{profile.meta_source_timestamp}{stale_text}"
+        )
+    lines.extend(("", "绝症英雄排名 Top 10"))
+    if not profile.sick_heroes:
+        lines.append("没有英雄同时满足场次、覆盖率和稳健劣势条件。")
+        return "\n".join(lines)
+    for index, item in enumerate(profile.sick_heroes, 1):
+        lines.extend(
+            (
+                f"{index}. {item.hero_name}",
+                f"竞技：{_count(item.comparable_matches)} 场 · 实际胜率：{_percent(item.actual_win_rate)} · 同期 Meta：{_percent(item.expected_meta_win_rate)}",
+                f"稳健劣势：{_delta(item.adjusted_delta)} · Meta 覆盖：{item.meta_coverage:.0f}% · 同段位覆盖：{item.rank_specific_coverage:.0f}%",
+                f"可信度：{item.confidence} · 预计少赢约 {item.sick_score:.1f} 场",
+            )
+        )
+    lines.extend(
+        (
+            "",
+            "绝症与绝活使用同一套同期 Meta 基准，两个集合互斥。",
+            "预计少赢场次是统计估计，用于表达和排序，不代表实际确定损失。",
+        )
+    )
+    return "\n".join(lines)
+
+
 __all__ = [
     "format_player_environment",
     "format_player_hero_pool",
+    "format_player_sickness",
     "format_player_signature",
 ]

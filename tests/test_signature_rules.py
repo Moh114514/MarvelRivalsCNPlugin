@@ -36,9 +36,29 @@ class TestSignatureRules(unittest.TestCase):
         self.assertEqual(positive, 1)
         self.assertAlmostEqual(stability, 100.0)
 
-    def test_sick_score_combines_win_rate_deficit_and_exposure(self):
-        self.assertAlmostEqual(calculate_sick_score(40.0, 30, 50.0), 300.0)
-        self.assertEqual(calculate_sick_score(55.0, 30, 50.0), 0.0)
+    def test_sick_score_uses_adjusted_meta_deficit_and_expected_loss(self):
+        self.assertAlmostEqual(
+            calculate_sick_score(44.0, 100, -5.0, 80.0, 80.0, "常用英雄"),
+            5.0,
+        )
+        self.assertEqual(
+            calculate_sick_score(56.0, 100, 5.0, 80.0, 80.0, "常用英雄"),
+            0.0,
+        )
+
+    def test_sick_score_requires_coverage_volume_and_non_signature_classification(self):
+        base = dict(
+            actual_win_rate=44.0,
+            competitive_matches=100,
+            adjusted_delta=-5.0,
+            meta_coverage=80.0,
+            rank_specific_coverage=80.0,
+            classification="常用英雄",
+        )
+        self.assertEqual(calculate_sick_score(**{**base, "competitive_matches": 19}), 0.0)
+        self.assertEqual(calculate_sick_score(**{**base, "meta_coverage": 50.0}), 0.0)
+        self.assertEqual(calculate_sick_score(**{**base, "rank_specific_coverage": 50.0}), 0.0)
+        self.assertEqual(calculate_sick_score(**{**base, "classification": "强势绝活"}), 0.0)
 
     def test_confidence_downgrades_incomplete_coverage(self):
         self.assertEqual(calculate_confidence(100, 100, 100), "很高")

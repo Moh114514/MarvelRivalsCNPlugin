@@ -169,4 +169,3 @@ class PlayerSignatureProfile:
     meta_source_timestamp: str | None = None
     meta_stale: bool = False
     sick_heroes: tuple[CareerHeroSignature, ...] = ()
-    competitive_baseline_win_rate: float | None = None

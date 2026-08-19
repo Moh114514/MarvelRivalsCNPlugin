@@ -33,6 +33,7 @@ try:
         format_player_environment,
         format_player_hero_pool,
         format_player_signature,
+        format_player_sickness,
     )
     from .marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
     from .marvel_rivals_bot.analytics.signature import PlayerSignatureService
@@ -71,6 +72,7 @@ except ImportError:
         format_player_environment,
         format_player_hero_pool,
         format_player_signature,
+        format_player_sickness,
     )
     from marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
     from marvel_rivals_bot.analytics.signature import PlayerSignatureService
@@ -125,7 +127,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.2", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.1.3", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -198,6 +200,9 @@ class MarvelRivalsPlugin(Star):
 
 /我的绝活 [UID]
 跨赛季分析长期真正擅长的英雄；不接受赛季或最低场次参数
+
+/我的绝症 [UID]
+查看使用量较高但相对同期、同段位 Meta 表现明显偏低的英雄 Top 10
 """
 
     def __init__(self, context: Context, config=None):
@@ -967,6 +972,37 @@ class MarvelRivalsPlugin(Star):
             except Exception as exc:
                 if logger:
                     logger.warning(f"我的绝活图片渲染失败，回退普通文本：{exc}")
+                yield event.plain_result(fallback)
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(fallback)
+            else:
+                yield event.image_result(image_url)
+        except (ValueError, DataSourceError) as exc:
+            yield event.plain_result(f"查询失败：{exc}")
+        except MetaDataSourceError as exc:
+            yield event.plain_result(self._meta_source_failure(exc))
+
+    @filter.command("我的绝症")
+    async def my_sickness(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        """查看高使用量且相对同期 Meta 表现明显偏低的英雄 Top 10。"""
+        if self.player_signature_service is None:
+            yield event.plain_result(self._meta_unavailable())
+            return
+        try:
+            args = parse_signature_args(arg1, arg2)
+            uid = args.uid or self._bound_uid(event)
+            if not uid:
+                yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
+                return
+            profile = await self.player_signature_service.get_player_signature(uid, top_n=5)
+            fallback = format_player_sickness(profile)
+            try:
+                image_url = await self.image_renderer.player_sickness(profile)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"我的绝症图片渲染失败，回退普通文本：{exc}")
                 yield event.plain_result(fallback)
                 return
             if self.qq_card_sender.supports(event):

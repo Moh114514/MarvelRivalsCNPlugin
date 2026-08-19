@@ -37,7 +37,8 @@ from .signature_rules import (
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 3
+SIGNATURE_CACHE_SCHEMA_VERSION = 4
+SICKNESS_TOP_N = 10
 
 
 class SeasonAggregationPolicy(str, Enum):
@@ -217,10 +218,6 @@ class SignatureCache:
                     for item in payload.get("sick_heroes", [])
                     if isinstance(item, dict)
                 ),
-                competitive_baseline_win_rate=(
-                    float(payload["competitive_baseline_win_rate"])
-                    if payload.get("competitive_baseline_win_rate") is not None else None
-                ),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -356,14 +353,16 @@ class PlayerSignatureService:
         meta_stale = any(bool(getattr(board, "stale", False)) for board in meta_boards.values())
         partial = partial or meta_failures > 0 or meta_stale
         signatures = self._build_signatures(profile, active_seasons, meta_boards)
-        competitive_baseline = _competitive_baseline(signatures)
         signatures = [
             replace(
                 item,
                 sick_score=calculate_sick_score(
-                    item.actual_win_rate,
-                    item.competitive_matches,
-                    competitive_baseline,
+                    actual_win_rate=item.actual_win_rate,
+                    competitive_matches=item.comparable_matches,
+                    adjusted_delta=item.adjusted_delta,
+                    meta_coverage=item.meta_coverage,
+                    rank_specific_coverage=item.rank_specific_coverage,
+                    classification=item.classification,
                 ),
             )
             for item in signatures
@@ -399,7 +398,7 @@ class PlayerSignatureService:
             sorted(
                 (item for item in signatures if item.sick_score > 0),
                 key=sick_hero_sort_key,
-            )[:3]
+        )[:SICKNESS_TOP_N]
         )
         signatures.sort(key=classification_sort_key)
         result = PlayerSignatureProfile(
@@ -422,7 +421,6 @@ class PlayerSignatureService:
             meta_source_timestamp=_latest_meta_timestamp(meta_boards.values()),
             meta_stale=meta_stale,
             sick_heroes=sick_heroes,
-            competitive_baseline_win_rate=competitive_baseline,
         )
         self._memory_profiles[uid] = (time.monotonic(), result)
         self.cache.save_profile(result)
@@ -691,20 +689,6 @@ def _coverage(numerator: int, denominator: int) -> float:
     return numerator * 100 / denominator if denominator else 0.0
 
 
-def _competitive_baseline(signatures: list[CareerHeroSignature]) -> float | None:
-    matches = sum(
-        item.competitive_matches
-        for item in signatures
-        if item.competitive_wins is not None
-    )
-    wins = sum(
-        int(item.competitive_wins or 0)
-        for item in signatures
-        if item.competitive_wins is not None
-    )
-    return wins * 100 / matches if matches else None
-
-
 def _is_favorite_eligible(item: CareerHeroSignature) -> bool:
     return item.total_matches >= 30 or item.usage_share >= 20
 
@@ -739,7 +723,6 @@ def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
         "meta_source_timestamp": profile.meta_source_timestamp,
         "meta_stale": profile.meta_stale,
         "sick_heroes": [asdict(item) for item in profile.sick_heroes],
-        "competitive_baseline_win_rate": profile.competitive_baseline_win_rate,
     }
 
 
@@ -766,5 +749,6 @@ __all__ = [
     "PlayerSignatureService",
     "SeasonAggregationPolicy",
     "SIGNATURE_CACHE_SCHEMA_VERSION",
+    "SICKNESS_TOP_N",
     "SignatureCache",
 ]

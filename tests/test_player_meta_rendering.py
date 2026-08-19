@@ -7,12 +7,13 @@ from marvel_rivals_bot.analytics.formatters import (
     format_player_hero_pool,
     format_player_signature,
 )
-from marvel_rivals_bot.analytics.models import PlayerHeroMetaComparison, PlayerMetaProfile
+from marvel_rivals_bot.analytics.models import PlayerHeroMetaComparison, PlayerMetaProfile, PlayerSignatureProfile
 from marvel_rivals_bot.meta.models import HeroMetaOverview, HeroMetaResult
 from rendering import (
     MatchImageRenderer,
     build_player_hero_pool_html,
     build_player_meta_environment_html,
+    build_player_sickness_html,
     build_player_signature_html,
 )
 
@@ -47,6 +48,23 @@ def _profile():
     )
 
 
+def _signature_profile():
+    return PlayerSignatureProfile(
+        uid="123",
+        player_name="玩家<&>",
+        first_season="S7",
+        latest_season="S9.5",
+        analyzed_seasons=("S7", "S9.5"),
+        total_matches=30,
+        competitive_matches=20,
+        meta_coverage=100.0,
+        signature_heroes=(),
+        favorite_hero=None,
+        partial=False,
+        failed_seasons=(),
+    )
+
+
 class TestPlayerMetaFormatting(unittest.TestCase):
     def test_text_formatters_use_view_model_and_escape_html_only_in_pages(self):
         profile = _profile()
@@ -59,10 +77,11 @@ class TestPlayerMetaFormatting(unittest.TestCase):
         environment = build_player_meta_environment_html(profile)
         pool = build_player_hero_pool_html(profile)
         signature = build_player_signature_html(profile)
+        sickness = build_player_sickness_html(_signature_profile())
         self.assertIn('class="mr-page"', environment)
         self.assertIn('class="mr-player-meta-list mr-player-meta-list--comparison"', pool)
         self.assertIn('class="mr-player-meta-row mr-player-meta-row--comparison mr-player-meta-row--signature"', signature)
-        for html in (environment, pool, signature):
+        for html in (environment, pool, signature, sickness):
             self.assertIn("玩家&lt;&amp;&gt;", html)
             self.assertNotIn("<script>", html)
 
@@ -72,10 +91,12 @@ class TestPlayerMetaRenderer(unittest.IsolatedAsyncioTestCase):
         html_render = AsyncMock(return_value="rendered.png")
         renderer = MatchImageRenderer(html_render)
         profile = _profile()
+        signature_profile = _signature_profile()
         await renderer.player_meta_environment(profile)
         await renderer.player_hero_pool(profile)
         await renderer.player_signature(profile)
-        self.assertEqual(html_render.await_count, 3)
+        await renderer.player_sickness(signature_profile)
+        self.assertEqual(html_render.await_count, 4)
         for call in html_render.await_args_list:
             self.assertEqual(call.kwargs["options"]["type"], "png")
             self.assertTrue(call.kwargs["options"]["full_page"])

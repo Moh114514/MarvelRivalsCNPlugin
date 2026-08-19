@@ -14,6 +14,7 @@ from .pages import (
     build_player_hero_pool_html,
     build_player_meta_environment_html,
     build_player_signature_html,
+    build_player_sickness_html,
     build_player_stats_html,
     build_recent_matches_html,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "build_player_hero_pool_html",
     "build_player_meta_environment_html",
     "build_player_signature_html",
+    "build_player_sickness_html",
     "build_meta_segments_html",
     "build_meta_trend_html",
     "build_meta_version_changes_html",
