@@ -11,11 +11,22 @@ from .models import (
     HeroMetaInsights,
     HeroMetaOverview,
     HeroMetaResult,
+    HeroMetaRoleBoards,
     HeroMetaSegments,
     HeroMetaVersionChanges,
     HeroRankSeries,
     RankMonsterBoard,
 )
+
+
+def format_command_error(reason: str, usage: str) -> str:
+    """Format user input errors without disguising upstream failures."""
+
+    return (
+        "Mrrrrrrr！（杰夫不知道你在说什么，请检查命令是否正确）\n\n"
+        f"原因：{reason}\n"
+        f"用法：{usage}"
+    )
 
 
 def _percent(value: float | None) -> str:
@@ -58,11 +69,43 @@ def format_hero_meta_board(board: HeroMetaBoard) -> str:
     lines.append(f"更新时间：{_timestamp(board.source_timestamp)}")
     if board.stale:
         lines.append("当前上游暂不可用，展示最近缓存数据")
+    if board.group_by_role and board.role_boards:
+        for role_board in board.role_boards:
+            lines.extend(("", role_board.role_label))
+            if not role_board.heroes:
+                lines.append("暂无可用数据。")
+            else:
+                start = role_board.range_start or 1
+                lines.extend(
+                    _hero_line(start + offset, result)
+                    for offset, result in enumerate(role_board.heroes)
+                )
+        return "\n".join(lines)
     if not board.heroes:
         lines.append("没有可用的英雄环境数据。")
         return "\n".join(lines)
     lines.append("")
-    lines.extend(_hero_line(index, result) for index, result in enumerate(board.heroes, 1))
+    start = board.range_start or 1
+    lines.extend(_hero_line(start + offset, result) for offset, result in enumerate(board.heroes))
+    return "\n".join(lines)
+
+
+def format_hero_meta_role_boards(boards: HeroMetaRoleBoards) -> str:
+    lines = [f"英雄排行 | {boards.season_label} | {boards.rank_label}"]
+    lines.append(f"数据来源：{boards.source}")
+    lines.append(f"更新时间：{_timestamp(boards.source_timestamp)}")
+    if boards.stale:
+        lines.append("当前上游暂不可用，展示最近缓存数据")
+    for role_board in boards.roles:
+        lines.extend(("", role_board.role_label))
+        if not role_board.heroes:
+            lines.append("暂无可用数据。")
+        else:
+            start = role_board.range_start or 1
+            lines.extend(
+                _hero_line(start + offset, result)
+                for offset, result in enumerate(role_board.heroes)
+            )
     return "\n".join(lines)
 
 

@@ -45,6 +45,24 @@ class RawHeroMetaPayload:
     source: str = "RivalsMeta"
 
 
+@dataclass(frozen=True, slots=True)
+class RankingRange:
+    """A one-based slice of an already sorted ranking."""
+
+    start: int | None = None
+    end: int | None = None
+    from_tail: int | None = None
+
+    def __post_init__(self) -> None:
+        values = (self.start, self.end, self.from_tail)
+        if any(value is not None and int(value) < 1 for value in values):
+            raise ValueError("排名范围必须是正整数")
+        if self.from_tail is not None and (self.start is not None or self.end is not None):
+            raise ValueError("排名范围不能同时指定区间和倒数范围")
+        if self.start is not None and self.end is not None and int(self.start) > int(self.end):
+            raise ValueError("排名范围起点不能大于终点")
+
+
 @dataclass(slots=True)
 class HeroMetaResult:
     hero_id: int
@@ -58,6 +76,8 @@ class HeroMetaResult:
     win_rate: float
     pick_rate: float
     ban_rate: float | None
+    role: str = "unknown"
+    role_label: str = "未知职责"
 
 
 @dataclass(slots=True)
@@ -68,6 +88,38 @@ class HeroMetaBoard:
     rank_label: str
     sort_by: str
     heroes: list[HeroMetaResult]
+    source: str
+    source_timestamp: datetime | None
+    fetched_at: datetime
+    stale: bool = False
+    role_filter: str | None = None
+    range_start: int | None = None
+    range_end: int | None = None
+    total_count: int = 0
+    group_by_role: bool = False
+    role_boards: list["HeroMetaRoleBoard"] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class HeroMetaRoleBoard:
+    role: str
+    role_label: str
+    heroes: list[HeroMetaResult]
+    range_start: int | None = None
+    range_end: int | None = None
+    total_count: int = 0
+
+
+@dataclass(slots=True)
+class HeroMetaRoleBoards:
+    """Stable presentation model for one ranking grouped by hero role."""
+
+    season_code: str
+    season_label: str
+    rank_key: str
+    rank_label: str
+    sort_by: str
+    roles: list[HeroMetaRoleBoard]
     source: str
     source_timestamp: datetime | None
     fetched_at: datetime

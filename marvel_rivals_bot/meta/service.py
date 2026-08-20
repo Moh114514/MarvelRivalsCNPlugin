@@ -19,12 +19,14 @@ from ..reference.seasons import (
     season_identity_from_rivalsmeta_code,
 )
 from .cache import CacheRecord, MetaDiskCache
-from .calculator import _sort_key, calculate_hero_results
+from .calculator import _sort_key, calculate_hero_results, sort_hero_results
 from .errors import MetaCacheError, MetaDataSourceError, MetaQueryError
 from .models import (
     HeroMetaBoard,
     HeroMetaComparison,
     HeroMetaOverview,
+    HeroMetaRoleBoard,
+    HeroMetaRoleBoards,
     HeroMetaResult,
     HeroMetaSegment,
     HeroMetaSegments,
@@ -38,10 +40,43 @@ from .models import (
     RankSegment,
     SeasonDelta,
     RawHeroMetaPayload,
+    RankingRange,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+def _slice_ranking(
+    results: list[HeroMetaResult],
+    ranking_range: RankingRange | None,
+    limit: int | None,
+) -> list[HeroMetaResult]:
+    if ranking_range is not None:
+        if ranking_range.from_tail is not None:
+            return results[-ranking_range.from_tail:]
+        start = max(1, ranking_range.start or 1)
+        end = ranking_range.end
+        return results[start - 1:end] if end is not None else results[start - 1:]
+    if limit is None:
+        return results
+    return results[: max(0, int(limit))]
+
+
+def _display_window(
+    total_count: int,
+    ranking_range: RankingRange | None,
+    limit: int | None,
+) -> tuple[int | None, int | None]:
+    if total_count <= 0:
+        return None, None
+    if ranking_range is not None and ranking_range.from_tail is not None:
+        start = max(1, total_count - ranking_range.from_tail + 1)
+        return start, total_count
+    start = ranking_range.start if ranking_range is not None and ranking_range.start is not None else 1
+    requested_end = ranking_range.end if ranking_range is not None else limit
+    end = total_count if requested_end is None else min(total_count, requested_end)
+    return start, max(start, end)
 
 
 def _as_datetime(value: Any) -> datetime | None:
@@ -87,6 +122,7 @@ class MetaService:
         stale_seconds: float = 86400,
         default_season: str = "19",
         cache: MetaDiskCache | None = None,
+        request_semaphore: asyncio.Semaphore | None = None,
     ) -> None:
         self.source = source
         self.default_season = str(default_season).strip() or "19"
@@ -97,6 +133,8 @@ class MetaService:
         )
         self.fresh_seconds = max(0.0, float(fresh_seconds))
         self._memory: dict[str, _MemoryRecord] = {}
+        self._request_semaphore = request_semaphore or asyncio.Semaphore(8)
+        self._inflight: dict[str, asyncio.Task[RawHeroMetaPayload]] = {}
 
     def default_historical_seasons(self, count: int = 4) -> tuple[str, ...]:
         """Return the latest known season names in chronological order."""
@@ -261,6 +299,12 @@ class MetaService:
 
     async def get_raw_hero_meta(self, season: str | None = None) -> RawHeroMetaPayload:
         season_code = self.season_code(season)
+        return await self._singleflight(
+            f"meta:{season_code}",
+            lambda: self._get_raw_hero_meta(season_code),
+        )
+
+    async def _get_raw_hero_meta(self, season_code: str) -> RawHeroMetaPayload:
         memory = self._memory.get(season_code)
         if memory and self.fresh_seconds > 0 and time.monotonic() - memory.loaded_at < self.fresh_seconds:
             logger.info("Meta source=%s season=%s cache=memory_fresh", memory.payload.source, season_code)
@@ -286,7 +330,7 @@ class MetaService:
                 return payload
 
         try:
-            payload = await self.source.get_hero_stats(season_code)
+            payload = await self._request(lambda: self.source.get_hero_stats(season_code))
         except MetaDataSourceError as remote_error:
             if stale_record is not None:
                 try:
@@ -335,6 +379,28 @@ class MetaService:
         self._memory[season_code] = _MemoryRecord(time.monotonic(), payload)
         return payload
 
+    async def _request(self, operation):
+        async with self._request_semaphore:
+            return await operation()
+
+    async def _singleflight(self, key: str, factory):
+        task = self._inflight.get(key)
+        if task is None:
+            task_holder: dict[str, asyncio.Task[RawHeroMetaPayload]] = {}
+
+            async def run() -> RawHeroMetaPayload:
+                try:
+                    return await factory()
+                finally:
+                    current = task_holder.get("task")
+                    if current is not None and self._inflight.get(key) is current:
+                        self._inflight.pop(key, None)
+
+            task = asyncio.create_task(run())
+            task_holder["task"] = task
+            self._inflight[key] = task
+        return await asyncio.shield(task)
+
     async def get_hero_meta_board(
         self,
         *,
@@ -342,6 +408,12 @@ class MetaService:
         rank: str = "all",
         sort_by: str = "win_rate",
         limit: int | None = 20,
+        role: str | None = None,
+        ranking_range: RankingRange | None = None,
+        start: int | None = None,
+        end: int | None = None,
+        tail: int | None = None,
+        group_by_role: bool = False,
     ) -> HeroMetaBoard:
         try:
             rank_key = normalize_rank(rank)
@@ -349,6 +421,13 @@ class MetaService:
             self.season_code(season)
         except (TypeError, ValueError) as exc:
             raise MetaQueryError(str(exc)) from exc
+        if role is not None and role not in {"vanguard", "duelist", "strategist"}:
+            raise MetaQueryError(f"未知职责：{role}")
+        if ranking_range is None and any(value is not None for value in (start, end, tail)):
+            try:
+                ranking_range = RankingRange(start=start, end=end, from_tail=tail)
+            except ValueError as exc:
+                raise MetaQueryError(str(exc)) from exc
         payload = await self.get_raw_hero_meta(season)
         results = calculate_hero_results(
             payload.heroes,
@@ -356,9 +435,75 @@ class MetaService:
             rank=rank_key,
             sort_by=sort_key,
         )
-        if limit is not None:
-            results = results[: max(0, int(limit))]
-        return self._board(payload, rank_key, sort_key, results)
+        if role is not None:
+            results = [item for item in results if item.role == role]
+            results = sort_hero_results(results, sort_key)
+        total_count = len(results)
+        role_boards: list[HeroMetaRoleBoard] = []
+        if group_by_role:
+            for role_key, role_label in (("vanguard", "先锋"), ("duelist", "决斗"), ("strategist", "战略")):
+                group = [item for item in results if item.role == role_key]
+                group_total = len(group)
+                group = _slice_ranking(group, ranking_range, limit)
+                range_start, range_end = _display_window(group_total, ranking_range, limit)
+                role_boards.append(
+                    HeroMetaRoleBoard(
+                        role_key,
+                        role_label,
+                        group,
+                        range_start,
+                        range_end,
+                        group_total,
+                    )
+                )
+            results = [item for group in role_boards for item in group.heroes]
+        else:
+            results = _slice_ranking(results, ranking_range, limit)
+        range_start, range_end = _display_window(total_count, ranking_range, limit)
+        return self._board(
+            payload,
+            rank_key,
+            sort_key,
+            results,
+            role_filter=role,
+            range_start=range_start,
+            range_end=range_end,
+            total_count=total_count,
+            group_by_role=group_by_role,
+            role_boards=role_boards,
+        )
+
+    async def get_hero_meta_role_boards(
+        self,
+        *,
+        season: str | None = None,
+        rank: str = "all",
+        sort_by: str = "win_rate",
+        limit: int | None = 10,
+        ranking_range: RankingRange | None = None,
+    ) -> HeroMetaRoleBoards:
+        """Return one independently sliced ranking for each role."""
+
+        board = await self.get_hero_meta_board(
+            season=season,
+            rank=rank,
+            sort_by=sort_by,
+            limit=limit,
+            ranking_range=ranking_range,
+            group_by_role=True,
+        )
+        return HeroMetaRoleBoards(
+            season_code=board.season_code,
+            season_label=board.season_label,
+            rank_key=board.rank_key,
+            rank_label=board.rank_label,
+            sort_by=board.sort_by,
+            roles=board.role_boards,
+            source=board.source,
+            source_timestamp=board.source_timestamp,
+            fetched_at=board.fetched_at,
+            stale=board.stale,
+        )
 
     async def get_single_hero_meta(
         self,
@@ -887,6 +1032,13 @@ class MetaService:
         rank_key: str,
         sort_by: str,
         results: list[HeroMetaResult],
+        *,
+        role_filter: str | None = None,
+        range_start: int | None = None,
+        range_end: int | None = None,
+        total_count: int | None = None,
+        group_by_role: bool = False,
+        role_boards: list[HeroMetaRoleBoard] | None = None,
     ) -> HeroMetaBoard:
         source_timestamp = _as_datetime(payload.source_timestamp)
         fetched_at = payload.fetched_at or datetime.now(timezone.utc)
@@ -901,6 +1053,12 @@ class MetaService:
             source_timestamp=source_timestamp,
             fetched_at=fetched_at,
             stale=payload.stale,
+            role_filter=role_filter,
+            range_start=range_start,
+            range_end=range_end,
+            total_count=len(results) if total_count is None else total_count,
+            group_by_role=group_by_role,
+            role_boards=role_boards or [],
         )
 
     def _from_cache_record(self, record: CacheRecord) -> RawHeroMetaPayload:

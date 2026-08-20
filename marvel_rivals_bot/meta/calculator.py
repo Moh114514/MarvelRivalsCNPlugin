@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
-from ..reference.heroes import get_hero_name
+from ..reference.heroes import get_hero_identity, get_hero_name
 from .models import (
     HeroMetaResult,
     RawBanRankBucket,
@@ -149,12 +149,42 @@ def calculate_hero_results(
                 win_rate=calc_win_rate(row.wr_wins, row.wr_matches),
                 pick_rate=calc_pick_rate(row.matches, total_matches),
                 ban_rate=calc_ban_rate(bans, total_bans) if bans is not None else None,
+                role=_hero_role(row.hero_id),
+                role_label=_hero_role_label(row.hero_id),
             )
         )
 
+    return sort_hero_results(results, sort_by)
+
+
+def _hero_role(hero_id: int) -> str:
+    try:
+        identity = get_hero_identity(hero_id)
+    except (TypeError, ValueError):
+        return "unknown"
+    return getattr(identity, "role", None) or "unknown"
+
+
+def _hero_role_label(hero_id: int) -> str:
+    try:
+        identity = get_hero_identity(hero_id)
+    except (TypeError, ValueError):
+        return "未知职责"
+    return {"vanguard": "先锋", "duelist": "决斗", "strategist": "战略"}.get(
+        getattr(identity, "role", None), "未知职责"
+    )
+
+
+def sort_hero_results(results: Sequence[HeroMetaResult], sort_by: str) -> list[HeroMetaResult]:
+    """Sort a fully calculated result set without changing its contents."""
+
     key = _sort_key(sort_by)
     if key == "ban_rate":
-        available = sorted((item for item in results if item.ban_rate is not None), key=lambda item: item.ban_rate, reverse=True)
+        available = sorted(
+            (item for item in results if item.ban_rate is not None),
+            key=lambda item: item.ban_rate,
+            reverse=True,
+        )
         unavailable = [item for item in results if item.ban_rate is None]
         return available + unavailable
     return sorted(results, key=lambda item: getattr(item, key), reverse=True)
@@ -207,6 +237,7 @@ __all__ = [
     "calc_ban_rate",
     "calculate_hero_meta",
     "calculate_hero_results",
+    "sort_hero_results",
     "normalize_rank",
     "rank_label",
 ]

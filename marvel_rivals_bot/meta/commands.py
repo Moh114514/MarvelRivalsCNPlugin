@@ -5,12 +5,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .models import RankingRange
 from ..reference.ranks import normalize_rank
 from ..reference.seasons import season_identity_from_name
 
 
 class MetaCommandError(ValueError):
     """A user-safe Meta command argument error."""
+
+
+class CommandUsageError(MetaCommandError):
+    """A malformed command argument that can be shown in Jeff style."""
 
 
 SORT_ALIASES = {
@@ -31,6 +36,30 @@ SORT_ALIASES = {
     "matches": "matches",
 }
 
+ROLE_ALIASES = {
+    "先锋": "vanguard",
+    "t": "vanguard",
+    "坦克": "vanguard",
+    "vanguard": "vanguard",
+    "决斗": "duelist",
+    "c": "duelist",
+    "输出": "duelist",
+    "dps": "duelist",
+    "duelist": "duelist",
+    "战略": "strategist",
+    "战略家": "strategist",
+    "奶": "strategist",
+    "辅助": "strategist",
+    "support": "strategist",
+    "strategist": "strategist",
+    "n": "strategist",
+}
+
+_GROUP_BY_ROLE_ALIASES = {"分职责", "分职能", "按职责", "职责排行"}
+_RANGE_RE = re.compile(r"^(?P<start>\d+)[-~～](?P<end>\d+)$")
+_TOP_RE = re.compile(r"^(?:前|top)(?P<count>\d+)$", re.IGNORECASE)
+_TAIL_RE = re.compile(r"^(?:后|最后|倒数)(?P<count>\d+)$")
+
 
 @dataclass(slots=True)
 class MetaCommandArgs:
@@ -39,6 +68,9 @@ class MetaCommandArgs:
     season: str | None = None
     rank: str = "all"
     sort_by: str = "win_rate"
+    role: str | None = None
+    group_by_role: bool = False
+    ranking_range: RankingRange | None = None
 
 
 @dataclass(slots=True)
@@ -69,19 +101,41 @@ def parse_meta_command_args(
     season_seen = False
     rank_seen = False
     sort_seen = False
+    role_seen = False
+    range_seen = False
     for token in tokens:
+        token = token.strip()
+        range_value = _parse_ranking_range(token)
+        if range_value is not None:
+            if range_seen:
+                raise CommandUsageError("只能指定一个排名范围")
+            range_seen = True
+            result.ranking_range = range_value
+            continue
+        if token in _GROUP_BY_ROLE_ALIASES:
+            if result.group_by_role or role_seen:
+                raise CommandUsageError("只能指定一种职责筛选方式")
+            result.group_by_role = True
+            continue
+        role_key = ROLE_ALIASES.get(token.lower(), ROLE_ALIASES.get(token))
+        if role_key is not None:
+            if role_seen or result.group_by_role:
+                raise CommandUsageError("只能指定一个职责")
+            role_seen = True
+            result.role = role_key
+            continue
         if _SEASON_RE.fullmatch(token):
             if season_seen:
-                raise MetaCommandError("只能指定一个赛季")
+                raise CommandUsageError("只能指定一个赛季")
             season_seen = True
             result.season = token
             continue
         sort_key = SORT_ALIASES.get(token.strip().lower(), SORT_ALIASES.get(token.strip()))
         if sort_key is not None:
             if not allow_sort:
-                raise MetaCommandError("该命令不接受排序指标")
+                raise CommandUsageError("该命令不接受排序指标")
             if sort_seen:
-                raise MetaCommandError("只能指定一种排序方式")
+                raise CommandUsageError("只能指定一种排序方式")
             sort_seen = True
             result.sort_by = sort_key
             continue
@@ -91,30 +145,52 @@ def parse_meta_command_args(
             remaining.append(token)
         else:
             if not allow_rank:
-                raise MetaCommandError("该命令不接受段位筛选")
+                raise CommandUsageError("该命令不接受段位筛选")
             if rank_seen:
-                raise MetaCommandError("只能指定一个段位")
+                raise CommandUsageError("只能指定一个段位")
             rank_seen = True
             result.rank = rank_key
 
     if require_hero_count is not None:
         if require_hero_count < 1:
-            raise MetaCommandError("英雄数量配置无效")
+            raise CommandUsageError("英雄数量配置无效")
         if len(remaining) != require_hero_count:
-            raise MetaCommandError(f"请提供{require_hero_count}个不同的英雄中文名称")
+            raise CommandUsageError(f"请提供{require_hero_count}个不同的英雄中文名称")
         result.hero_names = tuple(remaining)
         if require_hero_count == 1:
             result.hero_name = remaining[0]
     elif remaining:
         if not require_hero:
-            raise MetaCommandError(f"无法识别参数：{' '.join(remaining)}")
+            raise CommandUsageError(f"无法识别参数：{' '.join(remaining)}")
         result.hero_name = " ".join(remaining)
         result.hero_names = (result.hero_name,)
     if require_hero and not result.hero_name:
-        raise MetaCommandError("请提供英雄中文名称，例如：曼蒂斯")
+        raise CommandUsageError("请提供英雄中文名称，例如：曼蒂斯")
     if require_sort and not sort_seen:
-        raise MetaCommandError("请提供一个排序指标，例如：胜率、选取率、Ban率或场次")
+        raise CommandUsageError("请提供一个排序指标，例如：胜率、选取率、Ban率或场次")
+    if result.ranking_range is None and require_sort:
+        result.ranking_range = RankingRange(1, 10)
     return result
+
+
+def _parse_ranking_range(token: str) -> RankingRange | None:
+    try:
+        match = _TOP_RE.fullmatch(token)
+        if match:
+            count = int(match.group("count"))
+            return RankingRange(1, count)
+        match = _TAIL_RE.fullmatch(token)
+        if match:
+            count = int(match.group("count"))
+            return RankingRange(from_tail=count)
+        match = _RANGE_RE.fullmatch(token)
+        if match:
+            return RankingRange(int(match.group("start")), int(match.group("end")))
+    except ValueError as exc:
+        raise CommandUsageError(str(exc)) from exc
+    if token in {"前", "top", "TOP", "后", "最后", "倒数"}:
+        raise CommandUsageError("排名范围必须包含正整数，例如：前10或11-20")
+    return None
 
 
 def parse_historical_meta_command_args(
@@ -174,9 +250,12 @@ def parse_historical_meta_command_args(
 
 
 __all__ = [
+    "CommandUsageError",
     "HistoricalMetaCommandArgs",
     "MetaCommandArgs",
     "MetaCommandError",
+    "ROLE_ALIASES",
+    "RankingRange",
     "parse_historical_meta_command_args",
     "parse_meta_command_args",
 ]

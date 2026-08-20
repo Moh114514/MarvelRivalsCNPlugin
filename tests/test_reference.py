@@ -4,7 +4,13 @@ from marvel_rivals_bot.datasource.cn import RANK_LEVEL_MAP
 from marvel_rivals_bot.game_metadata import RIVALSMETA_SEASON_MAP
 from marvel_rivals_bot.hero_names import HERO_ID_MAP, get_hero_name
 from marvel_rivals_bot.meta.ranks import RANK_LABELS as LEGACY_RANK_LABELS
-from marvel_rivals_bot.reference.heroes import HERO_ID_MAP as CANONICAL_HERO_ID_MAP
+from marvel_rivals_bot.reference.heroes import (
+    HERO_ID_MAP as CANONICAL_HERO_ID_MAP,
+    HeroIdentity,
+    HeroNameAmbiguityError,
+    get_hero_id,
+    get_hero_identity,
+)
 from marvel_rivals_bot.reference.ranks import (
     CN_RANK_LEVEL_MAP,
     CN_RANK_LEVEL_TO_META_RANK,
@@ -29,6 +35,26 @@ class TestCanonicalHeroes(unittest.TestCase):
         self.assertIs(HERO_ID_MAP, CANONICAL_HERO_ID_MAP)
         self.assertEqual(get_hero_name(10571), "T位死侍")
         self.assertEqual(get_hero_name(9999), "英雄 9999")
+
+    def test_identity_roles_and_aliases_preserve_constructor_compatibility(self):
+        self.assertEqual(HeroIdentity(1011, "浩克").role, None)
+        identity = get_hero_identity(1011)
+        self.assertEqual(identity.role, "vanguard")
+        self.assertEqual(get_hero_identity(1020).role, "strategist")
+        self.assertEqual(get_hero_identity(1036).role, "duelist")
+        self.assertIn("美队", get_hero_identity(1022).aliases)
+
+    def test_common_aliases_are_normalized_for_input_only(self):
+        self.assertEqual(get_hero_id(" 美 队 "), 1022)
+        self.assertEqual(get_hero_id("T 位 死侍"), 10571)
+        self.assertEqual(get_hero_id("奶死侍"), 10573)
+        self.assertEqual(get_hero_name(10571), "T位死侍")
+
+    def test_bare_deadpool_name_is_explicitly_ambiguous(self):
+        with self.assertRaisesRegex(HeroNameAmbiguityError, "死侍.*歧义"):
+            get_hero_id("死侍")
+        with self.assertRaisesRegex(HeroNameAmbiguityError, "指定职责"):
+            get_hero_identity("死侍")
 
 
 class TestCanonicalRanks(unittest.TestCase):

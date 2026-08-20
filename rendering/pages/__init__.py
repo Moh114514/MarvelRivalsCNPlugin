@@ -5,6 +5,7 @@ from .hero import build_hero_query_html
 from .match_detail import build_match_detail_html
 from .meta import (
     build_meta_board_html,
+    build_meta_role_boards_html,
     build_meta_comparison_html,
     build_meta_insights_html,
     build_meta_overview_html,
@@ -28,6 +29,7 @@ __all__ = [
     "build_hero_query_html",
     "build_match_detail_html",
     "build_meta_board_html",
+    "build_meta_role_boards_html",
     "build_meta_comparison_html",
     "build_meta_insights_html",
     "build_meta_overview_html",

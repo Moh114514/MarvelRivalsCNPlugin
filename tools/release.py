@@ -26,7 +26,7 @@ REQUIRED_FILES = (
     "README.md",
     "LICENSE",
 )
-RUNTIME_DIRECTORIES = ("marvel_rivals_bot", "qq_official", "rendering")
+RUNTIME_DIRECTORIES = ("marvel_rivals_bot", "qq_official", "rendering", "messaging")
 RUNTIME_ASSETS = frozenset({
     "rendering/assets/part-news-bg_ac16ec22.png",
     "rendering/assets/list-l_8a1441f6.png",
