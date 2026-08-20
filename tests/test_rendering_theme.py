@@ -142,6 +142,7 @@ class TestRenderingTheme(unittest.TestCase):
             hero_id="1066",
             hero_name="红兜帽",
             season="19",
+            role_label="捍卫者",
             stats=PlayerHeroStats(
                 hero_id="1066",
                 hero_name="红兜帽",
@@ -154,6 +155,12 @@ class TestRenderingTheme(unittest.TestCase):
         self.assertIn("RANKED DETAILS", scoped)
         self.assertIn("QUICK SUMMARY", scoped)
         self.assertIn("总计场次", scoped)
+        self.assertIn("捍卫者", scoped)
+        self.assertEqual(scoped.count("竞技场次"), 1)
+        self.assertEqual(scoped.count("竞技胜率"), 1)
+        self.assertEqual(scoped.count("快速场次"), 1)
+        self.assertEqual(scoped.count("快速胜率"), 1)
+        self.assertEqual(scoped.count("MVP / SVP"), 1)
 
         recent = build_recent_matches_html("<script>{{danger}}</script>", "19", [])
         self.assertNotIn("<script>", recent)

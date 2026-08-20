@@ -51,6 +51,31 @@
     "type": "int",
     "default": 60
   },
+  "MRCN_MAX_INFLIGHT_REQUESTS": {
+    "description": "Maximum concurrent CN and Meta requests",
+    "type": "int",
+    "default": 8
+  },
+  "MRCN_RENDER_MAX_CONCURRENCY": {
+    "description": "Maximum concurrent HTML to PNG renders",
+    "type": "int",
+    "default": 2
+  },
+  "MRCN_RENDER_RETRY_COUNT": {
+    "description": "Number of short retries after a render failure",
+    "type": "int",
+    "default": 1
+  },
+  "MRCN_RENDER_QUEUE_TIMEOUT_SECONDS": {
+    "description": "Maximum seconds a render waits for an available render slot",
+    "type": "float",
+    "default": 15
+  },
+  "MRCN_INTERACTION_SESSION_SECONDS": {
+    "description": "Lifetime of recent-match numeric selection sessions",
+    "type": "int",
+    "default": 300
+  },
   "MRCN_SIGNATURE_HERO_BATCH_SIZE": {
     "description": "Maximum hero IDs in one career request for cross-season specialty analysis",
     "type": "int",

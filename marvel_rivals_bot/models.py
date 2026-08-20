@@ -18,6 +18,10 @@ class ModeStats:
     kills: int | None = None
     deaths: int | None = None
     assists: int | None = None
+    final_hits: int | None = None
+    max_kills: int | None = None
+    max_assists: int | None = None
+    max_final_hits: int | None = None
     win_rate: float | None = None
     damage: int | None = None
     hero_damage: int | None = None
@@ -213,6 +217,8 @@ class HeroQueryResult:
     season: str
     payload: dict[str, Any] = field(default_factory=dict, repr=False)
     stats: PlayerHeroStats | HeroStat | None = None
+    role: str | None = None
+    role_label: str | None = None
 
 
 @dataclass(slots=True)

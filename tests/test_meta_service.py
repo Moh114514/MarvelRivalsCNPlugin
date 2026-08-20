@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 import logging
@@ -229,6 +230,11 @@ class TestMetaService(unittest.IsolatedAsyncioTestCase):
     async def test_comparison_rejects_duplicate_heroes(self):
         with self.assertRaisesRegex(MetaQueryError, "两个不同"):
             await self.service.get_hero_meta_comparison("曼蒂斯", "曼蒂斯")
+
+
+    async def test_concurrent_same_season_requests_use_one_source_call(self):
+        await asyncio.gather(*(self.service.get_raw_hero_meta("S9") for _ in range(20)))
+        self.assertEqual(self.source.calls, ["18"])
 
 
 if __name__ == "__main__":

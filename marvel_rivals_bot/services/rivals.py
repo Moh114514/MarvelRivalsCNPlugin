@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+import re
 from datetime import datetime
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
 from ..datasource.base import DataSourceError, GameMode, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-from ..reference.heroes import format_hero_name, get_hero_id
+from ..reference.heroes import HERO_ROLE_LABELS, format_hero_name, get_hero_id, get_hero_identity
 from ..models import HeroQueryResult, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
@@ -16,6 +17,13 @@ from ..reference.seasons import season_identity_from_cn_code, season_identity_fr
 
 
 CacheValue = TypeVar("CacheValue")
+_MATCH_UID_PREFIX_RE = re.compile(r"^matchuid\s*[:=：]\s*(.+)$", re.IGNORECASE)
+
+
+def normalize_match_uid(value: str) -> str:
+    candidate = str(value).strip()
+    match = _MATCH_UID_PREFIX_RE.match(candidate)
+    return match.group(1).strip() if match else candidate
 
 
 def format_season_name(code: str | int) -> str:
@@ -39,17 +47,27 @@ class RivalsService:
         *,
         hero_batch_size: int = 32,
         hero_max_concurrency: int = 4,
+        max_inflight_requests: int = 8,
     ):
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
         self.hero_batch_size = max(1, int(hero_batch_size))
         self.hero_max_concurrency = max(1, int(hero_max_concurrency))
+        self.max_inflight_requests = max(1, int(max_inflight_requests))
+        self._request_semaphore = asyncio.Semaphore(self.max_inflight_requests)
         self._hero_request_semaphore: asyncio.Semaphore | None = None
+        self._inflight: dict[str, asyncio.Task[Any]] = {}
         self._player_cache: dict[str, tuple[float, PlayerStats]] = {}
         self._profile_cache: dict[str, tuple[float, PlayerProfile]] = {}
         self._matches_cache: dict[str, tuple[float, list[dict]]] = {}
         self._hero_cache: dict[str, tuple[float, HeroQueryResult]] = {}
         self._match_detail_cache: dict[str, tuple[float, dict]] = {}
+
+    @property
+    def request_semaphore(self) -> asyncio.Semaphore:
+        """Shared external-request limiter for sibling services."""
+
+        return self._request_semaphore
 
     async def get_player_stats(self, uid: str, season: str | None = None) -> PlayerStats:
         season_code = self._season_code(season)
@@ -57,9 +75,13 @@ class RivalsService:
         cached = self._cached(self._player_cache, cache_key)
         if cached is not None:
             return cached
-        stats = await self.source.get_player(uid, season_code)
-        self._player_cache[cache_key] = (time.monotonic(), stats)
-        return stats
+
+        async def load() -> PlayerStats:
+            stats = await self._request(lambda: self.source.get_player(uid, season_code))
+            self._player_cache[cache_key] = (time.monotonic(), stats)
+            return stats
+
+        return await self._singleflight(f"player:{uid}:{season_code}", load)
 
     async def player_text(self, uid: str, season: str | None = None) -> str:
         return format_player(await self.get_player_stats(uid, season))
@@ -74,9 +96,10 @@ class RivalsService:
             return cached
         loader = getattr(self.source, "get_player_profile", None)
         if callable(loader):
-            profile = await loader(uid, season_code)
+            profile = await self._request(lambda: loader(uid, season_code))
         else:
-            profile = (await self.source.get_player(uid, season_code)).profile
+            stats = await self._request(lambda: self.source.get_player(uid, season_code))
+            profile = stats.profile
         self._profile_cache[cache_key] = (time.monotonic(), profile)
         return profile
 
@@ -86,13 +109,14 @@ class RivalsService:
         loader = getattr(self.source, "get_player_profile_history", None)
         if callable(loader):
             try:
-                return await loader(uid)
+                return await self._request(lambda: loader(uid))
             except NotImplementedError:
                 pass
         profile_loader = getattr(self.source, "get_player_profile", None)
         if callable(profile_loader):
-            return await profile_loader(uid)
-        return (await self.source.get_player(uid)).profile
+            return await self._request(lambda: profile_loader(uid))
+        stats = await self._request(lambda: self.source.get_player(uid))
+        return stats.profile
 
     async def get_hero_profiles_batch(
         self,
@@ -153,7 +177,7 @@ class RivalsService:
     ) -> list[PlayerHeroStats]:
         async def load_chunk(chunk: list[str]) -> list[PlayerHeroStats]:
             async with semaphore:
-                payload = await loader(uid, chunk, season, game_mode)
+                payload = await self._request(lambda: loader(uid, chunk, season, game_mode))
             parser = getattr(self.source, "parse_hero_career", None)
             if callable(parser):
                 try:
@@ -188,9 +212,13 @@ class RivalsService:
                 try:
                     profile_loader = getattr(self.source, "get_hero_profile", None)
                     if callable(profile_loader):
-                        profile = await profile_loader(uid, str(hero_id), season)
+                        profile = await self._request(
+                            lambda: profile_loader(uid, str(hero_id), season)
+                        )
                         return profile if isinstance(profile, PlayerHeroStats) else None
-                    payload = await self.source.get_hero(uid, str(hero_id), season)
+                    payload = await self._request(
+                        lambda: self.source.get_hero(uid, str(hero_id), season)
+                    )
                 except (DataSourceError, NotImplementedError):
                     return None
             parsed = _parse_generic_hero_career(payload, [hero_id], game_mode)
@@ -205,9 +233,13 @@ class RivalsService:
         cached = self._cached(self._matches_cache, cache_key)
         if cached is not None:
             return cached
-        matches = await self.source.get_recent_matches(uid, season_code)
-        self._matches_cache[cache_key] = (time.monotonic(), matches)
-        return matches
+
+        async def load() -> list[dict]:
+            matches = await self._request(lambda: self.source.get_recent_matches(uid, season_code))
+            self._matches_cache[cache_key] = (time.monotonic(), matches)
+            return matches
+
+        return await self._singleflight(f"recent:{uid}:{season_code}", load)
 
     async def matches_text(self, uid: str, season: str | None = None) -> str:
         season_code = self._season_code(season)
@@ -223,40 +255,58 @@ class RivalsService:
         cached = self._cached(self._hero_cache, cache_key)
         if cached is not None:
             return cached
-        profile_loader = getattr(self.source, "get_hero_profile", None)
-        if callable(profile_loader):
-            profile = await profile_loader(uid, hero_id, season_code)
-            result = HeroQueryResult(
-                uid=uid,
-                hero_id=hero_id,
-                hero_name=profile.hero_name or hero_name,
-                season=season_code,
-                payload={"data": {"careers": [profile.raw]}},
-                stats=profile,
-            )
-        else:
-            result = HeroQueryResult(
-                uid=uid,
-                hero_id=hero_id,
-                hero_name=hero_name,
-                season=season_code,
-                payload=await self.source.get_hero(uid, hero_id, season_code),
-            )
-        self._hero_cache[cache_key] = (time.monotonic(), result)
-        return result
+
+        async def load() -> HeroQueryResult:
+            identity = get_hero_identity(hero_id)
+            profile_loader = getattr(self.source, "get_hero_profile", None)
+            if callable(profile_loader):
+                profile = await self._request(
+                    lambda: profile_loader(uid, hero_id, season_code)
+                )
+                result = HeroQueryResult(
+                    uid=uid,
+                    hero_id=hero_id,
+                    hero_name=profile.hero_name or hero_name,
+                    season=season_code,
+                    payload={"data": {"careers": [profile.raw]}},
+                    stats=profile,
+                    role=identity.role,
+                    role_label=HERO_ROLE_LABELS.get(identity.role, "未知职责"),
+                )
+            else:
+                result = HeroQueryResult(
+                    uid=uid,
+                    hero_id=hero_id,
+                    hero_name=hero_name,
+                    season=season_code,
+                    payload=await self._request(
+                        lambda: self.source.get_hero(uid, hero_id, season_code)
+                    ),
+                    role=identity.role,
+                    role_label=HERO_ROLE_LABELS.get(identity.role, "未知职责"),
+                )
+            self._hero_cache[cache_key] = (time.monotonic(), result)
+            return result
+
+        return await self._singleflight(f"hero:{uid}:{hero_id}:{season_code}", load)
 
     async def hero_text(self, uid: str, hero_name: str, season: str | None = None) -> str:
         result = await self.get_hero_stats(uid, hero_name, season)
         return format_hero_result(result)
 
     async def get_match_detail(self, match_uid: str) -> dict:
-        cache_key = str(match_uid).strip()
+        normalized_uid = normalize_match_uid(match_uid)
+        cache_key = normalized_uid
         cached = self._cached(self._match_detail_cache, cache_key)
         if cached is not None:
             return cached
-        payload = await self.source.get_summary_detail(match_uid)
-        self._match_detail_cache[cache_key] = (time.monotonic(), payload)
-        return payload
+
+        async def load() -> dict:
+            payload = await self._request(lambda: self.source.get_summary_detail(normalized_uid))
+            self._match_detail_cache[cache_key] = (time.monotonic(), payload)
+            return payload
+
+        return await self._singleflight(f"match:{cache_key}", load)
 
     async def match_detail_text(self, match_uid: str) -> str:
         return format_match_detail(await self.get_match_detail(match_uid))
@@ -275,6 +325,32 @@ class RivalsService:
 
     def season_code(self, season: str | None = None) -> str:
         return self._season_code(season)
+
+    async def _request(self, operation: Callable[[], Awaitable[CacheValue]]) -> CacheValue:
+        async with self._request_semaphore:
+            return await operation()
+
+    async def _singleflight(
+        self,
+        key: str,
+        factory: Callable[[], Awaitable[CacheValue]],
+    ) -> CacheValue:
+        task = self._inflight.get(key)
+        if task is None:
+            task_holder: dict[str, asyncio.Task[CacheValue]] = {}
+
+            async def run() -> CacheValue:
+                try:
+                    return await factory()
+                finally:
+                    current = task_holder.get("task")
+                    if current is not None and self._inflight.get(key) is current:
+                        self._inflight.pop(key, None)
+
+            task = asyncio.create_task(run())
+            task_holder["task"] = task
+            self._inflight[key] = task
+        return await asyncio.shield(task)
 
     def _cached(self, cache: dict[str, tuple[float, CacheValue]], key: str) -> CacheValue | None:
         if self.cache_seconds <= 0:
@@ -405,6 +481,12 @@ def _mode_rate(mode: ModeStats, fallback: float | None = None) -> str:
     return _fmt(value) + "%" if value is not None else "-"
 
 
+def _mode_average(total: int | float | None, matches: int | None) -> str:
+    if total is None or matches is None or matches <= 0:
+        return "-"
+    return _fmt(total / matches)
+
+
 def format_player(stats: PlayerStats) -> str:
     p, s = stats.profile, stats.summary
     lines = [f"漫威争锋国服个人资料（{format_season_name(stats.season)}的数据）", f"玩家：{p.name}", f"UID：{p.uid}"]
@@ -523,7 +605,7 @@ def format_hero_result(result: HeroQueryResult) -> str:
     total_wins = getattr(stats, "total_wins", None)
     total_rate = getattr(stats, "total_win_rate", None)
     quick = stats.quick
-    ranked = stats.ranked
+    ranked = stats.competitive
     if total_rate is None and total_matches and total_wins is not None:
         total_rate = total_wins * 100 / total_matches
     hero_name = format_hero_name(result.hero_id, result.hero_name)
@@ -535,10 +617,14 @@ def format_hero_result(result: HeroQueryResult) -> str:
         f"竞技：{_count(ranked.matches)} 场    胜场：{_count(ranked.wins)}    胜率：{_mode_rate(ranked)}",
         f"快速：{_count(quick.matches)} 场    胜场：{_count(quick.wins)}    胜率：{_mode_rate(quick)}",
         f"竞技 K/D/A：{_count(ranked.kills)} / {_count(ranked.deaths)} / {_count(ranked.assists)}",
-        f"竞技英雄伤害：{_fmt(ranked.hero_damage)}    治疗：{_fmt(ranked.heal)}",
-        f"竞技承受伤害：{_fmt(ranked.damage_taken)}",
+        f"竞技 击败：{_count(ranked.kills)}    最后一击：{_count(ranked.final_hits)}    死亡：{_count(ranked.deaths)}    助攻：{_count(ranked.assists)}",
+        f"竞技场均伤害：{_mode_average(ranked.hero_damage, ranked.matches)}    场均治疗：{_mode_average(ranked.heal, ranked.matches)}",
+        f"竞技场均承伤：{_mode_average(ranked.damage_taken, ranked.matches)}",
+        f"竞技累计伤害：{_fmt(ranked.hero_damage)}    累计治疗：{_fmt(ranked.heal)}    累计承伤：{_fmt(ranked.damage_taken)}",
         f"竞技游戏时长：{_hours(ranked.play_time_seconds)}",
         f"竞技 MVP：{_count(ranked.mvp)}    SVP：{_count(ranked.svp)}",
+        f"快速 击败：{_count(quick.kills)}    最后一击：{_count(quick.final_hits)}    死亡：{_count(quick.deaths)}    助攻：{_count(quick.assists)}",
+        f"快速场均伤害：{_mode_average(quick.hero_damage, quick.matches)}    场均治疗：{_mode_average(quick.heal, quick.matches)}    场均承伤：{_mode_average(quick.damage_taken, quick.matches)}",
     ]
     return "\n".join(lines)
 

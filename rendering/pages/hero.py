@@ -19,8 +19,34 @@ def _percent(value: float | None) -> str:
     return "-" if value is None else f"{value:.1f}%"
 
 
+def _average(total: int | float | None, matches: int | None) -> float | None:
+    if total is None or matches is None or matches <= 0:
+        return None
+    return total / matches
+
+
+def _stat_value(value: int | float | None) -> str:
+    return format_number({"value": value}, "value")
+
+
+def _mode_grid(mode, *, prefix: str) -> str:
+    matches = mode.matches
+    return metric_grid((
+        (f"{prefix}场次", _stat_value(matches)),
+        (f"{prefix}胜率", _percent(mode.win_rate)),
+        ("击败", _stat_value(mode.kills)),
+        ("最后一击", _stat_value(mode.final_hits)),
+        ("死亡", _stat_value(mode.deaths)),
+        ("助攻", _stat_value(mode.assists)),
+        ("场均伤害", _stat_value(_average(mode.hero_damage, matches))),
+        ("场均治疗", _stat_value(_average(mode.heal, matches))),
+        ("场均承伤", _stat_value(_average(mode.damage_taken, matches))),
+    ))
+
+
 def build_hero_query_html(result: HeroQueryResult) -> str:
     hero = extract_career(result)
+    role = getattr(result, "role_label", "") or ""
     stats = result.stats if result.stats is not None and hasattr(result.stats, "ranked") else None
     if stats is not None:
         total_matches = stats.total_matches
@@ -28,35 +54,32 @@ def build_hero_query_html(result: HeroQueryResult) -> str:
         total_rate = stats.total_win_rate
         if total_rate is None and total_matches and total_wins is not None:
             total_rate = total_wins * 100 / total_matches
-        ranked = stats.ranked
+        ranked = stats.competitive
         quick = stats.quick
+        role = getattr(result, "role_label", "") or getattr(stats, "role_label", "") or ""
         overview = metric_grid((
             ("总计场次", format_number({"value": total_matches}, "value")),
-            ("快速场次", format_number({"value": quick.matches}, "value")),
-            ("竞技场次", format_number({"value": ranked.matches}, "value")),
-            ("总计胜率", _percent(total_rate)),
+            ("总胜场", _stat_value(total_wins)),
+            ("总胜率", _percent(total_rate)),
+            ("总时长", format_duration(stats.total.play_time_seconds)),
         ))
         ranked_details = metric_grid((
-            ("竞技胜率", _percent(ranked.win_rate)),
-            ("竞技 K / D / A", "/".join(format_number({
-                "k": ranked.kills, "d": ranked.deaths, "a": ranked.assists,
-            }, key) for key in ("k", "d", "a"))),
-            ("英雄伤害", format_number({"value": ranked.hero_damage}, "value")),
-            ("治疗 / 承受", f"{format_number({'value': ranked.heal}, 'value')} / {format_number({'value': ranked.damage_taken}, 'value')}"),
             ("MVP / SVP", f"{format_number({'value': ranked.mvp}, 'value')}/{format_number({'value': ranked.svp}, 'value')}"),
-            ("竞技时长", format_duration(ranked.play_time_seconds)),
-        ))
-        quick_details = metric_grid((
-            ("快速胜率", _percent(quick.win_rate)),
-            ("快速 K / D / A", f"{format_number({'value': quick.kills}, 'value')} / {format_number({'value': quick.deaths}, 'value')} / {format_number({'value': quick.assists}, 'value')}"),
-            ("快速时长", format_duration(quick.play_time_seconds)),
         ))
         details = (
             '<section class="mr-section">'
-            + section_title("竞技详细数据", "RANKED DETAILS")
+            + section_title("竞技", "RANKED DETAILS")
             + ranked_details
-            + section_title("快速模式摘要", "QUICK SUMMARY")
-            + quick_details
+            + _mode_grid(ranked, prefix="竞技")
+            + '<section class="mr-section__totals">'
+            + metric_grid((
+                ("总伤害", _stat_value(ranked.hero_damage)),
+                ("总治疗", _stat_value(ranked.heal)),
+                ("总承伤", _stat_value(ranked.damage_taken)),
+            ))
+            + '</section>'
+            + section_title("快速", "QUICK SUMMARY")
+            + _mode_grid(quick, prefix="快速")
             + '</section>'
         )
     else:
@@ -84,9 +107,10 @@ def build_hero_query_html(result: HeroQueryResult) -> str:
     content = (
         page_header(
             "HERO DATA",
-            f"UID {result.uid} · 英雄 ID {result.hero_id}",
+            f"UID {result.uid} · {role or '英雄数据'}",
             format_season_name(result.season),
             title_cn=title,
+            meta_items=(("UID", result.uid), ("职责", role or "未知职责")),
         )
         + overview
         + details

@@ -11,6 +11,7 @@ try:
         HeroMetaComparison,
         HeroMetaOverview,
         HeroMetaResult,
+        HeroMetaRoleBoards,
         HeroMetaSegments,
         HeroMetaInsights,
         HeroMetaVersionChanges,
@@ -23,6 +24,7 @@ except ImportError:
         HeroMetaComparison,
         HeroMetaOverview,
         HeroMetaResult,
+        HeroMetaRoleBoards,
         HeroMetaSegments,
         HeroMetaInsights,
         HeroMetaVersionChanges,
@@ -98,8 +100,17 @@ def _sort_label(metric: str) -> str:
     }.get(metric, metric)
 
 
-def _metric_section(title: str, metric: str, results: Iterable[HeroMetaResult], kicker: str = "TOP 5") -> str:
-    rows = [_hero_row(index, result, metric) for index, result in enumerate(results, 1)]
+def _metric_section(
+    title: str,
+    metric: str,
+    results: Iterable[HeroMetaResult],
+    kicker: str = "TOP 5",
+    start_rank: int = 1,
+) -> str:
+    rows = [
+        _hero_row(start_rank + offset, result, metric)
+        for offset, result in enumerate(results)
+    ]
     body = ''.join(rows) if rows else empty_state("暂无该指标数据")
     return (
         '<section class="mr-section mr-meta-section">'
@@ -132,6 +143,31 @@ def build_meta_overview_html(overview: HeroMetaOverview) -> str:
 
 
 def build_meta_board_html(board: HeroMetaBoard) -> str:
+    if board.group_by_role and board.role_boards:
+        sections = []
+        for role_board in board.role_boards:
+            sections.append(
+                _metric_section(
+                    role_board.role_label,
+                    board.sort_by,
+                    role_board.heroes,
+                    "ROLE RANKING",
+                    role_board.range_start or 1,
+                )
+            )
+        content = (
+            page_header(
+                "HERO RANKING",
+                "分职责英雄排行",
+                board.season_label,
+                title_cn="英雄排行",
+                eyebrow="MR // META",
+                meta_items=[("段位", board.rank_label), ("指标", _sort_label(board.sort_by))],
+            )
+            + _source_line(board)
+            + "".join(sections)
+        )
+        return page_shell(content, watermark="HERO RANKING")
     content = (
         page_header(
             "HERO RANKING",
@@ -143,6 +179,32 @@ def build_meta_board_html(board: HeroMetaBoard) -> str:
         )
         + _source_line(board)
         + _metric_section(f"英雄排行 · {_sort_label(board.sort_by)}", board.sort_by, board.heroes, "RANKING")
+    )
+    return page_shell(content, watermark="HERO RANKING")
+
+
+def build_meta_role_boards_html(boards: HeroMetaRoleBoards) -> str:
+    sections = [
+        _metric_section(
+            role_board.role_label,
+            boards.sort_by,
+            role_board.heroes,
+            "ROLE RANKING",
+            role_board.range_start or 1,
+        )
+        for role_board in boards.roles
+    ]
+    content = (
+        page_header(
+            "HERO RANKING",
+            "按职责英雄排行",
+            boards.season_label,
+            title_cn="英雄排行",
+            eyebrow="MR // META",
+            meta_items=[("段位", boards.rank_label), ("指标", _sort_label(boards.sort_by))],
+        )
+        + _source_line(boards)
+        + "".join(sections)
     )
     return page_shell(content, watermark="HERO RANKING")
 

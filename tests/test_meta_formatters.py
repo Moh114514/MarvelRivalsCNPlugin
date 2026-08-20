@@ -53,6 +53,23 @@ class TestMetaFormatters(unittest.TestCase):
         self.assertIn("Ban率 —", text)
         self.assertIn("场次 10,230", text)
 
+    def test_ranked_formatter_keeps_displayed_rank_offset(self):
+        board = HeroMetaBoard(
+            season_code="19",
+            season_label="S9下半赛季",
+            rank_key="all",
+            rank_label="全段位",
+            sort_by="win_rate",
+            heroes=[self.result],
+            source="RivalsMeta",
+            source_timestamp=None,
+            fetched_at=datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc),
+            range_start=11,
+            range_end=20,
+            total_count=20,
+        )
+        self.assertIn("11. ", format_hero_meta_board(board))
+
     def test_single_hero_formatter_keeps_unavailable_ban_as_dash(self):
         text = format_single_hero_meta(
             self.result,

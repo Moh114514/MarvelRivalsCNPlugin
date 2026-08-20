@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock
 
@@ -64,6 +65,68 @@ class TestRenderingAdapter(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(await renderer.help("/帮助\n显示完整指令帮助"), "rendered.png")
         self.assertIn("COMMAND GUIDE", html_render.await_args.args[0])
+
+    async def test_render_retries_once_and_preserves_final_failure(self):
+        html_render = AsyncMock(side_effect=[RuntimeError("temporary"), "rendered.png"])
+        renderer = RivalsImageRenderer(html_render, max_retries=1)
+
+        self.assertEqual(await renderer.help("help"), "rendered.png")
+        self.assertEqual(html_render.await_count, 2)
+
+        final_error = RuntimeError("permanent")
+        failing_render = AsyncMock(side_effect=final_error)
+        renderer = RivalsImageRenderer(failing_render, max_retries=0)
+        with self.assertRaises(RuntimeError) as raised:
+            await renderer.help("help")
+        self.assertIs(raised.exception, final_error)
+
+    async def test_render_queue_timeout_is_bounded(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def html_render(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            return "rendered.png"
+
+        renderer = RivalsImageRenderer(
+            html_render,
+            max_concurrent_renders=1,
+            max_retries=0,
+            queue_timeout_seconds=0.01,
+        )
+        first = asyncio.create_task(renderer.help("first"))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        with self.assertRaises(asyncio.TimeoutError):
+            await renderer.help("second")
+        release.set()
+        self.assertEqual(await first, "rendered.png")
+
+    async def test_render_semaphore_limits_parallel_pages(self):
+        active = 0
+        maximum = 0
+        entered = 0
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def html_render(*args, **kwargs):
+            nonlocal active, maximum, entered
+            active += 1
+            entered += 1
+            maximum = max(maximum, active)
+            if entered == 2:
+                started.set()
+            await release.wait()
+            active -= 1
+            return "rendered.png"
+
+        renderer = RivalsImageRenderer(html_render, max_concurrent_renders=2, max_retries=0)
+        tasks = [asyncio.create_task(renderer.help(f"help-{index}")) for index in range(4)]
+        await asyncio.wait_for(started.wait(), timeout=1)
+        self.assertEqual(maximum, 2)
+        self.assertEqual(entered, 2)
+        release.set()
+        self.assertEqual(await asyncio.gather(*tasks), ["rendered.png"] * 4)
 
 
 if __name__ == "__main__":

@@ -96,6 +96,10 @@ def _mode_stats(value: Any) -> ModeStats:
         kills=_count(data, "k", "kills", "totalKill"),
         deaths=_count(data, "d", "deaths", "totalDeath"),
         assists=_count(data, "a", "assists", "totalAssist"),
+        final_hits=_count(data, "lastKill"),
+        max_kills=_count(data, "sessionMaxK"),
+        max_assists=_count(data, "sessionMaxA"),
+        max_final_hits=_count(data, "sessionMaxLastKill"),
         win_rate=win_rate,
         damage=_count(data, "totalDamage", "damage"),
         hero_damage=_count(data, "totalHeroDamage", "heroDamage"),
@@ -596,6 +600,11 @@ class CNDataSource(RivalsDataSource):
             present = [value for value in values if value is not None]
             return sum(present) if present else None
 
+        def maximum(name: str):
+            values = [getattr(quick, name), getattr(competitive, name)]
+            present = [value for value in values if value is not None]
+            return max(present) if present else None
+
         matches = add("matches")
         wins = add("wins")
         return ModeStats(
@@ -604,6 +613,10 @@ class CNDataSource(RivalsDataSource):
             kills=add("kills"),
             deaths=add("deaths"),
             assists=add("assists"),
+            final_hits=add("final_hits"),
+            max_kills=maximum("max_kills"),
+            max_assists=maximum("max_assists"),
+            max_final_hits=maximum("max_final_hits"),
             win_rate=(wins * 100 / matches) if matches and wins is not None else None,
             damage=add("damage"),
             hero_damage=add("hero_damage"),

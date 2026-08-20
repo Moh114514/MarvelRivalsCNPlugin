@@ -3,11 +3,26 @@ import unittest
 
 import httpx
 
-from marvel_rivals_bot.datasource.cn import CNDataSource, _rank_text
+from marvel_rivals_bot.datasource.cn import CNDataSource, _mode_stats, _rank_text
 from marvel_rivals_bot.models import PlayerStats
 
 
 class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
+    def test_mode_stats_parses_hero_data_foundation_fields(self):
+        stats = _mode_stats({
+            "totalMatchCount": "12.6",
+            "lastKill": "7",
+            "sessionMaxK": "18",
+            "sessionMaxA": 11.0,
+            "sessionMaxLastKill": 4,
+        })
+
+        self.assertEqual(stats.matches, 13)
+        self.assertEqual(stats.final_hits, 7)
+        self.assertEqual(stats.max_kills, 18)
+        self.assertEqual(stats.max_assists, 11)
+        self.assertEqual(stats.max_final_hits, 4)
+
     async def test_owned_client_is_reused_and_closed_explicitly(self):
         source = CNDataSource(env={"MRCN_API_BASE_URL": "https://example.test"})
         first = source._request_client()
