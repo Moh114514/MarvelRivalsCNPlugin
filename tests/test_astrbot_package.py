@@ -1,3 +1,5 @@
+import ast
+import importlib
 import json
 import subprocess
 import sys
@@ -96,12 +98,53 @@ class TestAstrBotPackage(unittest.TestCase):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for command in (
             "帮助", "漫威帮助", "绑定账号", "绑定漫威", "解绑账号", "解绑漫威",
-            "最近对局", "最近", "英雄数据", "英雄", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
+            "最近对局", "最近", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
             "英雄趋势", "版本变化", "版本黑马", "冷门强者", "分段怪物",
         ):
             self.assertIn(f'@filter.command("{command}")', main)
         self.assertIn('@filter.command("热门低胜率", alias={"热门陷阱"})', main)
         self.assertNotIn('@filter.command("help")', main)
+
+    def test_hero_commands_use_one_filter_with_runtime_aliases(self):
+        tree = ast.parse((PLUGIN_DIR / "main.py").read_text(encoding="utf-8"))
+        hero_handlers = [
+            node for node in ast.walk(tree)
+            if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and node.name == "hero"
+        ]
+        self.assertEqual(len(hero_handlers), 1)
+        command_decorators = [
+            decorator for decorator in hero_handlers[0].decorator_list
+            if isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and decorator.func.attr == "command"
+        ]
+        self.assertEqual(len(command_decorators), 1)
+        command = command_decorators[0]
+        self.assertEqual(command.args[0].value, "我的英雄")
+        alias_keyword = next(keyword for keyword in command.keywords if keyword.arg == "alias")
+        self.assertIsInstance(alias_keyword.value, ast.Set)
+        self.assertEqual(
+            {item.value for item in alias_keyword.value.elts},
+            {"英雄数据", "英雄"},
+        )
+        self.assertFalse(any(
+            isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and node.name == "hero_legacy"
+            for node in ast.walk(tree)
+        ))
+
+    def test_fallback_filter_registers_all_hero_command_names_on_one_handler(self):
+        plugin = importlib.import_module("main")
+        registrations = getattr(plugin.filter, "registered_commands", None)
+        if registrations is None:
+            self.skipTest("AstrBot runtime filter is installed; fallback registry is unavailable")
+        hero_registrations = [
+            item for item in registrations if item["handler"].__name__ == "hero"
+        ]
+        self.assertEqual(len(hero_registrations), 1)
+        self.assertEqual(hero_registrations[0]["name"], "我的英雄")
+        self.assertEqual(hero_registrations[0]["aliases"], frozenset({"英雄数据", "英雄"}))
 
     def test_httpx_dependency_is_declared(self):
         requirements = (PLUGIN_DIR / "requirements.txt").read_text(encoding="utf-8")

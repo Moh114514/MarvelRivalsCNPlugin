@@ -5,6 +5,8 @@ from marvel_rivals_bot.game_metadata import RIVALSMETA_SEASON_MAP
 from marvel_rivals_bot.hero_names import HERO_ID_MAP, get_hero_name
 from marvel_rivals_bot.meta.ranks import RANK_LABELS as LEGACY_RANK_LABELS
 from marvel_rivals_bot.reference.heroes import (
+    HERO_ALIASES,
+    HERO_ALIAS_CONFLICTS,
     HERO_ID_MAP as CANONICAL_HERO_ID_MAP,
     HeroIdentity,
     HeroNameAmbiguityError,
@@ -55,6 +57,12 @@ class TestCanonicalHeroes(unittest.TestCase):
             get_hero_id("死侍")
         with self.assertRaisesRegex(HeroNameAmbiguityError, "指定职责"):
             get_hero_identity("死侍")
+
+    def test_aliases_are_tuples_and_have_no_silent_collisions(self):
+        self.assertTrue(HERO_ALIASES)
+        self.assertTrue(all(isinstance(aliases, tuple) for aliases in HERO_ALIASES.values()))
+        self.assertEqual(HERO_ALIAS_CONFLICTS, {})
+        self.assertEqual(get_hero_id("恐龙"), 1062)
 
 
 class TestCanonicalRanks(unittest.TestCase):

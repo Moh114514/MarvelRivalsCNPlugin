@@ -106,8 +106,19 @@ except ImportError:  # Allows core modules and tests to run without AstrBot inst
         return lambda cls: cls
 
     class _Filter:
-        def command(self, *_args, **_kwargs):
-            return lambda func: func
+        def __init__(self):
+            self.registered_commands = []
+
+        def command(self, name, *args, alias=None, **kwargs):
+            def decorator(func):
+                self.registered_commands.append({
+                    "name": name,
+                    "aliases": frozenset(alias or ()),
+                    "handler": func,
+                })
+                return func
+
+            return decorator
 
     filter = _Filter()
 
@@ -552,8 +563,7 @@ class MarvelRivalsPlugin(Star):
         async for result in self.recent(event, uid, season):
             yield result
 
-    @filter.command("我的英雄")
-    @filter.command("英雄数据")
+    @filter.command("我的英雄", alias={"英雄数据", "英雄"})
     async def hero(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
         """使用中文英雄名称查询指定英雄的赛季数据。"""
         uid, season = self._uid_and_season(uid, season)
@@ -577,12 +587,6 @@ class MarvelRivalsPlugin(Star):
                 yield self._image_result(event, image_url)
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
-
-    @filter.command("英雄")
-    async def hero_legacy(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
-        """兼容旧版 /英雄 指令。"""
-        async for result in self.hero(event, hero_name, uid, season):
-            yield result
 
     def _resolve_match_selection(self, event: AstrMessageEvent, value: str) -> str:
         candidate = str(value).strip()

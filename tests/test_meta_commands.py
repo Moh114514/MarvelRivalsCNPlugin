@@ -104,6 +104,11 @@ class TestMetaCommandArguments(unittest.TestCase):
         top = parse_meta_command_args("胜率", "Top10", require_sort=True)
         self.assertEqual(top.ranking_range.end, 10)
 
+    def test_role_position_aliases_are_supported(self):
+        for alias, expected in (("T位", "vanguard"), ("C位", "duelist"), ("奶位", "strategist")):
+            result = parse_meta_command_args(alias, "胜率", require_sort=True)
+            self.assertEqual(result.role, expected)
+
     def test_group_by_role_and_invalid_ranges_use_command_usage_error(self):
         grouped = parse_meta_command_args("胜率", "分职责", "前5", require_sort=True)
         self.assertTrue(grouped.group_by_role)

@@ -188,7 +188,7 @@ HERO_ALIASES: dict[int, tuple[str, ...]] = {
     1059: ("艾尔莎", "艾莎", "血石"),
     1060: ("狐狸",),
     1061: ("菲丽西亚",),
-    1062: ("恐龙"),
+    1062: ("恐龙",),
     1063: ("镭射","雷光眼"),
     1065: ("罗刹女",),
 }
@@ -204,12 +204,27 @@ def _normalize_hero_name(name: str) -> str:
     return "".join(character for character in text if character.isalnum())
 
 
-HERO_NAME_ID_MAP: dict[str, int] = {
-    _normalize_hero_name(name): hero_id for hero_id, name in HERO_ID_MAP.items()
-}
+_HERO_NAME_CANDIDATES: dict[str, set[int]] = {}
+for _hero_id, _name in HERO_ID_MAP.items():
+    _HERO_NAME_CANDIDATES.setdefault(_normalize_hero_name(_name), set()).add(_hero_id)
 for _hero_id, _aliases in HERO_ALIASES.items():
+    if not isinstance(_aliases, tuple):
+        raise TypeError(f"HERO_ALIASES[{_hero_id}] 必须是 tuple[str, ...]")
     for _alias in _aliases:
-        HERO_NAME_ID_MAP[_normalize_hero_name(_alias)] = _hero_id
+        _HERO_NAME_CANDIDATES.setdefault(_normalize_hero_name(_alias), set()).add(_hero_id)
+
+HERO_ALIAS_CONFLICTS: dict[str, tuple[int, ...]] = {
+    _name: tuple(sorted(_hero_ids))
+    for _name, _hero_ids in _HERO_NAME_CANDIDATES.items()
+    if len(_hero_ids) > 1
+}
+if HERO_ALIAS_CONFLICTS:
+    raise ValueError(f"英雄名称或别称存在冲突: {HERO_ALIAS_CONFLICTS}")
+
+HERO_NAME_ID_MAP: dict[str, int] = {
+    _name: next(iter(_hero_ids))
+    for _name, _hero_ids in _HERO_NAME_CANDIDATES.items()
+}
 
 _HERO_AMBIGUOUS_NAME_MAP = {
     _normalize_hero_name(name): hero_ids
@@ -279,6 +294,7 @@ __all__ = [
     "HERO_ID_MAP",
     "HERO_ROLE_MAP",
     "HERO_ALIASES",
+    "HERO_ALIAS_CONFLICTS",
     "HERO_AMBIGUOUS_ALIASES",
     "HERO_NAME_ID_MAP",
     "HeroIdentity",
