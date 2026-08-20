@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
-from ..reference.heroes import get_hero_identity, get_hero_name
+from ..reference.heroes import HERO_ROLE_LABELS, get_hero_identity, get_hero_name
 from .models import (
     HeroMetaResult,
     RawBanRankBucket,
@@ -170,9 +170,7 @@ def _hero_role_label(hero_id: int) -> str:
         identity = get_hero_identity(hero_id)
     except (TypeError, ValueError):
         return "未知职责"
-    return {"vanguard": "先锋", "duelist": "决斗", "strategist": "战略"}.get(
-        getattr(identity, "role", None), "未知职责"
-    )
+    return HERO_ROLE_LABELS.get(getattr(identity, "role", None), "未知职责")
 
 
 def sort_hero_results(results: Sequence[HeroMetaResult], sort_by: str) -> list[HeroMetaResult]:

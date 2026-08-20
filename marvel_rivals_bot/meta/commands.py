@@ -38,11 +38,14 @@ SORT_ALIASES = {
 
 ROLE_ALIASES = {
     "先锋": "vanguard",
+    "捍卫": "vanguard",
+    "捍卫者": "vanguard",
     "t": "vanguard",
     "t位": "vanguard",
     "坦克": "vanguard",
     "vanguard": "vanguard",
     "决斗": "duelist",
+    "决斗家": "duelist",
     "c": "duelist",
     "c位": "duelist",
     "输出": "duelist",
@@ -50,6 +53,8 @@ ROLE_ALIASES = {
     "duelist": "duelist",
     "战略": "strategist",
     "战略家": "strategist",
+    "策略": "strategist",
+    "策略家": "strategist",
     "奶": "strategist",
     "奶位": "strategist",
     "辅助": "strategist",

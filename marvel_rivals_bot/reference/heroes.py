@@ -145,6 +145,13 @@ HERO_ROLE_MAP: dict[int, str] = {
 }
 
 
+HERO_ROLE_LABELS: dict[str, str] = {
+    "vanguard": "捍卫者",
+    "duelist": "决斗家",
+    "strategist": "策略家",
+}
+
+
 # These are intentionally input-only spellings.  ``get_hero_name`` and the
 # canonical identity continue to use ``HERO_ID_MAP`` for display.
 HERO_ALIASES: dict[int, tuple[str, ...]] = {
@@ -293,6 +300,7 @@ def format_hero_name(hero_id: Any, fallback: str | None = None) -> str:
 __all__ = [
     "HERO_ID_MAP",
     "HERO_ROLE_MAP",
+    "HERO_ROLE_LABELS",
     "HERO_ALIASES",
     "HERO_ALIAS_CONFLICTS",
     "HERO_AMBIGUOUS_ALIASES",

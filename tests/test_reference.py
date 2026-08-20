@@ -8,6 +8,7 @@ from marvel_rivals_bot.reference.heroes import (
     HERO_ALIASES,
     HERO_ALIAS_CONFLICTS,
     HERO_ID_MAP as CANONICAL_HERO_ID_MAP,
+    HERO_ROLE_LABELS,
     HeroIdentity,
     HeroNameAmbiguityError,
     get_hero_id,
@@ -63,6 +64,13 @@ class TestCanonicalHeroes(unittest.TestCase):
         self.assertTrue(all(isinstance(aliases, tuple) for aliases in HERO_ALIASES.values()))
         self.assertEqual(HERO_ALIAS_CONFLICTS, {})
         self.assertEqual(get_hero_id("恐龙"), 1062)
+
+    def test_role_labels_use_the_requested_display_names(self):
+        self.assertEqual(HERO_ROLE_LABELS, {
+            "vanguard": "捍卫者",
+            "duelist": "决斗家",
+            "strategist": "策略家",
+        })
 
 
 class TestCanonicalRanks(unittest.TestCase):

@@ -64,13 +64,7 @@ def build_hero_query_html(result: HeroQueryResult) -> str:
             ("总时长", format_duration(stats.total.play_time_seconds)),
         ))
         ranked_details = metric_grid((
-            ("竞技场次", _stat_value(ranked.matches)),
-            ("竞技胜率", _percent(ranked.win_rate)),
             ("MVP / SVP", f"{format_number({'value': ranked.mvp}, 'value')}/{format_number({'value': ranked.svp}, 'value')}"),
-        ))
-        quick_details = metric_grid((
-            ("快速场次", _stat_value(quick.matches)),
-            ("快速胜率", _percent(quick.win_rate)),
         ))
         details = (
             '<section class="mr-section">'
@@ -85,7 +79,6 @@ def build_hero_query_html(result: HeroQueryResult) -> str:
             ))
             + '</section>'
             + section_title("快速", "QUICK SUMMARY")
-            + quick_details
             + _mode_grid(quick, prefix="快速")
             + '</section>'
         )

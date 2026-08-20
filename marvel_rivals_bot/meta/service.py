@@ -12,7 +12,7 @@ from statistics import median
 from typing import Any
 
 from ..datasource.base import DataSourceError
-from ..reference.heroes import get_hero_id, get_hero_name
+from ..reference.heroes import HERO_ROLE_LABELS, get_hero_id, get_hero_name
 from ..reference.ranks import get_rank_label, normalize_rank, rank_codes
 from ..reference.seasons import (
     get_season_identity,
@@ -441,7 +441,8 @@ class MetaService:
         total_count = len(results)
         role_boards: list[HeroMetaRoleBoard] = []
         if group_by_role:
-            for role_key, role_label in (("vanguard", "先锋"), ("duelist", "决斗"), ("strategist", "战略")):
+            for role_key in ("vanguard", "duelist", "strategist"):
+                role_label = HERO_ROLE_LABELS[role_key]
                 group = [item for item in results if item.role == role_key]
                 group_total = len(group)
                 group = _slice_ranking(group, ranking_range, limit)

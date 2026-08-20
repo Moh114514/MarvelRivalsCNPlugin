@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 
 from ..datasource.base import DataSourceError, GameMode, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-from ..reference.heroes import format_hero_name, get_hero_id, get_hero_identity
+from ..reference.heroes import HERO_ROLE_LABELS, format_hero_name, get_hero_id, get_hero_identity
 from ..models import HeroQueryResult, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
@@ -271,7 +271,7 @@ class RivalsService:
                     payload={"data": {"careers": [profile.raw]}},
                     stats=profile,
                     role=identity.role,
-                    role_label={"vanguard": "先锋", "duelist": "决斗", "strategist": "战略"}.get(identity.role, "未知职责"),
+                    role_label=HERO_ROLE_LABELS.get(identity.role, "未知职责"),
                 )
             else:
                 result = HeroQueryResult(
@@ -283,7 +283,7 @@ class RivalsService:
                         lambda: self.source.get_hero(uid, hero_id, season_code)
                     ),
                     role=identity.role,
-                    role_label={"vanguard": "先锋", "duelist": "决斗", "strategist": "战略"}.get(identity.role, "未知职责"),
+                    role_label=HERO_ROLE_LABELS.get(identity.role, "未知职责"),
                 )
             self._hero_cache[cache_key] = (time.monotonic(), result)
             return result
