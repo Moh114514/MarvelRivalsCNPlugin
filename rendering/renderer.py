@@ -17,7 +17,7 @@ try:
         HeroRankSeries,
         RankMonsterBoard,
     )
-    from ..marvel_rivals_bot.analytics.models import PlayerMetaProfile, PlayerSignatureProfile
+    from ..marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerMetaProfile, PlayerSignatureProfile
 except ImportError:
     from marvel_rivals_bot.models import HeroQueryResult, PlayerStats
     from marvel_rivals_bot.meta.models import (
@@ -30,11 +30,12 @@ except ImportError:
         HeroRankSeries,
         RankMonsterBoard,
     )
-    from marvel_rivals_bot.analytics.models import PlayerMetaProfile, PlayerSignatureProfile
+    from marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerMetaProfile, PlayerSignatureProfile
 
 from .pages import (
     build_help_html,
     build_hero_query_html,
+    build_player_hero_analysis_html,
     build_match_detail_html,
     build_meta_board_html,
     build_meta_role_boards_html,
@@ -105,6 +106,13 @@ class RivalsImageRenderer:
 
     async def hero(self, result: HeroQueryResult) -> str:
         return await self._render(build_hero_query_html(result))
+
+    async def player_hero_analysis(
+        self,
+        profile: PlayerSignatureProfile,
+        hero: CareerHeroSignature,
+    ) -> str:
+        return await self._render(build_player_hero_analysis_html(profile, hero))
 
     async def help(self, help_text: str) -> str:
         return await self._render(build_help_html(help_text))

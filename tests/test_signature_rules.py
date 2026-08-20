@@ -4,7 +4,10 @@ from types import SimpleNamespace
 from marvel_rivals_bot.analytics.signature_rules import (
     adjust_delta,
     calculate_confidence,
+    calculate_performance_index,
+    calculate_performance_sickness_score,
     calculate_play_index,
+    calculate_signature_score,
     calculate_sick_score,
     calculate_stability,
     calculate_weakness_index,
@@ -15,6 +18,7 @@ from marvel_rivals_bot.analytics.signature_rules import (
     stability_counts,
 )
 from marvel_rivals_bot.analytics.signature import SeasonAggregationPolicy, _NormalizedHero, _NormalizedSeason, PlayerSignatureService
+from marvel_rivals_bot.analytics.models import NormalizedModeStats
 
 
 class TestSignatureRules(unittest.TestCase):
@@ -54,6 +58,23 @@ class TestSignatureRules(unittest.TestCase):
         self.assertAlmostEqual(calculate_weakness_index(8, 8, 10), 100.0)
         self.assertAlmostEqual(calculate_weakness_index(8, None, None), 100.0)
         self.assertEqual(calculate_weakness_index(None, None, None), 0.0)
+
+    def test_performance_index_is_signed_and_renormalizes_missing_signals(self):
+        self.assertAlmostEqual(calculate_performance_index(
+            meta_delta=8, personal_competitive_delta=8, personal_quick_delta=10,
+        ), 100.0)
+        self.assertAlmostEqual(calculate_performance_index(
+            meta_delta=None, personal_competitive_delta=8, personal_quick_delta=10,
+        ), 100.0)
+        self.assertAlmostEqual(calculate_performance_index(
+            meta_delta=-8, personal_competitive_delta=-8, personal_quick_delta=-10,
+        ), -100.0)
+
+    def test_signature_and_sickness_scores_are_mutually_exclusive(self):
+        self.assertEqual(calculate_signature_score(80, 50), 40.0)
+        self.assertEqual(calculate_performance_sickness_score(80, -50), 40.0)
+        self.assertEqual(calculate_signature_score(80, -50), 0.0)
+        self.assertEqual(calculate_performance_sickness_score(80, 50), 0.0)
 
     def test_sick_score_is_play_times_weakness_and_has_soft_candidate_floor(self):
         base = dict(
@@ -125,6 +146,26 @@ class TestSignatureRules(unittest.TestCase):
         ]
         adjusted = service._apply_policy(seasons)
         self.assertEqual(adjusted[2].heroes["1026"].competitive_matches, 20)
+
+    def test_cumulative_policy_differences_all_additive_mode_stats(self):
+        service = PlayerSignatureService.__new__(PlayerSignatureService)
+        service.season_policy = SeasonAggregationPolicy.CUMULATIVE
+        first = _NormalizedHero(
+            "1026", "榛蛛", 10, 5, 20, 10,
+            quick=NormalizedModeStats(matches=10, wins=5, kills=100, hero_damage=1000),
+            competitive=NormalizedModeStats(matches=20, wins=10, kills=200, hero_damage=2000),
+        )
+        second = _NormalizedHero(
+            "1026", "榛蛛", 15, 8, 30, 15,
+            quick=NormalizedModeStats(matches=15, wins=8, kills=160, hero_damage=1500),
+            competitive=NormalizedModeStats(matches=30, wins=15, kills=300, hero_damage=3500),
+        )
+        adjusted = service._apply_policy([
+            _NormalizedSeason("1", "S0", {"1026": first}),
+            _NormalizedSeason("2", "S1", {"1026": second}),
+        ])
+        self.assertEqual(adjusted[1].heroes["1026"].competitive.kills, 100)
+        self.assertEqual(adjusted[1].heroes["1026"].competitive.hero_damage, 1500)
 
     def test_sort_key_keeps_zero_delta_and_stability_as_real_values(self):
         zero = SimpleNamespace(

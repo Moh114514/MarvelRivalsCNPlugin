@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from ..meta.models import HeroMetaOverview
 
@@ -96,6 +97,136 @@ class PlayerMetaProfile:
 
 
 @dataclass(slots=True)
+class NormalizedModeStats:
+    """Additive per-mode HeroCareer statistics used by career analysis."""
+
+    matches: int | None = None
+    wins: int | None = None
+    kills: int | None = None
+    final_hits: int | None = None
+    deaths: int | None = None
+    assists: int | None = None
+    hero_damage: int | None = None
+    heal: int | None = None
+    damage_taken: int | None = None
+    play_time: float | None = None
+    mvp: int | None = None
+    svp: int | None = None
+
+    @classmethod
+    def from_mode(cls, mode: Any) -> "NormalizedModeStats":
+        if mode is None:
+            return cls()
+        hero_damage = getattr(mode, "hero_damage", None)
+        if hero_damage is None:
+            hero_damage = getattr(mode, "damage", None)
+        play_time = getattr(mode, "play_time", None)
+        if play_time is None:
+            play_time = getattr(mode, "play_time_seconds", None)
+        return cls(
+            matches=_optional_int(getattr(mode, "matches", None)),
+            wins=_optional_int(getattr(mode, "wins", None)),
+            kills=_optional_int(getattr(mode, "kills", None)),
+            final_hits=_optional_int(getattr(mode, "final_hits", None)),
+            deaths=_optional_int(getattr(mode, "deaths", None)),
+            assists=_optional_int(getattr(mode, "assists", None)),
+            hero_damage=_optional_int(hero_damage),
+            heal=_optional_int(getattr(mode, "heal", None)),
+            damage_taken=_optional_int(getattr(mode, "damage_taken", None)),
+            play_time=_optional_float(play_time),
+            mvp=_optional_int(getattr(mode, "mvp", None)),
+            svp=_optional_int(getattr(mode, "svp", None)),
+        )
+
+    @classmethod
+    def from_dict(cls, value: Any) -> "NormalizedModeStats":
+        if not isinstance(value, dict):
+            return cls()
+        return cls(
+            matches=_optional_int(value.get("matches")),
+            wins=_optional_int(value.get("wins")),
+            kills=_optional_int(value.get("kills")),
+            final_hits=_optional_int(value.get("final_hits")),
+            deaths=_optional_int(value.get("deaths")),
+            assists=_optional_int(value.get("assists")),
+            hero_damage=_optional_int(value.get("hero_damage")),
+            heal=_optional_int(value.get("heal")),
+            damage_taken=_optional_int(value.get("damage_taken")),
+            play_time=_optional_float(value.get("play_time")),
+            mvp=_optional_int(value.get("mvp")),
+            svp=_optional_int(value.get("svp")),
+        )
+
+    def difference(self, previous: "NormalizedModeStats | None") -> "NormalizedModeStats":
+        previous = previous or NormalizedModeStats()
+        values: dict[str, int | float | None] = {}
+        for field_name in self.__dataclass_fields__:
+            current = getattr(self, field_name)
+            old = getattr(previous, field_name)
+            if current is None:
+                values[field_name] = None
+            elif field_name != "matches" and previous.matches and old is None:
+                # A cumulative snapshot with an omitted metric cannot produce
+                # a trustworthy delta for a predecessor that had games.
+                values[field_name] = None
+            elif old is None:
+                values[field_name] = max(0, current)
+            else:
+                values[field_name] = max(0, current - old)
+        return type(self)(**values)
+
+    def add(self, other: "NormalizedModeStats") -> "NormalizedModeStats":
+        values: dict[str, int | float | None] = {}
+        for field_name in self.__dataclass_fields__:
+            current = getattr(self, field_name)
+            other_value = getattr(other, field_name)
+            if field_name != "matches" and (
+                (self.matches and current is None)
+                or (other.matches and other_value is None)
+            ):
+                values[field_name] = None
+                continue
+            values[field_name] = _sum_optional(
+                current, other_value
+            )
+        return type(self)(**values)
+
+    @property
+    def win_rate(self) -> float | None:
+        if self.matches and self.wins is not None:
+            return self.wins * 100 / self.matches
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisScope:
+    """Explicit career or one-season scope for player analysis."""
+
+    kind: str
+    season_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"career", "season"}:
+            raise ValueError("分析范围必须是 career 或 season")
+        if self.kind == "career" and self.season_code is not None:
+            raise ValueError("生涯分析不能携带赛季编码")
+        if self.kind == "season" and not str(self.season_code or "").strip():
+            raise ValueError("单赛季分析必须提供赛季编码")
+
+    @classmethod
+    def career(cls) -> "AnalysisScope":
+        return cls("career")
+
+    @classmethod
+    def season(cls, season_code: str | int) -> "AnalysisScope":
+        return cls("season", str(season_code).strip())
+
+    @property
+    def key(self) -> str:
+        return "career" if self.kind == "career" else f"season:{self.season_code}"
+
+
+@dataclass(slots=True)
 class HeroSeasonPerformance:
     """One hero's competitive performance in one historical season."""
 
@@ -154,6 +285,16 @@ class CareerHeroSignature:
     meta_disadvantage: float | None = None
     personal_competitive_disadvantage: float | None = None
     personal_quick_disadvantage: float | None = None
+    scope: AnalysisScope | None = None
+    quick_stats: NormalizedModeStats | None = None
+    competitive_stats: NormalizedModeStats | None = None
+    meta_delta: float | None = None
+    adjusted_meta_delta: float | None = None
+    personal_competitive_delta: float | None = None
+    personal_quick_delta: float | None = None
+    performance_index: float = 0.0
+    signature_score: float = 0.0
+    sickness_score: float = 0.0
 
 
 @dataclass(slots=True)
@@ -176,3 +317,35 @@ class PlayerSignatureProfile:
     meta_source_timestamp: str | None = None
     meta_stale: bool = False
     sick_heroes: tuple[CareerHeroSignature, ...] = ()
+    scope: AnalysisScope = field(default_factory=AnalysisScope.career)
+    heroes: tuple[CareerHeroSignature, ...] = ()
+
+
+class HeroPerformanceAnalysis(CareerHeroSignature):
+    """Public name for the unified Player × Hero analysis ViewModel."""
+
+
+PlayerCareerAnalysis = PlayerSignatureProfile
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _sum_optional(*values: int | float | None) -> int | float | None:
+    present = [value for value in values if value is not None]
+    return sum(present) if present else None

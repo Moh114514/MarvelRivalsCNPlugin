@@ -51,8 +51,9 @@ def _sick_card(index: int, item) -> str:
         '</div>'
         '<div class="mr-sickness-card__score">'
         '<span>绝症指数</span>'
-        f'<strong>{item.sick_score:.1f}</strong>'
+        f'<strong>{getattr(item, "sickness_score", item.sick_score):.1f}</strong>'
         f'<small>{escape_text(sickness_severity(item.sick_score))} · 爱玩 {item.play_index:.1f} · 菜度 {item.weakness_index:.1f}</small>'
+        f'<small>综合表现 {item.performance_index:+.1f}</small>'
         '</div>'
         '</article>'
     )
@@ -85,11 +86,12 @@ def _sickness_glossary() -> str:
 def build_player_sickness_html(profile: PlayerSignatureProfile) -> str:
     first = profile.first_season or "未知"
     latest = profile.latest_season or first
+    scope_label = "生涯" if profile.scope.kind == "career" else profile.scope.season_code
     content = page_header(
         "MY SICKNESS",
         "高使用量相对弱势分析",
-        f"{first} — {latest}",
-        title_cn=f"{profile.player_name} 的绝症",
+        scope_label if scope_label == "生涯" else str(scope_label),
+        title_cn=f"{profile.player_name} 的{scope_label}绝症",
         eyebrow="MY SICKNESS",
         meta_items=(
             ("总场次", f"{profile.total_matches:,}"),

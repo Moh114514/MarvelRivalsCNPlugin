@@ -20,6 +20,69 @@ def _count(value: int | None) -> str:
     return "—" if value is None else f"{value:,}"
 
 
+def _hours(value: float | None) -> str:
+    return "—" if value is None else f"{value / 3600:.1f} 小时"
+
+
+def _mode_analysis_lines(title: str, mode) -> list[str]:
+    if mode is None:
+        return [title, "暂无数据"]
+    matches = getattr(mode, "matches", None)
+    def average(field: str) -> str:
+        value = getattr(mode, field, None)
+        return "—" if value is None or not matches else f"{value / matches:.1f}"
+    return [
+        title,
+        f"场次：{_count(matches)}｜胜率：{_percent(getattr(mode, 'win_rate', None))}",
+        "击败 / 最后一击 / 死亡 / 助攻："
+        f"{_count(getattr(mode, 'kills', None))} / { _count(getattr(mode, 'final_hits', None))} / "
+        f"{_count(getattr(mode, 'deaths', None))} / {_count(getattr(mode, 'assists', None))}",
+        f"场均伤害 / 治疗 / 承伤：{average('hero_damage')} / {average('heal')} / {average('damage_taken')}",
+        f"游戏时长：{_hours(getattr(mode, 'play_time', None))}｜MVP：{_count(getattr(mode, 'mvp', None))}｜SVP：{_count(getattr(mode, 'svp', None))}",
+    ]
+
+
+def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHeroSignature) -> str:
+    """Render one hero from the same ViewModel consumed by list commands."""
+
+    scope = profile.scope
+    scope_label = "生涯" if scope.kind == "career" else scope.season_code
+    performance = float(hero.performance_index or 0.0)
+    if hero.signature_score > 0:
+        conclusion = "强势绝活"
+        explanation = "这是你长期表现明显高于自身及同期环境的英雄。"
+    elif hero.sickness_score > 0:
+        conclusion = "高使用量相对弱势"
+        explanation = "你经常使用它，但相对同期环境和自己的同模式基准表现偏低。"
+    else:
+        conclusion = "潜力 / 常用英雄"
+        explanation = "当前数据尚不足以把它归入强势绝活或高使用量弱势。"
+    lines = [
+        f"{hero.hero_name} · {scope_label}分析",
+        f"玩家：{profile.player_name}（UID：{profile.uid}）",
+        "",
+        conclusion,
+        explanation,
+        f"绝活指数：{hero.signature_score:.1f}｜绝症指数：{hero.sickness_score:.1f}",
+        f"综合表现：{performance:+.1f}｜使用指数：{hero.play_index:.1f}｜可信度：{hero.confidence}",
+        "",
+        "生涯使用",
+        f"总场次：{_count(hero.total_matches)}｜竞技：{_count(hero.competitive_matches)}｜快速：{_count(hero.quick_matches)}",
+        f"活跃赛季：{hero.active_seasons}",
+        "",
+        "竞技环境比较",
+        f"个人竞技胜率：{_percent(hero.actual_win_rate)}｜同期同段位 Meta：{_percent(hero.expected_meta_win_rate)}",
+        f"Meta 表现：{_delta(hero.adjusted_meta_delta if hero.adjusted_meta_delta is not None else hero.adjusted_delta)}",
+        f"个人竞技相对表现：{_delta(hero.personal_competitive_delta)}",
+        f"个人快速相对表现：{_delta(hero.personal_quick_delta)}",
+        "",
+    ]
+    lines.extend(_mode_analysis_lines("竞技详细数据", hero.competitive_stats))
+    lines.append("")
+    lines.extend(_mode_analysis_lines("快速详细数据", hero.quick_stats))
+    return "\n".join(lines)
+
+
 def _timestamp(value: datetime | None) -> str:
     if value is None:
         return "未知"
@@ -100,15 +163,20 @@ def format_player_signature(profile: PlayerMetaProfile) -> str:
 
 
 def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
-    scope = "—" if not profile.first_season else profile.first_season
-    if profile.latest_season and profile.latest_season != profile.first_season:
+    analysis_scope = getattr(profile, "scope", None)
+    scope = (
+        "生涯"
+        if analysis_scope is not None and analysis_scope.kind == "career"
+        else (analysis_scope.season_code if analysis_scope is not None else ("—" if not profile.first_season else profile.first_season))
+    )
+    if analysis_scope is None and profile.latest_season and profile.latest_season != profile.first_season:
         scope = f"{scope} → {profile.latest_season}"
     lines = [
-        "我的绝活｜生涯综合",
+        f"我的绝活｜{scope}分析",
         f"玩家：{profile.player_name}（UID：{profile.uid}）",
         f"统计范围：{scope}",
         f"Meta 覆盖：{profile.meta_coverage:.0f}%",
-        f"生涯总场次：{_count(profile.total_matches)} · 竞技：{_count(profile.competitive_matches)}",
+        f"{scope}总场次：{_count(profile.total_matches)} · 竞技：{_count(profile.competitive_matches)}",
     ]
     if profile.partial:
         lines.append("提示：部分历史赛季未能获取，以下为可用数据的阶段性结果")
@@ -125,7 +193,7 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
         else:
             lines.extend(("", "暂未形成数据上明确的长期绝活，以下为最接近的英雄。"))
         return "\n".join(lines)
-    lines.extend(("", "生涯绝活 Top 5"))
+    lines.extend(("", f"{scope}绝活 Top 5"))
     for index, item in enumerate(profile.signature_heroes, 1):
         tags = " · ".join((item.classification, *item.tags))
         lines.extend(
@@ -135,6 +203,7 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 f"总计：{_count(item.total_matches)} 场 · 竞技：{_count(item.competitive_matches)} 场",
                 f"竞技胜率：{_percent(item.actual_win_rate)} · 同期 Meta：{_percent(item.expected_meta_win_rate)}",
                 f"环境领先：{_delta(item.raw_delta)} · 稳健领先：{_delta(item.adjusted_delta)}",
+                f"综合表现：{item.performance_index:+.1f} · 使用指数：{item.play_index:.1f} · 绝活指数：{item.signature_score:.1f}",
                 f"有效赛季：{item.effective_seasons} · 高于环境：{item.positive_seasons} · 稳定性：{_percent(item.stability)}",
                 f"可信度：{item.confidence} · Meta 覆盖：{item.meta_coverage:.0f}%",
             )
@@ -144,21 +213,26 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
             "",
             "竞技表现按各赛季玩家历史段位与同期 Meta 进行校正",
             "小样本已进行可信度收缩",
-            "快速模式仅参与英雄使用量统计",
+            "快速模式参与使用量、个人快速基准和综合表现，但不直接与 Meta 比较",
         )
     )
     return "\n".join(lines)
 
 
 def format_player_sickness(profile: PlayerSignatureProfile) -> str:
-    scope = "—" if not profile.first_season else profile.first_season
-    if profile.latest_season and profile.latest_season != profile.first_season:
+    analysis_scope = getattr(profile, "scope", None)
+    scope = (
+        "生涯"
+        if analysis_scope is not None and analysis_scope.kind == "career"
+        else (analysis_scope.season_code if analysis_scope is not None else ("—" if not profile.first_season else profile.first_season))
+    )
+    if analysis_scope is None and profile.latest_season and profile.latest_season != profile.first_season:
         scope = f"{scope} → {profile.latest_season}"
     competitive_total = int(getattr(profile, "competitive_matches", 0) or 0)
     total_matches = int(getattr(profile, "total_matches", competitive_total) or competitive_total)
     quick_total = max(0, total_matches - competitive_total)
     lines = [
-        "我的绝症",
+        f"我的绝症｜{scope}分析",
         f"玩家：{profile.player_name}（UID：{profile.uid}）",
         f"统计范围：{scope}",
         f"总场次：{_count(total_matches)} · 竞技：{_count(competitive_total)} · 快速：{_count(quick_total)}",
@@ -185,6 +259,7 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
                 f"竞技胜率：{_percent(item.actual_win_rate)} · 快速胜率：{_percent(item.quick_win_rate)} · 同期 Meta：{_percent(item.expected_meta_win_rate)}",
                 f"Meta 劣势：{_delta(item.meta_disadvantage)} · 个人竞技劣势：{_delta(item.personal_competitive_disadvantage)} · 个人快速劣势：{_delta(item.personal_quick_disadvantage)}",
                 f"爱玩指数：{item.play_index:.1f} · 菜度指数：{item.weakness_index:.1f} · 绝症指数：{item.sick_score:.1f}（{sickness_severity(item.sick_score)}）",
+                f"综合表现：{item.performance_index:+.1f} · 统一绝症指数：{item.sickness_score:.1f}",
                 f"稳健环境差值：{_delta(item.adjusted_delta)} · 可信度：{item.confidence} · Meta 覆盖：{item.meta_coverage:.0f}%",
             )
         )
@@ -199,6 +274,7 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
 
 
 __all__ = [
+    "format_player_hero_analysis",
     "format_player_environment",
     "format_player_hero_pool",
     "format_player_sickness",

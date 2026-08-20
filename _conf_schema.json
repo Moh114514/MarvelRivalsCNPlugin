@@ -92,7 +92,7 @@
     "default": "independent"
   },
   "MRCN_SIGNATURE_RESULT_CACHE_SECONDS": {
-    "description": "Fresh cache duration for final player specialty profiles",
+    "description": "Fresh cache duration for final player career-analysis profiles (career and season scopes are isolated)",
     "type": "int",
     "default": 900
   },

@@ -17,18 +17,28 @@ from pathlib import Path
 from typing import Any
 
 from ..models import PlayerHeroStats, PlayerProfile
-from ..reference.heroes import HERO_ID_MAP, get_hero_name
+from ..reference.heroes import HERO_ID_MAP, get_hero_id, get_hero_name
 from ..reference.ranks import CN_RANK_LEVEL_MAP, get_rank_label, meta_rank_from_cn_level
-from ..reference.seasons import CN_SEASON_CODES, season_identity_from_cn_code
+from ..reference.seasons import CN_SEASON_CODES, parse_season_name, season_identity_from_cn_code
 from ..datasource.base import GameMode
-from .models import CareerHeroSignature, HeroSeasonPerformance, PlayerSignatureProfile
+from .models import (
+    AnalysisScope,
+    CareerHeroSignature,
+    HeroPerformanceAnalysis,
+    HeroSeasonPerformance,
+    NormalizedModeStats,
+    PlayerSignatureProfile,
+)
 from .player_meta import PlayerMetaQueryError
 from .signature_rules import (
     SIGNATURE_PRIOR_MATCHES,
     adjust_delta,
     build_signature_tags,
     calculate_confidence,
+    calculate_performance_index,
+    calculate_performance_sickness_score,
     calculate_play_index,
+    calculate_signature_score,
     calculate_sick_score,
     calculate_weakness_index,
     classify_signature,
@@ -40,7 +50,7 @@ from .signature_rules import (
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 5
+SIGNATURE_CACHE_SCHEMA_VERSION = 6
 SICKNESS_TOP_N = 10
 
 
@@ -67,12 +77,39 @@ class _NormalizedHero:
     quick_wins: int | None
     competitive_matches: int | None
     competitive_wins: int | None
+    quick: NormalizedModeStats | None = None
+    competitive: NormalizedModeStats | None = None
+
+    def __post_init__(self) -> None:
+        if self.quick is None:
+            self.quick = NormalizedModeStats(
+                matches=self.quick_matches,
+                wins=self.quick_wins,
+            )
+        else:
+            self.quick_matches = self.quick.matches
+            self.quick_wins = self.quick.wins
+        if self.competitive is None:
+            self.competitive = NormalizedModeStats(
+                matches=self.competitive_matches,
+                wins=self.competitive_wins,
+            )
+        else:
+            self.competitive_matches = self.competitive.matches
+            self.competitive_wins = self.competitive.wins
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "_NormalizedHero":
+        quick_value = value.get("quick")
+        competitive_value = value.get("competitive")
+        quick = NormalizedModeStats.from_dict(quick_value) if isinstance(quick_value, dict) else None
+        competitive = (
+            NormalizedModeStats.from_dict(competitive_value)
+            if isinstance(competitive_value, dict) else None
+        )
         return cls(
             hero_id=str(value.get("hero_id", "")),
             hero_name=str(value.get("hero_name", "未知英雄")),
@@ -80,6 +117,8 @@ class _NormalizedHero:
             quick_wins=_optional_int(value.get("quick_wins")),
             competitive_matches=_optional_int(value.get("competitive_matches")),
             competitive_wins=_optional_int(value.get("competitive_wins")),
+            quick=quick,
+            competitive=competitive,
         )
 
 
@@ -111,7 +150,7 @@ class _NormalizedSeason:
 
 
 class SignatureCache:
-    """Small JSON cache for normalized season data and final profiles."""
+    """L1 normalized-season and L3 scope-aware analysis cache."""
 
     def __init__(
         self,
@@ -121,7 +160,7 @@ class SignatureCache:
         current_seconds: float = 30 * 60,
         result_seconds: float = 15 * 60,
     ) -> None:
-        self.root = Path(root) / "signature" if root else None
+        self.root = Path(root) / "analysis" if root else None
         self.historical_seconds = max(0.0, float(historical_seconds))
         self.current_seconds = max(0.0, float(current_seconds))
         self.result_seconds = max(0.0, float(result_seconds))
@@ -135,7 +174,8 @@ class SignatureCache:
     def _path(self, prefix: str, uid: str, season: str | None = None) -> Path | None:
         if self.root is None:
             return None
-        suffix = f"_{season}" if season is not None else ""
+        safe_season = str(season).replace(":", "_") if season is not None else None
+        suffix = f"_{safe_season}" if safe_season is not None else ""
         return self.root / f"{prefix}_{uid}{suffix}.json"
 
     def _read(self, path: Path | None, ttl: float) -> dict[str, Any] | None:
@@ -176,7 +216,13 @@ class SignatureCache:
     def load_season(self, uid: str, season: str, *, current: bool) -> _NormalizedSeason | None:
         ttl = self.current_seconds if current else self.historical_seconds
         payload = self._read(self._path("season", uid, season), ttl)
-        return _NormalizedSeason.from_dict(payload) if payload else None
+        if not payload:
+            return None
+        try:
+            return _NormalizedSeason.from_dict(payload)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            logger.warning("绝活赛季缓存结构无效，已忽略文件=%s", self._path("season", uid, season).name)
+            return None
 
     def save_season(self, uid: str, season: _NormalizedSeason) -> None:
         self._write(
@@ -186,14 +232,25 @@ class SignatureCache:
             season=season.season_code,
         )
 
-    def load_profile(self, uid: str) -> PlayerSignatureProfile | None:
-        payload = self._read(self._path("profile", uid), self.result_seconds)
+    def load_profile(
+        self,
+        uid: str,
+        scope: AnalysisScope | None = None,
+    ) -> PlayerSignatureProfile | None:
+        scope = scope or AnalysisScope.career()
+        payload = self._read(self._path("analysis", uid, scope.key), self.result_seconds)
         if not payload:
             return None
         try:
+            hero_payload = payload.get("heroes", payload.get("signature_heroes", []))
             heroes = tuple(
                 _signature_from_dict(item)
-                for item in payload.get("signature_heroes", [])
+                for item in hero_payload
+                if isinstance(item, dict)
+            )
+            signature_heroes = tuple(
+                _signature_from_dict(item)
+                for item in payload.get("signature_heroes", hero_payload)
                 if isinstance(item, dict)
             )
             favorite = payload.get("favorite_hero")
@@ -206,7 +263,7 @@ class SignatureCache:
                 total_matches=int(payload.get("total_matches", 0)),
                 competitive_matches=int(payload.get("competitive_matches", 0)),
                 meta_coverage=float(payload.get("meta_coverage", 0)),
-                signature_heroes=heroes,
+                signature_heroes=signature_heroes,
                 favorite_hero=_signature_from_dict(favorite) if isinstance(favorite, dict) else None,
                 partial=bool(payload.get("partial", False)),
                 failed_seasons=tuple(str(item) for item in payload.get("failed_seasons", [])),
@@ -221,16 +278,27 @@ class SignatureCache:
                     for item in payload.get("sick_heroes", [])
                     if isinstance(item, dict)
                 ),
+                scope=scope,
+                heroes=heroes,
             )
         except (KeyError, TypeError, ValueError):
             return None
 
     def save_profile(self, profile: PlayerSignatureProfile) -> None:
-        self._write(self._path("profile", profile.uid), _profile_to_dict(profile), uid=profile.uid)
+        scope = profile.scope or AnalysisScope.career()
+        self._write(
+            self._path("analysis", profile.uid, scope.key),
+            _profile_to_dict(profile),
+            uid=profile.uid,
+            scope=scope.key,
+        )
 
 
-class PlayerSignatureService:
-    """Build a cross-season signature without changing PlayerMetaService."""
+CareerAnalysisCache = SignatureCache
+
+
+class PlayerCareerAnalysisService:
+    """Build one shared Player × Hero analysis for every consumer."""
 
     def __init__(
         self,
@@ -264,36 +332,132 @@ class PlayerSignatureService:
         self._request_semaphore: asyncio.Semaphore | None = None
         self._memory_profiles: dict[str, tuple[float, PlayerSignatureProfile]] = {}
 
-    async def get_player_signature(self, uid: str, *, top_n: int = 5) -> PlayerSignatureProfile:
+    async def get_analysis(
+        self,
+        uid: str,
+        scope: AnalysisScope | None = None,
+    ) -> PlayerSignatureProfile:
+        """Return all hero analyses for an explicit career/season scope."""
+
         normalized_uid = str(uid).strip()
         if not normalized_uid.isdigit():
             raise PlayerMetaQueryError("UID 必须是数字")
         if self.meta_service is None:
             raise PlayerMetaQueryError("当前未启用英雄环境功能")
-        top_n = max(1, int(top_n))
+        scope = self._normalize_scope(scope)
+        cache_key = f"{normalized_uid}:{scope.key}"
         now = time.monotonic()
-        cached = self._memory_profiles.get(normalized_uid)
+        cached = self._memory_profiles.get(cache_key)
         if cached and now - cached[0] < self.cache.result_seconds:
-            return _limit_profile(cached[1], top_n)
-        disk_profile = self.cache.load_profile(normalized_uid)
+            return cached[1]
+        disk_profile = self.cache.load_profile(normalized_uid, scope)
         if disk_profile is not None:
-            self._memory_profiles[normalized_uid] = (now, disk_profile)
-            return _limit_profile(disk_profile, top_n)
+            self._memory_profiles[cache_key] = (now, disk_profile)
+            return disk_profile
 
-        current = self._inflight.get(normalized_uid)
+        current = self._inflight.get(cache_key)
         if current is None:
-            current = asyncio.create_task(self._build_profile(normalized_uid))
-            self._inflight[normalized_uid] = current
+            current = asyncio.create_task(self._build_profile(normalized_uid, scope))
+            self._inflight[cache_key] = current
         try:
-            profile = await current
-            return _limit_profile(profile, top_n)
+            return await current
         finally:
-            if self._inflight.get(normalized_uid) is current:
-                self._inflight.pop(normalized_uid, None)
+            if self._inflight.get(cache_key) is current:
+                self._inflight.pop(cache_key, None)
 
-    async def _build_profile(self, uid: str) -> PlayerSignatureProfile:
+    async def get_hero_analysis(
+        self,
+        uid: str,
+        hero_id: str | int,
+        scope: AnalysisScope | None = None,
+    ) -> CareerHeroSignature:
+        normalized = str(hero_id).strip()
+        if not normalized.isdigit():
+            try:
+                normalized = str(get_hero_id(normalized))
+            except ValueError as exc:
+                raise PlayerMetaQueryError(str(exc)) from exc
+        profile = await self.get_analysis(uid, scope)
+        for hero in profile.heroes:
+            if str(hero.hero_id) == normalized:
+                return hero
+        raise PlayerMetaQueryError("未找到该英雄的可用数据")
+
+    async def get_signature_heroes(
+        self,
+        uid: str,
+        scope: AnalysisScope | None = None,
+        *,
+        top_n: int = 5,
+    ) -> tuple[CareerHeroSignature, ...]:
+        profile = await self.get_analysis(uid, scope)
+        candidates = [hero for hero in profile.heroes if hero.signature_score > 0]
+        return tuple(sorted(candidates, key=_signature_score_sort_key)[:max(1, int(top_n))])
+
+    async def get_sick_heroes(
+        self,
+        uid: str,
+        scope: AnalysisScope | None = None,
+        *,
+        top_n: int = SICKNESS_TOP_N,
+    ) -> tuple[CareerHeroSignature, ...]:
+        profile = await self.get_analysis(uid, scope)
+        candidates = [hero for hero in profile.heroes if hero.sickness_score > 0]
+        return tuple(sorted(candidates, key=sick_hero_sort_key)[:max(1, int(top_n))])
+
+    async def get_player_signature(
+        self,
+        uid: str,
+        *,
+        top_n: int = 5,
+        season: str | None = None,
+    ) -> PlayerSignatureProfile:
+        """Compatibility facade for the former specialty service."""
+
+        scope = self._scope_from_season(season)
+        return _limit_profile(await self.get_analysis(uid, scope), top_n)
+
+    @staticmethod
+    def _normalize_scope(scope: AnalysisScope | None) -> AnalysisScope:
+        if scope is None:
+            return AnalysisScope.career()
+        if not isinstance(scope, AnalysisScope):
+            raise TypeError("scope 必须是 AnalysisScope")
+        return scope
+
+    @staticmethod
+    def _scope_from_season(season: str | None) -> AnalysisScope:
+        if season is None or not str(season).strip():
+            return AnalysisScope.career()
+        try:
+            return AnalysisScope.season(parse_season_name(str(season)))
+        except ValueError as exc:
+            raise PlayerMetaQueryError(str(exc)) from exc
+
+    async def _build_profile(
+        self,
+        uid: str,
+        scope: AnalysisScope = AnalysisScope.career(),
+    ) -> PlayerSignatureProfile:
         profile = await self._get_profile_history(uid)
-        season_codes = [code for _name, code in sorted(CN_SEASON_CODES.items(), key=lambda pair: int(pair[1]))]
+        all_season_codes = [
+            code for _name, code in sorted(CN_SEASON_CODES.items(), key=lambda pair: int(pair[1]))
+        ]
+        season_codes = (
+            all_season_codes
+            if scope.kind == "career"
+            else [str(scope.season_code)]
+        )
+        target_season_code = str(scope.season_code) if scope.kind == "season" else None
+        baseline_season_code = None
+        if self.season_policy is SeasonAggregationPolicy.CUMULATIVE and target_season_code:
+            previous_codes = [
+                code for code in all_season_codes
+                if int(code) < int(target_season_code)
+            ]
+            baseline_season_code = previous_codes[-1] if previous_codes else None
+            if baseline_season_code is not None:
+                season_codes = [baseline_season_code, target_season_code]
         normalized_seasons: list[_NormalizedSeason] = []
         failed_seasons: list[str] = []
         partial = False
@@ -318,7 +482,19 @@ class PlayerSignatureService:
             normalized_seasons.append(season_data)
             self.cache.save_season(uid, season_data)
 
+        loaded_codes = {season.season_code for season in normalized_seasons}
         normalized_seasons = self._apply_policy(normalized_seasons)
+        if target_season_code is not None:
+            if baseline_season_code is not None and baseline_season_code not in loaded_codes:
+                # A cumulative target without its predecessor is not a valid
+                # season delta. Avoid presenting the raw cumulative snapshot.
+                partial = True
+                normalized_seasons = []
+            else:
+                normalized_seasons = [
+                    season for season in normalized_seasons
+                    if season.season_code == target_season_code
+                ]
         active_seasons = [
             season for season in normalized_seasons if any(
                 (hero.quick_matches or 0) > 0 or (hero.competitive_matches or 0) > 0
@@ -355,8 +531,8 @@ class PlayerSignatureService:
         await asyncio.gather(*(load_meta(season) for season in meta_seasons))
         meta_stale = any(bool(getattr(board, "stale", False)) for board in meta_boards.values())
         partial = partial or meta_failures > 0 or meta_stale
-        signatures = self._build_signatures(profile, active_seasons, meta_boards)
-        signatures = self._add_sickness_scores(signatures)
+        signatures = self._build_signatures(profile, active_seasons, meta_boards, scope=scope)
+        signatures = self._add_sickness_scores(signatures, active_seasons, scope=scope)
         total_matches = sum(item.total_matches for item in signatures)
         competitive_matches = sum(item.competitive_matches for item in signatures)
         comparable_matches = sum(item.comparable_matches for item in signatures)
@@ -395,12 +571,18 @@ class PlayerSignatureService:
                         has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
                         adjusted_delta=item.adjusted_delta,
                         comparable_matches=item.comparable_matches,
-                    )
+                    ) and item.sickness_score > 0
                 ),
                 key=sick_hero_sort_key,
         )[:SICKNESS_TOP_N]
         )
-        signatures.sort(key=classification_sort_key)
+        all_heroes = tuple(signatures)
+        signature_heroes = tuple(
+            sorted(
+                (item for item in signatures if item.signature_score > 0),
+                key=_signature_score_sort_key,
+            )[:5]
+        )
         result = PlayerSignatureProfile(
             uid=uid,
             player_name=getattr(profile, "name", "未知") or "未知",
@@ -410,7 +592,7 @@ class PlayerSignatureService:
             total_matches=total_matches,
             competitive_matches=competitive_matches,
             meta_coverage=meta_coverage,
-            signature_heroes=tuple(signatures[:5]),
+            signature_heroes=signature_heroes,
             favorite_hero=favorite,
             partial=partial,
             failed_seasons=tuple(failed_seasons),
@@ -421,66 +603,91 @@ class PlayerSignatureService:
             meta_source_timestamp=_latest_meta_timestamp(meta_boards.values()),
             meta_stale=meta_stale,
             sick_heroes=sick_heroes,
+            scope=scope,
+            heroes=all_heroes,
         )
-        self._memory_profiles[uid] = (time.monotonic(), result)
+        self._memory_profiles[f"{uid}:{scope.key}"] = (time.monotonic(), result)
         self.cache.save_profile(result)
         return result
 
     @staticmethod
     def _add_sickness_scores(
         signatures: list[CareerHeroSignature],
+        seasons: list[_NormalizedSeason] | None = None,
+        *,
+        scope: AnalysisScope = AnalysisScope.career(),
     ) -> list[CareerHeroSignature]:
-        """Add the relative sickness ranking signals to each hero."""
+        """Calculate the shared signed Performance/Play analysis.
+
+        Personal baselines are computed inside each season and mode before
+        being weighted across seasons.  This avoids confusing a player's
+        improvement over time with a hero-specific advantage.
+        """
 
         enriched: list[CareerHeroSignature] = []
         for item in signatures:
-            meta_disadvantage = (
-                max(0.0, -float(item.adjusted_delta))
-                if item.adjusted_delta is not None
-                else None
+            personal_competitive = (
+                _season_weighted_personal_delta(item.hero_id, seasons or [], "competitive")
+                if seasons is not None else None
             )
-            personal_competitive = _leave_one_out_disadvantage(
-                item,
-                signatures,
-                matches_attr="competitive_matches",
-                wins_attr="competitive_wins",
-                rate_attr="actual_win_rate",
-            )
-            personal_quick = _leave_one_out_disadvantage(
-                item,
-                signatures,
-                matches_attr="quick_matches",
-                wins_attr="quick_wins",
-                rate_attr="quick_win_rate",
+            personal_quick = (
+                _season_weighted_personal_delta(item.hero_id, seasons or [], "quick")
+                if seasons is not None else None
             )
             play_index = calculate_play_index(
                 competitive_matches=item.competitive_matches,
                 quick_matches=item.quick_matches,
                 usage_share=item.usage_share,
+                competitive_cap=20 if scope.kind == "season" else 50,
+                quick_cap=20 if scope.kind == "season" else 50,
             )
-            weakness_index = calculate_weakness_index(
-                meta_disadvantage=meta_disadvantage,
-                personal_competitive_disadvantage=personal_competitive,
-                personal_quick_disadvantage=personal_quick,
+            performance_index = calculate_performance_index(
+                meta_delta=item.adjusted_delta,
+                personal_competitive_delta=personal_competitive,
+                personal_quick_delta=personal_quick,
             )
+            weakness_index = max(0.0, -performance_index)
+            meta_disadvantage = (
+                max(0.0, -float(item.adjusted_delta))
+                if item.adjusted_delta is not None else None
+            )
+            sickness_candidate = is_sickness_candidate(
+                total_matches=item.total_matches,
+                competitive_matches=item.competitive_matches,
+                quick_matches=item.quick_matches,
+                has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
+                adjusted_delta=item.adjusted_delta,
+                comparable_matches=item.comparable_matches,
+            )
+            sickness_score = (
+                calculate_performance_sickness_score(play_index, performance_index)
+                if sickness_candidate and performance_index < 0 else 0.0
+            )
+            classification = item.classification if performance_index > 0 else "常用英雄"
+            if performance_index > 0 and classification == "常用英雄":
+                classification = "潜力绝活"
             enriched.append(
                 replace(
                     item,
-                    sick_score=calculate_sick_score(
-                        play_index=play_index,
-                        weakness_index=weakness_index,
-                        total_matches=item.total_matches,
-                        competitive_matches=item.competitive_matches,
-                        quick_matches=item.quick_matches,
-                        has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
-                        adjusted_delta=item.adjusted_delta,
-                        comparable_matches=item.comparable_matches,
-                    ),
+                    classification=classification,
+                    stability=item.stability if scope.kind == "career" else None,
                     play_index=play_index,
                     weakness_index=weakness_index,
                     meta_disadvantage=meta_disadvantage,
-                    personal_competitive_disadvantage=personal_competitive,
-                    personal_quick_disadvantage=personal_quick,
+                    personal_competitive_disadvantage=(
+                        max(0.0, -personal_competitive)
+                        if personal_competitive is not None else None
+                    ),
+                    personal_quick_disadvantage=(
+                        max(0.0, -personal_quick)
+                        if personal_quick is not None else None
+                    ),
+                    personal_competitive_delta=personal_competitive,
+                    personal_quick_delta=personal_quick,
+                    performance_index=performance_index,
+                    signature_score=calculate_signature_score(play_index, performance_index),
+                    sickness_score=sickness_score,
+                    sick_score=sickness_score,
                 )
             )
         return enriched
@@ -530,6 +737,8 @@ class PlayerSignatureService:
                 quick_wins=quick_scope[1],
                 competitive_matches=competitive_scope[0],
                 competitive_wins=competitive_scope[1],
+                quick=NormalizedModeStats.from_mode(quick_scope[2]),
+                competitive=NormalizedModeStats.from_mode(competitive_scope[2]),
             )
         return _NormalizedSeason(season_code, season_label, heroes)
 
@@ -549,6 +758,10 @@ class PlayerSignatureService:
                     quick_wins=_difference(hero.quick_wins, old.quick_wins if old else None),
                     competitive_matches=_difference(hero.competitive_matches, old.competitive_matches if old else None),
                     competitive_wins=_difference(hero.competitive_wins, old.competitive_wins if old else None),
+                    quick=(hero.quick or NormalizedModeStats()).difference(old.quick if old else None),
+                    competitive=(hero.competitive or NormalizedModeStats()).difference(
+                        old.competitive if old else None
+                    ),
                 )
             # A missing hero row is not a zero cumulative snapshot. Keep the
             # last known cumulative value so a later reappearing row is
@@ -562,10 +775,13 @@ class PlayerSignatureService:
         profile: PlayerProfile,
         seasons: list[_NormalizedSeason],
         boards: dict[str, Any],
+        *,
+        scope: AnalysisScope,
     ) -> list[CareerHeroSignature]:
         hero_ids = sorted({hero_id for season in seasons for hero_id in season.heroes})
-        all_competitive = sum(
-            max(0, int(hero.competitive_matches or 0))
+        all_matches = sum(
+            max(0, int(hero.quick_matches or 0))
+            + max(0, int(hero.competitive_matches or 0))
             for season in seasons for hero in season.heroes.values()
         )
         result: list[CareerHeroSignature] = []
@@ -580,13 +796,23 @@ class PlayerSignatureService:
             expected_wins = 0.0
             rank_specific_matches = 0
             active = competitive = 0
+            quick_stats = NormalizedModeStats()
+            competitive_stats = NormalizedModeStats()
             hero_name = get_hero_name(hero_id)
             for season in seasons:
                 hero = season.heroes.get(hero_id)
                 if hero is None:
                     continue
-                q = max(0, int(hero.quick_matches or 0))
-                c = max(0, int(hero.competitive_matches or 0))
+                q_stats = hero.quick or NormalizedModeStats(
+                    matches=hero.quick_matches, wins=hero.quick_wins
+                )
+                c_stats = hero.competitive or NormalizedModeStats(
+                    matches=hero.competitive_matches, wins=hero.competitive_wins
+                )
+                quick_stats = quick_stats.add(q_stats)
+                competitive_stats = competitive_stats.add(c_stats)
+                q = max(0, int(q_stats.matches or 0))
+                c = max(0, int(c_stats.matches or 0))
                 total_matches += q + c
                 quick_matches += q
                 competitive_matches += c
@@ -594,14 +820,14 @@ class PlayerSignatureService:
                     active += 1
                 if c > 0:
                     competitive += 1
-                if hero.quick_wins is None and q > 0:
+                if q_stats.wins is None and q > 0:
                     quick_wins_known = False
-                elif hero.quick_wins is not None and q > 0:
-                    quick_wins_total += max(0, int(hero.quick_wins))
-                if hero.competitive_wins is None and c > 0:
+                elif q_stats.wins is not None and q > 0:
+                    quick_wins_total += max(0, int(q_stats.wins))
+                if c_stats.wins is None and c > 0:
                     wins_known = False
-                elif hero.competitive_wins is not None and c > 0:
-                    competitive_wins_total += max(0, int(hero.competitive_wins))
+                elif c_stats.wins is not None and c > 0:
+                    competitive_wins_total += max(0, int(c_stats.wins))
                 hero_name = hero.hero_name or hero_name
 
                 rank_level = _rank_level_for(profile, season.season_code)
@@ -610,15 +836,15 @@ class PlayerSignatureService:
                 board = boards.get(season.season_code)
                 meta_result = _meta_result(board, hero_id)
                 comp_wr = (
-                    hero.competitive_wins * 100 / c
-                    if c > 0 and hero.competitive_wins is not None
+                    c_stats.wins * 100 / c
+                    if c > 0 and c_stats.wins is not None
                     else None
                 )
                 meta_wr = getattr(meta_result, "win_rate", None)
                 raw_delta = comp_wr - meta_wr if comp_wr is not None and meta_wr is not None else None
                 if raw_delta is not None:
                     comparable_matches += c
-                    comparable_wins += int(hero.competitive_wins or 0)
+                    comparable_wins += int(c_stats.wins or 0)
                     expected_wins += c * float(meta_wr) / 100
                     if not rank_fallback:
                         rank_specific_matches += c
@@ -631,7 +857,7 @@ class PlayerSignatureService:
                     meta_rank_label=getattr(board, "rank_label", None) or get_rank_label(str(rank_code or "all")),
                     quick_matches=q,
                     competitive_matches=c,
-                    competitive_wins=hero.competitive_wins,
+                    competitive_wins=c_stats.wins,
                     competitive_win_rate=comp_wr,
                     meta_matches=getattr(meta_result, "matches", None),
                     meta_win_rate=meta_wr,
@@ -670,17 +896,14 @@ class PlayerSignatureService:
                 # same evidence as a same-rank comparison for classification.
                 meta_coverage=min(meta_coverage, rank_coverage),
             )
-            result.append(CareerHeroSignature(
+            result.append(HeroPerformanceAnalysis(
                 hero_id=hero_id,
                 hero_name=hero_name,
                 total_matches=total_matches,
                 quick_matches=quick_matches,
                 competitive_matches=competitive_matches,
                 competitive_wins=competitive_wins_total if wins_known else None,
-                usage_share=total_matches * 100 / max(1, sum(
-                    max(0, int(item.quick_matches or 0)) + max(0, int(item.competitive_matches or 0))
-                    for season in seasons for item in season.heroes.values()
-                )),
+                usage_share=total_matches * 100 / max(1, all_matches),
                 actual_win_rate=actual,
                 expected_meta_win_rate=expected,
                 raw_delta=raw_delta,
@@ -704,6 +927,11 @@ class PlayerSignatureService:
                     if quick_wins_known and quick_matches
                     else None
                 ),
+                scope=scope,
+                quick_stats=quick_stats,
+                competitive_stats=competitive_stats,
+                meta_delta=raw_delta,
+                adjusted_meta_delta=adjusted,
             ))
         return result
 
@@ -725,15 +953,22 @@ def _difference(current: int | None, previous: int | None) -> int | None:
     return max(0, int(current) - int(previous))
 
 
-def _scope(hero: PlayerHeroStats | None, scope_name: str) -> tuple[int | None, int | None]:
+def _scope(
+    hero: PlayerHeroStats | None,
+    scope_name: str,
+) -> tuple[int | None, int | None, Any | None]:
     if hero is None:
-        return None, None
+        return None, None, None
     scope = getattr(hero, scope_name, None)
     if scope is None and scope_name == "competitive":
         scope = getattr(hero, "ranked", None)
     if scope is None:
-        return None, None
-    return _optional_int(getattr(scope, "matches", None)), _optional_int(getattr(scope, "wins", None))
+        return None, None, None
+    return (
+        _optional_int(getattr(scope, "matches", None)),
+        _optional_int(getattr(scope, "wins", None)),
+        scope,
+    )
 
 
 def _rank_level_for(profile: PlayerProfile, season_code: str) -> int | None:
@@ -758,6 +993,45 @@ def _meta_result(board: Any, hero_id: str) -> Any | None:
 
 def _coverage(numerator: int, denominator: int) -> float:
     return numerator * 100 / denominator if denominator else 0.0
+
+
+def _season_weighted_personal_delta(
+    hero_id: str,
+    seasons: list[_NormalizedSeason],
+    mode_name: str,
+) -> float | None:
+    """Compare a hero with same-season, same-mode leave-one-out baselines."""
+
+    weighted_delta = 0.0
+    weighted_matches = 0
+    for season in seasons:
+        hero = season.heroes.get(hero_id)
+        if hero is None:
+            continue
+        current = getattr(hero, mode_name, None) or NormalizedModeStats()
+        matches = int(current.matches or 0)
+        if matches <= 0 or current.wins is None:
+            continue
+        other_matches = 0
+        other_wins = 0
+        for other_id, other in season.heroes.items():
+            if other_id == hero_id:
+                continue
+            stats = getattr(other, mode_name, None) or NormalizedModeStats()
+            candidate_matches = int(stats.matches or 0)
+            if candidate_matches <= 0 or stats.wins is None:
+                continue
+            other_matches += candidate_matches
+            other_wins += max(0, int(stats.wins))
+        if other_matches <= 0:
+            continue
+        current_rate = float(current.wins) * 100 / matches
+        baseline_rate = other_wins * 100 / other_matches
+        weighted_delta += (current_rate - baseline_rate) * matches
+        weighted_matches += matches
+    if weighted_matches <= 0:
+        return None
+    return weighted_delta / weighted_matches
 
 
 def _leave_one_out_disadvantage(
@@ -797,7 +1071,7 @@ def _is_favorite_eligible(item: CareerHeroSignature) -> bool:
 
 
 def _with_tags(item: CareerHeroSignature, tags: tuple[str, ...]) -> CareerHeroSignature:
-    return CareerHeroSignature(**{**asdict(item), "tags": tags, "seasons": item.seasons})
+    return replace(item, tags=tags)
 
 
 def _signature_from_dict(value: dict[str, Any]) -> CareerHeroSignature:
@@ -805,7 +1079,12 @@ def _signature_from_dict(value: dict[str, Any]) -> CareerHeroSignature:
     data = dict(value)
     data["tags"] = tuple(data.get("tags", ()))
     data["seasons"] = seasons
-    return CareerHeroSignature(**data)
+    if isinstance(data.get("scope"), dict):
+        data["scope"] = AnalysisScope(**data["scope"])
+    for field_name in ("quick_stats", "competitive_stats"):
+        if isinstance(data.get(field_name), dict):
+            data[field_name] = NormalizedModeStats(**data[field_name])
+    return HeroPerformanceAnalysis(**data)
 
 
 def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
@@ -826,6 +1105,8 @@ def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
         "meta_source_timestamp": profile.meta_source_timestamp,
         "meta_stale": profile.meta_stale,
         "sick_heroes": [asdict(item) for item in profile.sick_heroes],
+        "scope": asdict(profile.scope or AnalysisScope.career()),
+        "heroes": [asdict(item) for item in (profile.heroes or profile.signature_heroes)],
     }
 
 
@@ -848,10 +1129,25 @@ def _limit_profile(profile: PlayerSignatureProfile, top_n: int) -> PlayerSignatu
     return replace(profile, signature_heroes=profile.signature_heroes[:top_n])
 
 
+def _signature_score_sort_key(item: Any) -> tuple[float, float, int]:
+    return (
+        -float(getattr(item, "signature_score", 0.0) or 0.0),
+        -float(getattr(item, "performance_index", 0.0) or 0.0),
+        -int(getattr(item, "total_matches", 0) or 0),
+    )
+
+
 __all__ = [
+    "AnalysisScope",
+    "CareerAnalysisCache",
+    "PlayerCareerAnalysisService",
     "PlayerSignatureService",
     "SeasonAggregationPolicy",
     "SIGNATURE_CACHE_SCHEMA_VERSION",
     "SICKNESS_TOP_N",
     "SignatureCache",
 ]
+
+
+# Compatibility name retained for integrations and older plugins.
+PlayerSignatureService = PlayerCareerAnalysisService

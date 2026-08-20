@@ -103,11 +103,13 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
             [(("1287101468",), {"top_n": 5}), (("1287101468",), {"top_n": 5})],
         )
 
-    async def test_signature_legacy_season_and_minimum_arguments_return_migration_hint(self):
+    async def test_signature_accepts_explicit_season_filter(self):
         plugin = plugin_with()
         result = [item async for item in plugin.my_signature(FakeEvent(), "S9.5", "")]
-        self.assertEqual(result[0][0], "text")
-        self.assertIn("不再接受赛季参数", result[0][1])
+        self.assertEqual(result, [("image", "signature.png")])
+        plugin.player_signature_service.get_player_signature.assert_awaited_with(
+            "123", top_n=5, season="S9.5"
+        )
 
     async def test_image_failure_falls_back_to_text(self):
         plugin = plugin_with(render_error=RuntimeError("render"))

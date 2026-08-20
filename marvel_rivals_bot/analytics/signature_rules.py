@@ -90,6 +90,9 @@ def calculate_play_index(
     competitive_matches: int,
     quick_matches: int,
     usage_share: float,
+    *,
+    competitive_cap: int = 50,
+    quick_cap: int = 50,
 ) -> float:
     """Return how much a player keeps returning to a hero, on a 0-100 scale.
 
@@ -98,10 +101,62 @@ def calculate_play_index(
     bound, so one very large number cannot dominate the whole ranking.
     """
 
-    competitive = _score_from_cap(competitive_matches, 50) or 0.0
-    quick = _score_from_cap(quick_matches, 50) or 0.0
+    competitive = _score_from_cap(competitive_matches, competitive_cap) or 0.0
+    quick = _score_from_cap(quick_matches, quick_cap) or 0.0
     share = _score_from_cap(usage_share, 20) or 0.0
     return round(competitive * 0.40 + quick * 0.20 + share * 0.40, 4)
+
+
+def _signed_score(value: float | None, cap: float) -> float | None:
+    if value is None:
+        return None
+    try:
+        return max(-100.0, min(100.0, float(value) / cap * 100))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def calculate_performance_index(
+    *,
+    meta_delta: float | None,
+    personal_competitive_delta: float | None,
+    personal_quick_delta: float | None,
+) -> float:
+    """Combine signed relative signals into one -100..+100 index.
+
+    Missing evidence is omitted and the remaining weights are renormalized;
+    treating an unavailable signal as zero would incorrectly make partial
+    history look neutral.
+    """
+
+    signals = (
+        (meta_delta, 8.0, 0.55),
+        (personal_competitive_delta, 8.0, 0.30),
+        (personal_quick_delta, 10.0, 0.15),
+    )
+    weighted = 0.0
+    weight_total = 0.0
+    for value, cap, weight in signals:
+        normalized = _signed_score(value, cap)
+        if normalized is None:
+            continue
+        weighted += normalized * weight
+        weight_total += weight
+    if weight_total <= 0:
+        return 0.0
+    return round(max(-100.0, min(100.0, weighted / weight_total)), 4)
+
+
+def calculate_signature_score(play_index: float, performance_index: float) -> float:
+    """Return positive performance multiplied by repeated usage."""
+
+    return round(max(0.0, float(play_index)) * max(0.0, float(performance_index)) / 100, 4)
+
+
+def calculate_performance_sickness_score(play_index: float, performance_index: float) -> float:
+    """Return negative performance multiplied by repeated usage."""
+
+    return round(max(0.0, float(play_index)) * max(0.0, -float(performance_index)) / 100, 4)
 
 
 def calculate_weakness_index(
@@ -368,7 +423,10 @@ __all__ = [
     "adjust_delta",
     "build_signature_tags",
     "calculate_confidence",
+    "calculate_performance_index",
+    "calculate_performance_sickness_score",
     "calculate_play_index",
+    "calculate_signature_score",
     "calculate_sick_score",
     "calculate_weakness_index",
     "calculate_stability",

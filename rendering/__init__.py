@@ -1,6 +1,7 @@
 from .pages import (
     build_help_html,
     build_hero_query_html,
+    build_player_hero_analysis_html,
     build_match_detail_html,
     build_meta_board_html,
     build_meta_comparison_html,
@@ -26,6 +27,7 @@ __all__ = [
     "MatchImageRenderer",
     "RivalsImageRenderer",
     "build_hero_query_html",
+    "build_player_hero_analysis_html",
     "build_match_detail_html",
     "build_meta_board_html",
     "build_meta_comparison_html",

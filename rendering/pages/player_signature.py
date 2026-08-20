@@ -40,6 +40,8 @@ def _hero_card(index: int, item: Any) -> str:
         f'<span>使用占比 {_percent(item.usage_share)}</span>'
         '</div></div>'
         '<div class="mr-signature-card__metrics">'
+        f'<div><span>绝活指数</span><strong>{item.signature_score:.1f}</strong></div>'
+        f'<div><span>综合表现</span><strong>{item.performance_index:+.1f}</strong></div>'
         f'<div><span>竞技胜率</span><strong>{escape_text(_percent(item.actual_win_rate))}</strong></div>'
         f'<div><span>同期 Meta</span><strong>{escape_text(_percent(item.expected_meta_win_rate))}</strong></div>'
         f'<div><span>稳健领先</span><strong>{escape_text(_delta(item.adjusted_delta))}</strong></div>'
@@ -62,7 +64,7 @@ def _glossary() -> str:
         ("绝活分类", "招牌绝活=场次充分、长期领先且稳定；强势绝活=已有较多场次并明显领先；潜力绝活=场次还少但领先明显；待验证=刚有少量正向表现；常用英雄=使用过但证据还不足。"),
         ("标签：常青绝活 / 长期专精 / 新晋绝活 / 逆版本绝活 / 本命英雄", "常青绝活=多赛季稳定领先；长期专精=使用赛季多且竞技场次多；新晋绝活=近期使用占比高且表现领先；逆版本绝活=同期 Meta 偏弱但你明显领先；本命英雄=满足最低使用量后，生涯总使用量最高。"),
         ("Meta 覆盖", "这个英雄的竞技场次里，有多少场能找到同期 Meta 数据并完成比较；覆盖越高，结论越完整。"),
-        ("快速 / 竞技", "快速模式只用来统计使用量和本命判断；竞技模式才用于胜率、Meta 对比、稳定性和绝活分类。"),
+        ("快速 / 竞技", "快速模式参与使用量、个人快速基准和综合表现，但不直接与 Meta 比较；竞技模式提供 Meta 对比和主要分类证据。"),
     )
     cards = "".join(
         f'<article class="mr-signature-glossary__item">'
@@ -87,13 +89,13 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
 
         return legacy_builder(profile)
 
-    first = profile.first_season or "未知"
-    latest = profile.latest_season or first
+    scope_label = "生涯" if profile.scope.kind == "career" else profile.scope.season_code
+    analysis_label = "跨赛季生涯综合分析" if profile.scope.kind == "career" else "单赛季英雄综合分析"
     content = page_header(
         "MY SPECIALTY",
-        "跨赛季生涯综合分析",
-        f"{first} — {latest}",
-        title_cn=f"{profile.player_name} 的生涯绝活",
+        analysis_label,
+        scope_label if scope_label == "生涯" else str(scope_label),
+        title_cn=f"{profile.player_name} 的{scope_label}绝活",
         eyebrow="MY SPECIALTY",
         meta_items=(
             ("活跃赛季", len(profile.analyzed_seasons)),
@@ -112,12 +114,12 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
             '</div>'
         )
     content += metric_grid((
-        ("生涯总场次", _count(profile.total_matches)),
-        ("竞技总场次", _count(profile.competitive_matches)),
+        (f"{scope_label}总场次", _count(profile.total_matches)),
+        (f"{scope_label}竞技场次", _count(profile.competitive_matches)),
         ("Meta 覆盖", f"{profile.meta_coverage:.0f}%"),
     ))
     content += '<section class="mr-section mr-signature-section">'
-    content += section_title("生涯绝活 Top 5", "CAREER SIGNATURE")
+    content += section_title(f"{scope_label}绝活 Top 5", "CAREER SIGNATURE")
     if profile.signature_heroes:
         content += '<div class="mr-signature-list">'
         content += "".join(_hero_card(index, item) for index, item in enumerate(profile.signature_heroes, 1))
@@ -132,7 +134,7 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
         '<div class="mr-meta-source mr-signature-footer">'
         '<span>竞技表现按各赛季玩家历史段位与同期 Meta 进行校正</span>'
         '<span>小样本已进行可信度收缩</span>'
-        '<span>快速模式仅参与英雄使用量统计</span>'
+        '<span>快速模式参与个人基准，但不直接与 Meta 比较</span>'
         '</div>'
     )
     return page_shell(content, watermark="MY SPECIALTY")

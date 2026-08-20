@@ -31,15 +31,22 @@ try:
     )
     from .marvel_rivals_bot.meta.service import MetaService
     from .marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
-    from .marvel_rivals_bot.analytics.commands import parse_player_meta_args, parse_signature_args
+    from .marvel_rivals_bot.analytics.commands import (
+        parse_player_analysis_args,
+        parse_player_meta_args,
+        parse_signature_args,
+    )
     from .marvel_rivals_bot.analytics.formatters import (
         format_player_environment,
         format_player_hero_pool,
+        format_player_hero_analysis,
         format_player_signature,
         format_player_sickness,
     )
     from .marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
-    from .marvel_rivals_bot.analytics.signature import PlayerSignatureService
+    from .marvel_rivals_bot.analytics.models import AnalysisScope
+    from .marvel_rivals_bot.reference.seasons import parse_season_name
+    from .marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, PlayerSignatureService
     from .qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -74,15 +81,22 @@ except ImportError:
     )
     from marvel_rivals_bot.meta.service import MetaService
     from marvel_rivals_bot.meta.sources.rivalsmeta import RivalsMetaSource
-    from marvel_rivals_bot.analytics.commands import parse_player_meta_args, parse_signature_args
+    from marvel_rivals_bot.analytics.commands import (
+        parse_player_analysis_args,
+        parse_player_meta_args,
+        parse_signature_args,
+    )
     from marvel_rivals_bot.analytics.formatters import (
         format_player_environment,
         format_player_hero_pool,
+        format_player_hero_analysis,
         format_player_signature,
         format_player_sickness,
     )
     from marvel_rivals_bot.analytics.player_meta import PlayerMetaQueryError, PlayerMetaService
-    from marvel_rivals_bot.analytics.signature import PlayerSignatureService
+    from marvel_rivals_bot.analytics.models import AnalysisScope
+    from marvel_rivals_bot.reference.seasons import parse_season_name
+    from marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, PlayerSignatureService
     from qq_official import (
         QQOfficialCardSender, build_capability_test_card, build_recent_card,
     )
@@ -147,7 +161,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.2.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.0", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -220,11 +234,11 @@ class MarvelRivalsPlugin(Star):
 /我的英雄池 [UID] [赛季]
 按快速与竞技总场次查看英雄池，并核对竞技表现
 
-/我的绝活 [UID]
-跨赛季分析长期真正擅长的英雄，默认展示 Top 5；不接受赛季或最低场次参数
+/我的绝活 [UID] [赛季]
+按生涯或指定赛季分析真正擅长的英雄，默认展示 Top 5
 
-/我的绝症 [UID]
-查看使用量较高但相对同期、同段位 Meta 表现明显偏低的英雄 Top 10
+/我的绝症 [UID] [赛季]
+按生涯或指定赛季分析使用量较高但相对表现偏低的英雄 Top 10
 """
 
     def __init__(self, context: Context, config=None):
@@ -312,8 +326,8 @@ class MarvelRivalsPlugin(Star):
             if self.meta_service is not None
             else None
         )
-        self.player_signature_service = (
-            PlayerSignatureService(
+        self.player_career_analysis_service = (
+            PlayerCareerAnalysisService(
                 self.service,
                 self.meta_service,
                 cache_root=plugin_data_root,
@@ -332,6 +346,9 @@ class MarvelRivalsPlugin(Star):
             if self.meta_service is not None
             else None
         )
+        # Keep the old attribute for integrations that still import the
+        # specialty facade; all three commands share this analysis engine.
+        self.player_signature_service = self.player_career_analysis_service
 
     def _qq_id(self, event: AstrMessageEvent) -> str:
         return str(event.get_sender_id())
@@ -416,6 +433,12 @@ class MarvelRivalsPlugin(Star):
         if uid.lower().startswith("s") and not season:
             return "", uid
         return uid, season
+
+    @staticmethod
+    def _analysis_scope(season: str | None) -> AnalysisScope:
+        if not season:
+            return AnalysisScope.career()
+        return AnalysisScope.season(parse_season_name(season))
 
     async def _query(self, event: AstrMessageEvent, uid: str | None, season: str | None = None):
         try:
@@ -565,12 +588,37 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的英雄", alias={"英雄数据", "英雄"})
     async def hero(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
-        """使用中文英雄名称查询指定英雄的赛季数据。"""
+        """使用中文英雄名称查询生涯或指定赛季的个人英雄分析。"""
+        analysis_service = self._analysis_service()
         uid, season = self._uid_and_season(uid, season)
         try:
             uid = uid or self._bound_uid(event)
             if not uid:
                 yield event.plain_result("请提供 UID，或先绑定 UID")
+                return
+            if callable(getattr(analysis_service, "get_hero_analysis", None)):
+                analysis_args = parse_player_analysis_args(uid, season)
+                resolved_uid = analysis_args.uid or uid
+                resolved_scope = self._analysis_scope(analysis_args.season)
+                hero_analysis = await analysis_service.get_hero_analysis(
+                    resolved_uid, hero_name, resolved_scope
+                )
+                analysis_profile = await analysis_service.get_analysis(resolved_uid, resolved_scope)
+                fallback = format_player_hero_analysis(analysis_profile, hero_analysis)
+                try:
+                    image_url = await self.image_renderer.player_hero_analysis(
+                        analysis_profile, hero_analysis
+                    )
+                except Exception as exc:
+                    if logger:
+                        logger.warning(f"我的英雄分析图片渲染失败 uid={resolved_uid} error={exc}")
+                    yield event.plain_result(fallback)
+                    return
+                if self.qq_card_sender.supports(event):
+                    if not await self._send_image(event, image_url):
+                        yield event.plain_result(fallback)
+                else:
+                    yield self._image_result(event, image_url)
                 return
             result = await self.service.get_hero_stats(uid, hero_name, season or None)
             try:
@@ -585,7 +633,7 @@ class MarvelRivalsPlugin(Star):
                     yield event.plain_result(format_hero_result(result))
             else:
                 yield self._image_result(event, image_url)
-        except (DataSourceError, BindingStoreError) as exc:
+        except (DataSourceError, BindingStoreError, PlayerMetaQueryError, ValueError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
     def _resolve_match_selection(self, event: AstrMessageEvent, value: str) -> str:
@@ -638,6 +686,14 @@ class MarvelRivalsPlugin(Star):
 
     def _meta_unavailable(self) -> str:
         return "当前未启用英雄环境功能"
+
+    def _analysis_service(self):
+        """Return the shared analysis service, with old test/integration fallback."""
+
+        return (
+            getattr(self, "player_career_analysis_service", None)
+            or getattr(self, "player_signature_service", None)
+        )
 
     def _meta_source_failure(self, error: MetaDataSourceError) -> str:
         if logger:
@@ -1077,17 +1133,24 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的绝活")
     async def my_signature(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """跨赛季分析玩家长期真正擅长的英雄，默认展示 Top 5，只接受可选 UID。"""
-        if self.player_signature_service is None:
+        """按生涯或指定赛季展示玩家的高表现英雄。"""
+        service = self._analysis_service()
+        if service is None:
             yield event.plain_result(self._meta_unavailable())
             return
         try:
-            args = parse_signature_args(arg1, arg2)
+            args = parse_player_analysis_args(arg1, arg2)
             uid = args.uid or self._bound_uid(event)
             if not uid:
                 yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
                 return
-            profile = await self.player_signature_service.get_player_signature(uid, top_n=5)
+            if callable(getattr(service, "get_analysis", None)):
+                scope = self._analysis_scope(args.season)
+                profile = await service.get_analysis(uid, scope)
+            elif args.season:
+                profile = await service.get_player_signature(uid, top_n=5, season=args.season)
+            else:
+                profile = await service.get_player_signature(uid, top_n=5)
             fallback = format_player_signature(profile)
             try:
                 image_url = await self.image_renderer.player_signature(profile)
@@ -1108,17 +1171,24 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的绝症")
     async def my_sickness(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """查看高使用量且相对同期 Meta 表现明显偏低的英雄 Top 10。"""
-        if self.player_signature_service is None:
+        """按生涯或指定赛季展示高使用量的相对弱势英雄。"""
+        service = self._analysis_service()
+        if service is None:
             yield event.plain_result(self._meta_unavailable())
             return
         try:
-            args = parse_signature_args(arg1, arg2)
+            args = parse_player_analysis_args(arg1, arg2)
             uid = args.uid or self._bound_uid(event)
             if not uid:
                 yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
                 return
-            profile = await self.player_signature_service.get_player_signature(uid, top_n=5)
+            if callable(getattr(service, "get_analysis", None)):
+                scope = self._analysis_scope(args.season)
+                profile = await service.get_analysis(uid, scope)
+            elif args.season:
+                profile = await service.get_player_signature(uid, top_n=5, season=args.season)
+            else:
+                profile = await service.get_player_signature(uid, top_n=5)
             fallback = format_player_sickness(profile)
             try:
                 image_url = await self.image_renderer.player_sickness(profile)

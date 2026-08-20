@@ -2,9 +2,9 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from marvel_rivals_bot.analytics.models import PlayerSignatureProfile
+from marvel_rivals_bot.analytics.models import AnalysisScope, PlayerSignatureProfile
 from marvel_rivals_bot.analytics.formatters import format_player_signature
-from marvel_rivals_bot.analytics.signature import PlayerSignatureService
+from marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, PlayerSignatureService
 from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaResult
 from marvel_rivals_bot.models import ModeStats, PlayerHeroStats, PlayerProfile
 from marvel_rivals_bot.datasource.base import GameMode
@@ -111,6 +111,16 @@ class FakeSickMeta(FakeMeta):
         return board
 
 
+class FakeCumulativeRivals(FakeRivals):
+    def __init__(self):
+        super().__init__()
+        self.rows = {
+            "14": (10, 6),
+            "15": (40, 24),
+            "16": (100, 60),
+        }
+
+
 class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
     async def test_joins_each_season_to_its_historical_rank_and_weights_meta(self):
         rivals = FakeRivals()
@@ -178,6 +188,37 @@ class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
             FakeRivals(), FakeMeta(), cache_root=None
         ).get_player_signature("123")
         self.assertEqual(profile.sick_heroes, ())
+
+    async def test_analysis_scope_filters_seasons_and_keeps_all_heroes(self):
+        profile = await PlayerCareerAnalysisService(
+            FakeSickRivals(), FakeSickMeta(), cache_root=None
+        ).get_analysis("123", AnalysisScope.season("15"))
+        self.assertEqual(profile.scope, AnalysisScope.season("15"))
+        self.assertEqual(profile.analyzed_seasons, ("S7.5",))
+        self.assertEqual({item.hero_id for item in profile.heroes}, {"1026", "1027", "1028"})
+        self.assertIsNone(profile.heroes[0].stability)
+
+    async def test_career_and_season_results_do_not_share_memory_cache(self):
+        rivals = FakeRivals()
+        service = PlayerCareerAnalysisService(rivals, FakeMeta(), cache_root=None)
+        await service.get_analysis("123", AnalysisScope.career())
+        calls = len(rivals.batch_calls)
+        await service.get_analysis("123", AnalysisScope.season("15"))
+        self.assertGreater(len(rivals.batch_calls), calls)
+
+    async def test_cumulative_season_scope_differences_previous_snapshot(self):
+        rivals = FakeCumulativeRivals()
+        service = PlayerCareerAnalysisService(
+            rivals,
+            FakeMeta(),
+            cache_root=None,
+            season_policy="cumulative",
+        )
+        profile = await service.get_analysis("123", AnalysisScope.season("15"))
+        hero = profile.heroes[0]
+        self.assertEqual(profile.analyzed_seasons, ("S7.5",))
+        self.assertEqual(hero.competitive_matches, 30)
+        self.assertEqual(hero.competitive_wins, 18)
 
 
 if __name__ == "__main__":
