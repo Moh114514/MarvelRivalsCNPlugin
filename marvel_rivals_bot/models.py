@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 
@@ -230,3 +231,133 @@ class RecentMatch:
     deaths: int | str = "-"
     assists: int | str = "-"
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
+class MatchSummaryPage:
+    """One page returned by the CN ``loadSummary`` endpoint."""
+
+    match_info: list[dict[str, Any]] = field(default_factory=list)
+    page: int = 0
+    page_size: int = 100
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
+class DailyModeStats:
+    """Aggregated statistics for one daily game-mode bucket."""
+
+    matches: int = 0
+    wins: int = 0
+    losses: int = 0
+    kills: int = 0
+    deaths: int = 0
+    assists: int = 0
+    hero_damage: int | None = None
+    healing: int | None = None
+    damage_taken: int | None = None
+    play_time_seconds: float = 0
+    damage_samples: int = field(default=0, repr=False)
+    healing_samples: int = field(default=0, repr=False)
+    damage_taken_samples: int = field(default=0, repr=False)
+
+    @property
+    def win_rate(self) -> float | None:
+        return self.wins * 100 / self.matches if self.matches else None
+
+    @property
+    def average_kills(self) -> float | None:
+        return self.kills / self.matches if self.matches else None
+
+    @property
+    def average_deaths(self) -> float | None:
+        return self.deaths / self.matches if self.matches else None
+
+    @property
+    def average_assists(self) -> float | None:
+        return self.assists / self.matches if self.matches else None
+
+    @property
+    def average_hero_damage(self) -> float | None:
+        return self.hero_damage / self.damage_samples if self.hero_damage is not None and self.damage_samples else None
+
+    @property
+    def average_healing(self) -> float | None:
+        return self.healing / self.healing_samples if self.healing is not None and self.healing_samples else None
+
+    @property
+    def average_damage_taken(self) -> float | None:
+        return self.damage_taken / self.damage_taken_samples if self.damage_taken is not None and self.damage_taken_samples else None
+
+    @property
+    def kda(self) -> str:
+        return f"{self.kills} / {self.deaths} / {self.assists}"
+
+    @property
+    def incomplete_metrics(self) -> tuple[str, ...]:
+        missing: list[str] = []
+        if 0 < self.damage_samples < self.matches:
+            missing.append("伤害")
+        if 0 < self.healing_samples < self.matches:
+            missing.append("治疗")
+        if 0 < self.damage_taken_samples < self.matches:
+            missing.append("承伤")
+        return tuple(missing)
+
+
+@dataclass(slots=True)
+class DailyMatch:
+    """Normalized target-player view of one match detail."""
+
+    match_uid: str
+    timestamp: int | None = None
+    game_mode_id: int | None = None
+    play_mode_id: int | None = None
+    duration_seconds: float = 0
+    hero_id: str | None = None
+    is_win: bool | None = None
+    kills: int = 0
+    deaths: int = 0
+    assists: int = 0
+    hero_damage: int | None = None
+    healing: int | None = None
+    damage_taken: int | None = None
+    player_name: str = ""
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
+class DailyHeroStats:
+    hero_id: str
+    hero_name: str
+    matches: int = 0
+    wins: int = 0
+    losses: int = 0
+    kills: int = 0
+    deaths: int = 0
+    assists: int = 0
+    play_time_seconds: float = 0
+    hero_damage: int | None = None
+    healing: int | None = None
+    damage_taken: int | None = None
+    damage_samples: int = field(default=0, repr=False)
+    healing_samples: int = field(default=0, repr=False)
+    damage_taken_samples: int = field(default=0, repr=False)
+
+    @property
+    def win_rate(self) -> float | None:
+        return self.wins * 100 / self.matches if self.matches else None
+
+@dataclass(slots=True)
+class DailyReport:
+    uid: str
+    player_name: str
+    date: date
+    timezone: str
+    season: str
+    total: DailyModeStats = field(default_factory=DailyModeStats)
+    quick: DailyModeStats = field(default_factory=DailyModeStats)
+    competitive: DailyModeStats = field(default_factory=DailyModeStats)
+    other: DailyModeStats = field(default_factory=DailyModeStats)
+    heroes: list[DailyHeroStats] = field(default_factory=list)
+    matches: list[DailyMatch] = field(default_factory=list)

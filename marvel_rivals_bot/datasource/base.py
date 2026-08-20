@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import IntEnum
 
-from ..models import PlayerProfile, PlayerStats
+from ..models import MatchSummaryPage, PlayerProfile, PlayerStats
 
 
 class GameMode(IntEnum):
@@ -52,6 +52,22 @@ class RivalsDataSource(ABC):
 
     @abstractmethod
     async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
+        raise NotImplementedError
+
+    async def get_match_summary_page(
+        self,
+        uid: str,
+        season: str,
+        *,
+        page: int = 0,
+        page_size: int = 100,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
+        game_mode_ids: tuple[int, ...] = (1, 2, 4),
+        play_mode_ids: tuple[int, ...] = (0, 7, 8),
+    ) -> MatchSummaryPage:
+        """Load one server-filtered summary page when the source supports it."""
+
         raise NotImplementedError
 
     @abstractmethod

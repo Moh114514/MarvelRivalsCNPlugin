@@ -8,6 +8,7 @@ from pathlib import Path
 try:
     from .marvel_rivals_bot.datasource.base import DataSourceError
     from .marvel_rivals_bot.datasource.cn import CNDataSource
+    from .marvel_rivals_bot.commands.daily import DailyCommandUsageError, parse_daily_command_args
     from .marvel_rivals_bot.services.rivals import RivalsService
     from .marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
@@ -58,6 +59,7 @@ except ImportError:
     # sys.path instead of importing it as a package.
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
+    from marvel_rivals_bot.commands.daily import DailyCommandUsageError, parse_daily_command_args
     from marvel_rivals_bot.services.rivals import RivalsService
     from marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
@@ -161,7 +163,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.0", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.1", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -179,6 +181,9 @@ class MarvelRivalsPlugin(Star):
 
 /最近对局 [UID] [赛季]
 查询最近十场（兼容 /最近）
+
+/每日战绩 [日期] [UID] [赛季]
+查询指定北京时间日期的聚合战绩（兼容 /今日战绩）
 
 /我的英雄 <名称> [UID] [赛季]
 查询指定英雄的快速与竞技个人数据（兼容 /英雄数据、/英雄）
@@ -585,6 +590,46 @@ class MarvelRivalsPlugin(Star):
         """兼容旧版 /最近 指令。"""
         async for result in self.recent(event, uid, season):
             yield result
+
+    @filter.command("每日战绩", alias={"今日战绩"})
+    async def daily_stats(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+    ):
+        """查询指定北京时间日期的聚合战绩，可独立指定日期、UID 和赛季。"""
+
+        try:
+            args = parse_daily_command_args(arg1, arg2, arg3)
+        except DailyCommandUsageError as exc:
+            yield event.plain_result(self._usage_error(str(exc), "/每日战绩 [今天|昨天|YYYY-MM-DD] [UID] [赛季]"))
+            return
+        try:
+            uid = args.uid or self._bound_uid(event)
+        except BindingStoreError as exc:
+            yield event.plain_result(str(exc))
+            return
+        if not uid:
+            yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
+            return
+        try:
+            report = await self.service.get_daily_report(uid, args.target_date, args.season or None)
+            try:
+                image_url = await self.image_renderer.daily(report)
+            except Exception as exc:
+                if logger:
+                    logger.warning(f"每日战绩图片渲染失败 command=每日战绩 uid={uid} error={exc}")
+                yield event.plain_result(self._render_failure("每日战绩", str(report.date)))
+                return
+            if self.qq_card_sender.supports(event):
+                if not await self._send_image(event, image_url):
+                    yield event.plain_result(self._render_failure("每日战绩", str(report.date)))
+            else:
+                yield self._image_result(event, image_url)
+        except DataSourceError as exc:
+            yield event.plain_result(f"查询失败：{exc}")
 
     @filter.command("我的英雄", alias={"英雄数据", "英雄"})
     async def hero(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):

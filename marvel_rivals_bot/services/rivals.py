@@ -3,14 +3,16 @@ from __future__ import annotations
 import asyncio
 import time
 import re
-from datetime import datetime
+from datetime import date, datetime
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
 from ..datasource.base import DataSourceError, GameMode, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
-from ..reference.heroes import HERO_ROLE_LABELS, format_hero_name, get_hero_id, get_hero_identity
+from ..reference.dates import GAME_TZ, game_date_window
+from ..reference.heroes import HERO_ROLE_LABELS, format_hero_name, get_hero_id, get_hero_identity, get_hero_name
 from ..models import HeroQueryResult, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
+from ..models import DailyHeroStats, DailyMatch, DailyModeStats, DailyReport, MatchSummaryPage
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
 from ..reference.seasons import season_identity_from_cn_code, season_identity_from_name
@@ -40,6 +42,11 @@ def parse_season_name(value: str) -> str:
 
 
 class RivalsService:
+    MATCH_PAGE_SIZE = 100
+    MAX_MATCH_PAGES = 20
+    MATCH_DETAIL_BATCH_SIZE = 10
+    DETAIL_MAX_CONCURRENCY = 2
+
     def __init__(
         self,
         source: RivalsDataSource,
@@ -48,12 +55,24 @@ class RivalsService:
         hero_batch_size: int = 32,
         hero_max_concurrency: int = 4,
         max_inflight_requests: int = 8,
+        daily_cache_seconds: float = 86400,
+        daily_current_cache_seconds: float = 60,
+        match_page_size: int = MATCH_PAGE_SIZE,
+        max_match_pages: int = MAX_MATCH_PAGES,
+        match_detail_batch_size: int = MATCH_DETAIL_BATCH_SIZE,
+        detail_max_concurrency: int = DETAIL_MAX_CONCURRENCY,
     ):
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
         self.hero_batch_size = max(1, int(hero_batch_size))
         self.hero_max_concurrency = max(1, int(hero_max_concurrency))
         self.max_inflight_requests = max(1, int(max_inflight_requests))
+        self.daily_cache_seconds = max(0, float(daily_cache_seconds))
+        self.daily_current_cache_seconds = max(0, float(daily_current_cache_seconds))
+        self.match_page_size = max(1, int(match_page_size))
+        self.max_match_pages = max(1, int(max_match_pages))
+        self.match_detail_batch_size = max(1, int(match_detail_batch_size))
+        self.detail_max_concurrency = max(1, int(detail_max_concurrency))
         self._request_semaphore = asyncio.Semaphore(self.max_inflight_requests)
         self._hero_request_semaphore: asyncio.Semaphore | None = None
         self._inflight: dict[str, asyncio.Task[Any]] = {}
@@ -62,6 +81,7 @@ class RivalsService:
         self._matches_cache: dict[str, tuple[float, list[dict]]] = {}
         self._hero_cache: dict[str, tuple[float, HeroQueryResult]] = {}
         self._match_detail_cache: dict[str, tuple[float, dict]] = {}
+        self._daily_cache: dict[str, tuple[float, DailyReport]] = {}
 
     @property
     def request_semaphore(self) -> asyncio.Semaphore:
@@ -235,7 +255,23 @@ class RivalsService:
             return cached
 
         async def load() -> list[dict]:
-            matches = await self._request(lambda: self.source.get_recent_matches(uid, season_code))
+            summary_loader = getattr(self.source, "get_match_summary_page", None)
+            inherited_loader = (
+                isinstance(self.source, RivalsDataSource)
+                and getattr(type(self.source), "get_match_summary_page", None)
+                is RivalsDataSource.get_match_summary_page
+            )
+            if callable(summary_loader) and not inherited_loader:
+                try:
+                    page = await self._request(
+                        lambda: summary_loader(uid, season_code, page=0, page_size=10)
+                    )
+                    matches = _summary_page_items(page)
+                    matches = await self._enrich_match_summaries(uid, matches)
+                except NotImplementedError:
+                    matches = await self._request(lambda: self.source.get_recent_matches(uid, season_code))
+            else:
+                matches = await self._request(lambda: self.source.get_recent_matches(uid, season_code))
             self._matches_cache[cache_key] = (time.monotonic(), matches)
             return matches
 
@@ -303,13 +339,209 @@ class RivalsService:
 
         async def load() -> dict:
             payload = await self._request(lambda: self.source.get_summary_detail(normalized_uid))
-            self._match_detail_cache[cache_key] = (time.monotonic(), payload)
+            self._cache_detail_payload(payload)
+            if self.cache_seconds > 0:
+                self._match_detail_cache[cache_key] = (time.monotonic(), payload)
             return payload
 
         return await self._singleflight(f"match:{cache_key}", load)
 
     async def match_detail_text(self, match_uid: str) -> str:
         return format_match_detail(await self.get_match_detail(match_uid))
+
+    async def get_matches_by_time_range(
+        self,
+        uid: str,
+        season: str | None,
+        *,
+        start_timestamp: int,
+        end_timestamp: int,
+        page_size: int | None = None,
+        max_pages: int | None = None,
+    ) -> list[dict]:
+        """Fetch all Summary rows in a server-filtered half-open time range."""
+
+        season_text = str(season or "").strip()
+        season_code = season_text if season_text.isdigit() else self._season_code(season)
+        loader = getattr(self.source, "get_match_summary_page", None)
+        inherited_loader = (
+            isinstance(self.source, RivalsDataSource)
+            and getattr(type(self.source), "get_match_summary_page", None)
+            is RivalsDataSource.get_match_summary_page
+        )
+        if not callable(loader) or inherited_loader:
+            raise DataSourceError("当前数据源不支持按时间范围查询对局")
+        page_size = self.match_page_size if page_size is None else max(1, int(page_size))
+        max_pages = self.max_match_pages if max_pages is None else max(1, int(max_pages))
+        matches: list[dict] = []
+        for page_number in range(max_pages):
+            result = await self._request(
+                lambda page_number=page_number: loader(
+                    uid,
+                    season_code,
+                    page=page_number,
+                    page_size=page_size,
+                    start_timestamp=int(start_timestamp),
+                    end_timestamp=int(end_timestamp),
+                )
+            )
+            rows = _summary_page_items(result)
+            matches.extend(rows)
+            if len(rows) < page_size:
+                break
+        return matches
+
+    async def get_summary_details(self, match_uids: list[str]) -> dict[str, dict[str, Any]]:
+        """Load details in batches, reusing the per-match cache."""
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in match_uids:
+            uid = normalize_match_uid(str(value))
+            if uid and uid not in seen:
+                normalized.append(uid)
+                seen.add(uid)
+        if not normalized:
+            return {}
+
+        details: dict[str, dict[str, Any]] = {}
+        missing: list[str] = []
+        for match_uid in normalized:
+            cached = self._cached(self._match_detail_cache, match_uid)
+            if cached is None:
+                missing.append(match_uid)
+                continue
+            rows = _detail_rows(cached)
+            row = _detail_by_uid(rows).get(match_uid)
+            if row is not None:
+                details[match_uid] = row
+
+        if not missing:
+            return details
+
+        batch_loader = getattr(self.source, "get_summary_details", None)
+        semaphore = asyncio.Semaphore(self.detail_max_concurrency)
+        batches = [
+            missing[index:index + self.match_detail_batch_size]
+            for index in range(0, len(missing), self.match_detail_batch_size)
+        ]
+
+        async def load_batch(batch: list[str]) -> list[dict[str, Any]]:
+            async with semaphore:
+                if callable(batch_loader):
+                    payload = await self._request(lambda: batch_loader(batch))
+                    rows = _detail_rows(payload)
+                else:
+                    payloads = await asyncio.gather(*(self.get_match_detail(item) for item in batch))
+                    rows = [row for payload in payloads for row in _detail_rows(payload)]
+                for row in rows:
+                    match_uid = _match_uid(row)
+                    if match_uid:
+                        self._cache_detail_row(match_uid, row)
+                return rows
+
+        for rows in await asyncio.gather(*(load_batch(batch) for batch in batches)):
+            for row in rows:
+                match_uid = _match_uid(row)
+                if match_uid in seen:
+                    details[match_uid] = row
+        return details
+
+    async def get_daily_report(
+        self,
+        uid: str,
+        target_date: date,
+        season: str | None = None,
+    ) -> DailyReport:
+        """Build one Beijing-calendar-day report from Summary and Detail data."""
+
+        if not isinstance(target_date, date):
+            raise DataSourceError("每日战绩日期无效")
+        if target_date > datetime.now(GAME_TZ).date():
+            raise DataSourceError("不能查询未来日期的战绩")
+        uid = str(uid).strip()
+        if not uid.isdigit():
+            raise DataSourceError("UID 必须是数字")
+        season_code = self._season_code(season)
+        cache_key = f"daily:{uid}:{season_code}:{target_date.isoformat()}"
+        now = time.monotonic()
+        cache_ttl = (
+            self.daily_current_cache_seconds
+            if target_date == datetime.now(GAME_TZ).date()
+            else self.daily_cache_seconds
+        )
+        cached = self._daily_cache.get(cache_key)
+        if cached is not None and cache_ttl > 0 and now - cached[0] < cache_ttl:
+            return cached[1]
+
+        async def load() -> DailyReport:
+            start_timestamp, end_timestamp = game_date_window(target_date)
+            summaries = await self.get_matches_by_time_range(
+                uid,
+                season_code,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
+            details = await self.get_summary_details([_match_uid(item) for item in summaries])
+            daily_matches: list[DailyMatch] = []
+            player_name = ""
+            for summary in summaries:
+                match_uid = _match_uid(summary)
+                detail = details.get(match_uid)
+                target = _target_player(detail, uid)
+                if target is None:
+                    target = _target_player(summary.get("matchPlayer"), uid)
+                if target is None:
+                    continue
+                player_name = player_name or _text_value(target, "nickName", "playerName", "name")
+                daily_matches.append(_daily_match(summary, detail, target, match_uid))
+            if not player_name:
+                player_name = await self._fallback_player_name(uid, season_code)
+            report = _build_daily_report(
+                uid=uid,
+                player_name=player_name or uid,
+                target_date=target_date,
+                season=season_code,
+                matches=daily_matches,
+            )
+            if cache_ttl > 0:
+                self._daily_cache[cache_key] = (time.monotonic(), report)
+            return report
+
+        return await self._singleflight(cache_key, load)
+
+    async def _fallback_player_name(self, uid: str, season_code: str) -> str:
+        loader = getattr(self.source, "get_player_profile", None)
+        if not callable(loader):
+            return uid
+        try:
+            profile = await self._request(lambda: loader(uid, season_code))
+        except Exception:
+            return uid
+        return str(getattr(profile, "name", "") or uid)
+
+    async def _enrich_match_summaries(self, uid: str, matches: list[dict]) -> list[dict]:
+        details = await self.get_summary_details([_match_uid(item) for item in matches])
+        for match in matches:
+            detail = details.get(_match_uid(match))
+            target = _target_player(detail, uid)
+            if target is not None:
+                match["matchPlayer"] = dict(target)
+        return matches
+
+    def _cache_detail_payload(self, payload: dict[str, Any]) -> None:
+        for row in _detail_rows(payload):
+            match_uid = _match_uid(row)
+            if match_uid:
+                self._cache_detail_row(match_uid, row)
+
+    def _cache_detail_row(self, match_uid: str, row: dict[str, Any]) -> None:
+        if self.cache_seconds <= 0:
+            return
+        self._match_detail_cache[match_uid] = (
+            time.monotonic(),
+            {"data": {"matches": [dict(row)]}},
+        )
 
     def _season_code(self, season: str | None) -> str:
         if season is None or not str(season).strip():
@@ -360,6 +592,242 @@ class RivalsService:
             return item[1]
         cache.pop(key, None)
         return None
+
+
+def _summary_page_items(value: MatchSummaryPage | Mapping[str, Any] | Any) -> list[dict[str, Any]]:
+    if isinstance(value, MatchSummaryPage):
+        return [dict(item) for item in value.match_info if isinstance(item, Mapping)]
+    if not isinstance(value, Mapping):
+        return []
+    data: Any = value.get("data", value)
+    if isinstance(data, Mapping):
+        data = data.get(
+            "matchInfo",
+            data.get("matches", data.get("matchList", data.get("records", data.get("list", [])))),
+        )
+    return [dict(item) for item in data if isinstance(item, Mapping)] if isinstance(data, list) else []
+
+
+def _detail_rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, Mapping)]
+    if not isinstance(value, Mapping):
+        return []
+    data: Any = value.get("data", value)
+    if isinstance(data, Mapping):
+        matches = data.get("matches")
+        if matches is None:
+            matches = data.get("matchInfo", data.get("list"))
+        if isinstance(matches, list):
+            return [dict(item) for item in matches if isinstance(item, Mapping)]
+        # A few test and compatibility adapters return a UID -> match map.
+        if matches is None and all(isinstance(item, Mapping) for item in data.values()):
+            return [dict(item) for item in data.values()]
+    return [dict(data)] if isinstance(data, Mapping) and _match_uid(data) else []
+
+
+def _match_uid(value: Mapping[str, Any] | Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    for key in ("matchUid", "matchUID", "matchUids", "uid", "id"):
+        item = value.get(key)
+        if item not in (None, ""):
+            return normalize_match_uid(str(item))
+    return ""
+
+
+def _detail_by_uid(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        match_uid: row
+        for row in rows
+        if (match_uid := _match_uid(row))
+    }
+
+
+def _text_value(value: Mapping[str, Any] | Any, *keys: str) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    for key in keys:
+        item = value.get(key)
+        if item not in (None, ""):
+            return str(item)
+    return ""
+
+
+def _target_player(value: Mapping[str, Any] | Any, uid: str) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    players = value.get("matchPlayers")
+    if not isinstance(players, list):
+        return value if _same_uid(value.get("playerUid", value.get("uid")), uid) else None
+    for player in players:
+        if isinstance(player, Mapping) and _same_uid(player.get("playerUid", player.get("uid")), uid):
+            return dict(player)
+    return None
+
+
+def _same_uid(value: Any, uid: str) -> bool:
+    if value in (None, ""):
+        return False
+    try:
+        return int(value) == int(uid)
+    except (TypeError, ValueError):
+        return str(value).strip() == str(uid).strip()
+
+
+def _number_value(value: Any) -> float | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_value(value: Any, default: int = 0) -> int:
+    number = _number_value(value)
+    return int(round(number)) if number is not None else default
+
+
+def _bool_result(value: Any) -> bool | None:
+    if value in (1, "1", True, "true", "True"):
+        return True
+    if value in (0, "0", False, "false", "False"):
+        return False
+    return None
+
+
+def _first_value(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _daily_match(
+    summary: Mapping[str, Any],
+    detail: Mapping[str, Any] | None,
+    target: Mapping[str, Any],
+    match_uid: str,
+) -> DailyMatch:
+    detail = detail or {}
+    return DailyMatch(
+        match_uid=match_uid,
+        timestamp=_int_value(_first_value(summary.get("matchTimeStamp"), detail.get("matchTimeStamp")), default=0) or None,
+        game_mode_id=_int_value(_first_value(summary.get("gameModeId"), detail.get("gameModeId")), default=0) or None,
+        play_mode_id=_int_value(_first_value(summary.get("playModeId"), detail.get("playModeId")), default=0) or None,
+        duration_seconds=_number_value(_first_value(summary.get("matchPlayDuration"), detail.get("matchPlayDuration"))) or 0,
+        hero_id=str(_first_value(target.get("curHeroId"), target.get("heroId"))) if _first_value(target.get("curHeroId"), target.get("heroId")) not in (None, "") else None,
+        is_win=_bool_result(target.get("isWin")),
+        kills=_int_value(target.get("k", target.get("kills"))),
+        deaths=_int_value(target.get("d", target.get("deaths"))),
+        assists=_int_value(target.get("a", target.get("assists"))),
+        hero_damage=_optional_int(target, "totalHeroDamage", "heroDamage"),
+        healing=_optional_int(target, "totalHeroHeal", "totalHeal", "heroHeal", "heal"),
+        damage_taken=_optional_int(target, "totalDamageTaken", "damageTaken"),
+        player_name=_text_value(target, "nickName", "playerName", "name"),
+        raw={**dict(summary), "detail": dict(detail), "matchPlayer": dict(target)},
+    )
+
+
+def _optional_int(value: Mapping[str, Any], *keys: str) -> int | None:
+    number = _number_value(_first_value(*(value.get(key) for key in keys)))
+    return int(round(number)) if number is not None else None
+
+
+def _build_daily_report(
+    *,
+    uid: str,
+    player_name: str,
+    target_date: date,
+    season: str,
+    matches: list[DailyMatch],
+) -> DailyReport:
+    total = DailyModeStats()
+    quick = DailyModeStats()
+    competitive = DailyModeStats()
+    other = DailyModeStats()
+    hero_map: dict[str, DailyHeroStats] = {}
+    for match in matches:
+        bucket = quick if match.game_mode_id == 1 else competitive if match.game_mode_id == 2 else other
+        for stats in (total, bucket):
+            _accumulate_mode(stats, match)
+        if match.hero_id:
+            hero = hero_map.setdefault(
+                match.hero_id,
+                DailyHeroStats(
+                    hero_id=match.hero_id,
+                    hero_name=_daily_hero_name(match.hero_id),
+                ),
+            )
+            _accumulate_hero(hero, match)
+    heroes = sorted(
+        hero_map.values(),
+        key=lambda item: (item.matches, item.play_time_seconds, item.hero_id),
+        reverse=True,
+    )
+    return DailyReport(
+        uid=uid,
+        player_name=player_name,
+        date=target_date,
+        timezone="Asia/Shanghai",
+        season=season,
+        total=total,
+        quick=quick,
+        competitive=competitive,
+        other=other,
+        heroes=heroes,
+        matches=matches,
+    )
+
+
+def _accumulate_mode(stats: DailyModeStats, match: DailyMatch) -> None:
+    stats.matches += 1
+    if match.is_win is True:
+        stats.wins += 1
+    elif match.is_win is False:
+        stats.losses += 1
+    stats.kills += match.kills
+    stats.deaths += match.deaths
+    stats.assists += match.assists
+    stats.play_time_seconds += match.duration_seconds
+    if match.hero_damage is not None:
+        stats.hero_damage = (stats.hero_damage or 0) + match.hero_damage
+        stats.damage_samples += 1
+    if match.healing is not None:
+        stats.healing = (stats.healing or 0) + match.healing
+        stats.healing_samples += 1
+    if match.damage_taken is not None:
+        stats.damage_taken = (stats.damage_taken or 0) + match.damage_taken
+        stats.damage_taken_samples += 1
+
+
+def _accumulate_hero(stats: DailyHeroStats, match: DailyMatch) -> None:
+    stats.matches += 1
+    if match.is_win is True:
+        stats.wins += 1
+    elif match.is_win is False:
+        stats.losses += 1
+    stats.kills += match.kills
+    stats.deaths += match.deaths
+    stats.assists += match.assists
+    stats.play_time_seconds += match.duration_seconds
+    if match.hero_damage is not None:
+        stats.hero_damage = (stats.hero_damage or 0) + match.hero_damage
+        stats.damage_samples += 1
+    if match.healing is not None:
+        stats.healing = (stats.healing or 0) + match.healing
+        stats.healing_samples += 1
+    if match.damage_taken is not None:
+        stats.damage_taken = (stats.damage_taken or 0) + match.damage_taken
+        stats.damage_taken_samples += 1
+
+
+def _daily_hero_name(hero_id: str) -> str:
+    name = get_hero_name(hero_id)
+    if name == f"英雄 {hero_id}":
+        return f"未知英雄（{hero_id}）"
+    return name
 
 
 def _fmt(value: int | float | None, fallback: str = "-") -> str:

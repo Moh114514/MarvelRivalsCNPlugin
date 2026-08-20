@@ -13,7 +13,7 @@ import httpx
 
 from ..reference.heroes import get_hero_name
 from ..reference.ranks import CN_RANK_LEVEL_MAP
-from ..models import CareerSummary, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats, RecentMatch
+from ..models import CareerSummary, MatchSummaryPage, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats, RecentMatch
 from .base import DEFAULT_PLAY_MODE, DataSourceError, GameMode, RivalsDataSource
 
 
@@ -342,11 +342,11 @@ class CNDataSource(RivalsDataSource):
             raise DataSourceError("赛季必须是 1 到 99 之间的数字")
         return str(int(value))
 
-    def _body(self, uid: str = "", **extra: Any) -> dict[str, Any]:
+    def _body(self, uid: str = "", *, template: str | None = None, **extra: Any) -> dict[str, Any]:
         try:
             # Encode substituted values before parsing so user input cannot alter JSON.
             values = {"uid": uid, **extra}
-            rendered = self.body_template
+            rendered = self.body_template if template is None else template
             for key, value in values.items():
                 encoded = json.dumps(value, ensure_ascii=False)
                 rendered = rendered.replace(f'"{{{key}}}"', encoded)
@@ -409,12 +409,7 @@ class CNDataSource(RivalsDataSource):
         return payload
 
     def _body_from(self, template: str, uid: str, **extra: Any) -> dict[str, Any]:
-        old_template = self.body_template
-        self.body_template = template
-        try:
-            return self._body(uid, **extra)
-        finally:
-            self.body_template = old_template
+        return self._body(uid, template=template, **extra)
 
     @staticmethod
     def _coerce_game_mode(game_mode: GameMode | int) -> GameMode:
@@ -1035,15 +1030,84 @@ class CNDataSource(RivalsDataSource):
             self.paths["matches"], uid, body_template=self.body_templates["matches"], season=season
         )
 
+    @staticmethod
+    def _summary_items(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+        value: Any = payload.get("data", payload)
+        if isinstance(value, Mapping):
+            value = value.get(
+                "matchInfo",
+                value.get("matches", value.get("matchList", value.get("records", value.get("list", [])))),
+            )
+        return [dict(item) for item in value if isinstance(item, Mapping)] if isinstance(value, list) else []
+
+    async def get_match_summary_page(
+        self,
+        uid: str,
+        season: str,
+        *,
+        page: int = 0,
+        page_size: int = 100,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
+        game_mode_ids: tuple[int, ...] = (1, 2, 4),
+        play_mode_ids: tuple[int, ...] = (0, 7, 8),
+    ) -> MatchSummaryPage:
+        """Load one Summary page with optional server-side time bounds."""
+
+        uid = str(uid).strip()
+        if not uid.isdigit():
+            raise DataSourceError("UID 必须是数字")
+        try:
+            page = int(page)
+            page_size = int(page_size)
+        except (TypeError, ValueError) as exc:
+            raise DataSourceError("page 和 page_size 必须是整数") from exc
+        if page < 0 or page_size <= 0:
+            raise DataSourceError("page 必须不小于 0，page_size 必须是正整数")
+        if (start_timestamp is None) != (end_timestamp is None):
+            raise DataSourceError("时间范围必须同时提供开始和结束时间")
+        if start_timestamp is not None and end_timestamp is not None and end_timestamp <= start_timestamp:
+            raise DataSourceError("时间范围结束时间必须晚于开始时间")
+        season = self._normalize_season(season or self.default_season)
+        template = self.body_templates["matches"]
+        body = self._body_from(
+            template,
+            uid,
+            season=season,
+            player_uid=int(uid),
+            page=page,
+            page_size=page_size,
+            game_mode_ids=list(game_mode_ids),
+            play_mode_ids=list(play_mode_ids),
+        )
+        # Keep the legacy JSON template stable while making pagination and
+        # optional range conditions code-owned fields.
+        body["page"] = page
+        body["pageSize"] = page_size
+        body["playerUid"] = int(uid)
+        body["gameModeId"] = {"$in": [int(item) for item in game_mode_ids]}
+        body["playModeId"] = {"$in": [int(item) for item in play_mode_ids]}
+        body.pop("matchTimeStamp", None)
+        if start_timestamp is not None and end_timestamp is not None:
+            body["matchTimeStamp"] = {
+                "$gte": int(start_timestamp),
+                "$lt": int(end_timestamp),
+            }
+        payload = await self._post(self.paths["matches"], uid, body_template=json.dumps(body, ensure_ascii=False), season=season)
+        return MatchSummaryPage(
+            match_info=self._summary_items(payload),
+            page=page,
+            page_size=page_size,
+            raw=payload,
+        )
+
     async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
         uid = str(uid).strip()
         if not uid.isdigit():
             raise DataSourceError("UID 必须是数字")
-        payload = await self.get_recent_payload(uid, season)
-        value = payload.get("data", payload)
-        if isinstance(value, dict):
-            value = value.get("matchInfo", value.get("matches", value.get("matchList", value.get("records", value.get("list", [])))))
-        matches = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+        season_code = self._normalize_season(season or self.default_season)
+        page = await self.get_match_summary_page(uid, season_code, page=0, page_size=10)
+        matches = page.match_info
         match_uids = [_text(item, "matchUid", "matchUID") for item in matches]
         match_uids = [item for item in match_uids if item]
         if not match_uids:
@@ -1069,7 +1133,7 @@ class CNDataSource(RivalsDataSource):
             if isinstance(target, dict):
                 player = match.setdefault("matchPlayer", {})
                 if isinstance(player, dict):
-                    player["curHeroId"] = target.get("curHeroId")
+                    match["matchPlayer"] = dict(target)
         return matches
 
     @staticmethod
