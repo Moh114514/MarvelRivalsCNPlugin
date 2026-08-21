@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 
@@ -244,8 +244,20 @@ class MatchSummaryPage:
 
 
 @dataclass(slots=True)
-class DailyModeStats:
-    """Aggregated statistics for one daily game-mode bucket."""
+class MatchTimeWindow:
+    """A server-queryable half-open window in the game timezone."""
+
+    start_timestamp: int
+    end_timestamp: int
+    start_at: datetime
+    end_at: datetime
+    timezone: str = "Asia/Shanghai"
+    label: str = ""
+
+
+@dataclass(slots=True)
+class WindowStats:
+    """Aggregated statistics for one game-mode bucket in a time window."""
 
     matches: int = 0
     wins: int = 0
@@ -296,29 +308,25 @@ class DailyModeStats:
     @property
     def incomplete_metrics(self) -> tuple[str, ...]:
         missing: list[str] = []
-        if 0 < self.damage_samples < self.matches:
+        if self.damage_samples < self.matches:
             missing.append("伤害")
-        if 0 < self.healing_samples < self.matches:
+        if self.healing_samples < self.matches:
             missing.append("治疗")
-        if 0 < self.damage_taken_samples < self.matches:
+        if self.damage_taken_samples < self.matches:
             missing.append("承伤")
         return tuple(missing)
 
 
 @dataclass(slots=True)
-class DailyMatch:
-    """Normalized target-player view of one match detail."""
+class MatchPlayer:
+    """The selected player's normalized fields from one match detail."""
 
-    match_uid: str
-    timestamp: int | None = None
-    game_mode_id: int | None = None
-    play_mode_id: int | None = None
-    duration_seconds: float = 0
+    player_uid: str
     hero_id: str | None = None
     is_win: bool | None = None
-    kills: int = 0
-    deaths: int = 0
-    assists: int = 0
+    kills: int | None = None
+    deaths: int | None = None
+    assists: int | None = None
     hero_damage: int | None = None
     healing: int | None = None
     damage_taken: int | None = None
@@ -327,7 +335,60 @@ class DailyMatch:
 
 
 @dataclass(slots=True)
-class DailyHeroStats:
+class MatchRecord:
+    """Normalized match summary + target-player detail used by presenters."""
+
+    match_uid: str
+    timestamp: int | None = None
+    game_mode_id: int | None = None
+    play_mode_id: int | None = None
+    map_id: int | None = None
+    duration_seconds: float | None = None
+    player: MatchPlayer = field(default_factory=lambda: MatchPlayer(player_uid=""))
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    # These mapping-style helpers keep legacy text/card presenters working
+    # while new pages consume the typed fields above.
+    def get(self, key: str, default: Any = None) -> Any:
+        values = self.as_mapping()
+        return values.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return self.as_mapping()[key]
+
+    def as_mapping(self) -> dict[str, Any]:
+        value = dict(self.raw)
+        scalar_values = {
+            "matchUid": self.match_uid,
+            "matchTimeStamp": self.timestamp,
+            "gameModeId": self.game_mode_id,
+            "playModeId": self.play_mode_id,
+            "matchMapId": self.map_id,
+            "matchPlayDuration": self.duration_seconds,
+        }
+        for key, item in scalar_values.items():
+            if item is not None:
+                value[key] = item
+        player_value = value.get("matchPlayer")
+        player_mapping = dict(player_value) if isinstance(player_value, dict) else {}
+        player_mapping.update({
+            "playerUid": self.player.player_uid or player_mapping.get("playerUid"),
+            "curHeroId": self.player.hero_id if self.player.hero_id is not None else player_mapping.get("curHeroId"),
+            "isWin": 1 if self.player.is_win is True else 0 if self.player.is_win is False else player_mapping.get("isWin"),
+            "k": self.player.kills if self.player.kills is not None else player_mapping.get("k"),
+            "d": self.player.deaths if self.player.deaths is not None else player_mapping.get("d"),
+            "a": self.player.assists if self.player.assists is not None else player_mapping.get("a"),
+            "totalHeroDamage": self.player.hero_damage if self.player.hero_damage is not None else player_mapping.get("totalHeroDamage"),
+            "totalHeroHeal": self.player.healing if self.player.healing is not None else player_mapping.get("totalHeroHeal"),
+            "totalDamageTaken": self.player.damage_taken if self.player.damage_taken is not None else player_mapping.get("totalDamageTaken"),
+            "nickName": self.player.player_name or player_mapping.get("nickName"),
+        })
+        value["matchPlayer"] = player_mapping
+        return value
+
+
+@dataclass(slots=True)
+class WindowHeroStats:
     hero_id: str
     hero_name: str
     matches: int = 0
@@ -340,6 +401,7 @@ class DailyHeroStats:
     hero_damage: int | None = None
     healing: int | None = None
     damage_taken: int | None = None
+    usage_rate: float | None = None
     damage_samples: int = field(default=0, repr=False)
     healing_samples: int = field(default=0, repr=False)
     damage_taken_samples: int = field(default=0, repr=False)
@@ -348,16 +410,53 @@ class DailyHeroStats:
     def win_rate(self) -> float | None:
         return self.wins * 100 / self.matches if self.matches else None
 
+    @property
+    def kda(self) -> str:
+        return f"{self.kills} / {self.deaths} / {self.assists}"
+
+    @property
+    def average_kills(self) -> float | None:
+        return self.kills / self.matches if self.matches else None
+
+    @property
+    def average_deaths(self) -> float | None:
+        return self.deaths / self.matches if self.matches else None
+
+    @property
+    def average_assists(self) -> float | None:
+        return self.assists / self.matches if self.matches else None
+
+
 @dataclass(slots=True)
-class DailyReport:
+class MatchWindowReport:
+    """Stable view model shared by daily and arbitrary time-window queries."""
+
     uid: str
     player_name: str
-    date: date
-    timezone: str
-    season: str
-    total: DailyModeStats = field(default_factory=DailyModeStats)
-    quick: DailyModeStats = field(default_factory=DailyModeStats)
-    competitive: DailyModeStats = field(default_factory=DailyModeStats)
-    other: DailyModeStats = field(default_factory=DailyModeStats)
-    heroes: list[DailyHeroStats] = field(default_factory=list)
-    matches: list[DailyMatch] = field(default_factory=list)
+    window: MatchTimeWindow
+    total: WindowStats = field(default_factory=WindowStats)
+    quick: WindowStats = field(default_factory=WindowStats)
+    competitive: WindowStats = field(default_factory=WindowStats)
+    other: WindowStats = field(default_factory=WindowStats)
+    heroes: list[WindowHeroStats] = field(default_factory=list)
+    matches: list[MatchRecord] = field(default_factory=list)
+    season: str = ""
+
+    @property
+    def date(self) -> date:
+        """Compatibility view for the previous DailyReport API."""
+
+        return self.window.start_at.date()
+
+    @property
+    def timezone(self) -> str:
+        return self.window.timezone
+
+
+# Compatibility aliases for integrations shipped before the generic window
+# model.  New code should use MatchWindowReport/WindowStats/WindowHeroStats/
+# MatchRecord directly.
+DailyModeStats = WindowStats
+DailyMatch = MatchRecord
+DailyHeroStats = WindowHeroStats
+DailyReport = MatchWindowReport

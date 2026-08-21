@@ -72,9 +72,9 @@
     "default": 15
   },
   "MRCN_INTERACTION_SESSION_SECONDS": {
-    "description": "Lifetime of recent-match numeric selection sessions",
+    "description": "Lifetime of recent-match and time-window numeric selection sessions",
     "type": "int",
-    "default": 300
+    "default": 600
   },
   "MRCN_SIGNATURE_HERO_BATCH_SIZE": {
     "description": "Maximum hero IDs in one career request for cross-season specialty analysis",

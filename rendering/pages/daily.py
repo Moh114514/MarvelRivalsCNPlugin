@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from ...marvel_rivals_bot.models import DailyModeStats, DailyReport
+    from ...marvel_rivals_bot.models import MatchWindowReport, WindowStats
     from ...marvel_rivals_bot.reference.seasons import format_season_name
 except ImportError:
-    from marvel_rivals_bot.models import DailyModeStats, DailyReport
+    from marvel_rivals_bot.models import MatchWindowReport, WindowStats
     from marvel_rivals_bot.reference.seasons import format_season_name
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
@@ -38,7 +38,7 @@ def _duration(seconds: float | int | None) -> str:
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {remain:02d}s"
 
 
-def _mode_row(title: str, stats: DailyModeStats) -> str:
+def _mode_row(title: str, stats: WindowStats) -> str:
     return (
         '<article class="mr-daily-mode-row">'
         f'<div class="mr-daily-mode-row__title">{escape_text(title)}</div>'
@@ -66,8 +66,8 @@ def _hero_row(index: int, hero, total_matches: int) -> str:
     )
 
 
-def build_daily_report_html(report: DailyReport) -> str:
-    """Build a report from the stable DailyReport view model only."""
+def build_daily_report_html(report: MatchWindowReport) -> str:
+    """Compatibility page for a full-day MatchWindowReport."""
 
     season_name = format_season_name(report.season) if str(report.season).isdigit() else str(report.season)
     date_text = f"{report.date.year:04d}.{report.date.month:02d}.{report.date.day:02d}"

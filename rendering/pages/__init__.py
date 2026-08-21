@@ -24,6 +24,7 @@ from .player_meta import (
 from .player import build_player_stats_html
 from .recent import build_recent_matches_html
 from .daily import build_daily_report_html
+from .match_window import build_match_window_html, build_match_window_pages
 from .player_signature import build_player_signature_html
 from .player_sickness import build_player_sickness_html
 
@@ -50,4 +51,6 @@ __all__ = [
     "build_player_stats_html",
     "build_recent_matches_html",
     "build_daily_report_html",
+    "build_match_window_html",
+    "build_match_window_pages",
 ]

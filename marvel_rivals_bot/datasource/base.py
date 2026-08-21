@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from enum import IntEnum
 
@@ -57,7 +58,7 @@ class RivalsDataSource(ABC):
     async def get_match_summary_page(
         self,
         uid: str,
-        season: str,
+        season: str | None = None,
         *,
         page: int = 0,
         page_size: int = 100,
@@ -77,3 +78,15 @@ class RivalsDataSource(ABC):
     @abstractmethod
     async def get_summary_detail(self, match_uid: str) -> dict:
         raise NotImplementedError
+
+    async def get_summary_details(self, match_uids: list[str]) -> dict:
+        """Batch-compatible fallback for sources exposing single-match detail."""
+
+        payloads = await asyncio.gather(*(self.get_summary_detail(uid) for uid in match_uids))
+        rows = []
+        for payload in payloads:
+            data = payload.get("data", payload) if isinstance(payload, dict) else {}
+            matches = data.get("matches", []) if isinstance(data, dict) else []
+            if isinstance(matches, list):
+                rows.extend(item for item in matches if isinstance(item, dict))
+        return {"data": {"matches": rows}}

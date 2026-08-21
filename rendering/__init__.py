@@ -20,6 +20,8 @@ from .pages import (
     build_player_stats_html,
     build_recent_matches_html,
     build_daily_report_html,
+    build_match_window_html,
+    build_match_window_pages,
 )
 from .assets import AssetManager, AssetRecord
 from .renderer import MatchImageRenderer, RivalsImageRenderer
@@ -48,6 +50,8 @@ __all__ = [
     "build_player_stats_html",
     "build_recent_matches_html",
     "build_daily_report_html",
+    "build_match_window_html",
+    "build_match_window_pages",
     "AssetManager",
     "AssetRecord",
 ]

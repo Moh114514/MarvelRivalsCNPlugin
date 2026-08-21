@@ -6,7 +6,7 @@ import asyncio
 from typing import Awaitable, Callable
 
 try:
-    from ..marvel_rivals_bot.models import DailyReport, HeroQueryResult, PlayerStats
+    from ..marvel_rivals_bot.models import HeroQueryResult, MatchWindowReport, PlayerStats
     from ..marvel_rivals_bot.meta.models import (
         HeroMetaBoard,
         HeroMetaComparison,
@@ -19,7 +19,7 @@ try:
     )
     from ..marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerMetaProfile, PlayerSignatureProfile
 except ImportError:
-    from marvel_rivals_bot.models import DailyReport, HeroQueryResult, PlayerStats
+    from marvel_rivals_bot.models import HeroQueryResult, MatchWindowReport, PlayerStats
     from marvel_rivals_bot.meta.models import (
         HeroMetaBoard,
         HeroMetaComparison,
@@ -55,6 +55,7 @@ from .pages import (
     build_player_stats_html,
     build_recent_matches_html,
     build_daily_report_html,
+    build_match_window_pages,
 )
 
 PNG_OPTIONS = {"type": "png", "full_page": True, "animations": "disabled", "caret": "hide"}
@@ -100,8 +101,11 @@ class RivalsImageRenderer:
     async def recent(self, uid: str, season_code: str, matches: list[dict]) -> str:
         return await self._render(build_recent_matches_html(uid, season_code, matches))
 
-    async def daily(self, report: DailyReport) -> str:
+    async def daily(self, report: MatchWindowReport) -> str:
         return await self._render(build_daily_report_html(report))
+
+    async def match_window(self, report: MatchWindowReport) -> list[str]:
+        return [await self._render(html) for html in build_match_window_pages(report)]
 
     async def detail(self, payload: dict) -> str:
         return await self._render(build_match_detail_html(payload))

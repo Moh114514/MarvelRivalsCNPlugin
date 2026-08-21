@@ -1043,7 +1043,7 @@ class CNDataSource(RivalsDataSource):
     async def get_match_summary_page(
         self,
         uid: str,
-        season: str,
+        season: str | None = None,
         *,
         page: int = 0,
         page_size: int = 100,
@@ -1068,12 +1068,12 @@ class CNDataSource(RivalsDataSource):
             raise DataSourceError("时间范围必须同时提供开始和结束时间")
         if start_timestamp is not None and end_timestamp is not None and end_timestamp <= start_timestamp:
             raise DataSourceError("时间范围结束时间必须晚于开始时间")
-        season = self._normalize_season(season or self.default_season)
+        normalized_season = self._normalize_season(season or self.default_season) if season else None
         template = self.body_templates["matches"]
         body = self._body_from(
             template,
             uid,
-            season=season,
+            season=normalized_season or "",
             player_uid=int(uid),
             page=page,
             page_size=page_size,
@@ -1088,12 +1088,22 @@ class CNDataSource(RivalsDataSource):
         body["gameModeId"] = {"$in": [int(item) for item in game_mode_ids]}
         body["playModeId"] = {"$in": [int(item) for item in play_mode_ids]}
         body.pop("matchTimeStamp", None)
+        if season is None:
+            # Time-window queries are intentionally season-independent.  The
+            # default legacy template contains matchSeason, so remove that
+            # condition after expansion instead of changing user templates.
+            body.pop("matchSeason", None)
         if start_timestamp is not None and end_timestamp is not None:
             body["matchTimeStamp"] = {
                 "$gte": int(start_timestamp),
                 "$lt": int(end_timestamp),
             }
-        payload = await self._post(self.paths["matches"], uid, body_template=json.dumps(body, ensure_ascii=False), season=season)
+        payload = await self._post(
+            self.paths["matches"],
+            uid,
+            body_template=json.dumps(body, ensure_ascii=False),
+            season=normalized_season or self.default_season,
+        )
         return MatchSummaryPage(
             match_info=self._summary_items(payload),
             page=page,

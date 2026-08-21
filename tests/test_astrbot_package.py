@@ -54,8 +54,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 1.3.1", metadata)
-        self.assertIn('"1.3.1"', main)
+        self.assertIn("version: 1.3.2", metadata)
+        self.assertIn('"1.3.2"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -81,7 +81,7 @@ class TestAstrBotPackage(unittest.TestCase):
     def test_help_documents_commands_and_season_codes(self):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for text in (
-            "/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/英雄数据", "/对局详情", "/卡片测试",
+            "/帮助", "/绑定账号", "/解绑账号", "/战绩", "/最近对局", "/战绩回顾", "/每日战绩", "/英雄数据", "/对局详情", "/卡片测试",
             "/英雄环境", "/英雄排行", "/英雄统计", "/英雄分段", "/英雄对比", "/英雄趋势", "/版本变化", "/版本黑马",
             "/冷门强者", "/热门低胜率", "/分段怪物", "/我的绝活", "/我的绝症", "S0", "S9.5", "英雄名称",
         ):
@@ -98,11 +98,12 @@ class TestAstrBotPackage(unittest.TestCase):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for command in (
             "帮助", "漫威帮助", "绑定账号", "绑定漫威", "解绑账号", "解绑漫威",
-            "最近对局", "最近", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
+            "最近对局", "最近", "战绩回顾", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
             "英雄趋势", "版本变化", "版本黑马", "冷门强者", "分段怪物",
         ):
             self.assertIn(f'@filter.command("{command}")', main)
         self.assertIn('@filter.command("热门低胜率", alias={"热门陷阱"})', main)
+        self.assertIn('@filter.command("每日战绩", alias={"今日战绩"})', main)
         self.assertNotIn('@filter.command("help")', main)
 
     def test_hero_commands_use_one_filter_with_runtime_aliases(self):
@@ -156,7 +157,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "1.3.1")
+        self.assertEqual(validate_source(PLUGIN_DIR), "1.3.2")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

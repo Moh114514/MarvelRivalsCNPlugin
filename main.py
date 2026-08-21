@@ -8,9 +8,19 @@ from pathlib import Path
 try:
     from .marvel_rivals_bot.datasource.base import DataSourceError
     from .marvel_rivals_bot.datasource.cn import CNDataSource
-    from .marvel_rivals_bot.commands.daily import DailyCommandUsageError, parse_daily_command_args
+    from .marvel_rivals_bot.commands.time_window import (
+        MatchWindowCommandUsageError,
+        parse_match_window_command_args,
+    )
     from .marvel_rivals_bot.services.rivals import RivalsService
-    from .marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
+    from .marvel_rivals_bot.services.match_history import MatchHistoryService
+    from .marvel_rivals_bot.services.rivals import (
+        format_hero_result,
+        format_match_detail,
+        format_matches,
+        format_match_window,
+        format_player,
+    )
     from .marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from .marvel_rivals_bot.meta.commands import (
         CommandUsageError,
@@ -58,9 +68,19 @@ except ImportError:
     # sys.path instead of importing it as a package.
     from marvel_rivals_bot.datasource.base import DataSourceError
     from marvel_rivals_bot.datasource.cn import CNDataSource
-    from marvel_rivals_bot.commands.daily import DailyCommandUsageError, parse_daily_command_args
+    from marvel_rivals_bot.commands.time_window import (
+        MatchWindowCommandUsageError,
+        parse_match_window_command_args,
+    )
     from marvel_rivals_bot.services.rivals import RivalsService
-    from marvel_rivals_bot.services.rivals import format_hero_result, format_match_detail, format_matches, format_player
+    from marvel_rivals_bot.services.match_history import MatchHistoryService
+    from marvel_rivals_bot.services.rivals import (
+        format_hero_result,
+        format_match_detail,
+        format_matches,
+        format_match_window,
+        format_player,
+    )
     from marvel_rivals_bot.storage.bindings import BindingStore, BindingStoreError
     from marvel_rivals_bot.meta.commands import (
         CommandUsageError,
@@ -161,7 +181,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.1", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.2", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -180,14 +200,20 @@ class MarvelRivalsPlugin(Star):
 /最近对局 [UID] [赛季]
 查询最近十场（兼容 /最近）
 
-/每日战绩 [日期] [UID] [赛季]
-查询指定北京时间日期的聚合战绩（兼容 /今日战绩）
+/战绩回顾 [时间范围] [UID]
+查询指定北京时间范围内的统计和全部对局（默认今天）
+
+/每日战绩 [日期] [UID]
+查询指定日期全天战绩（兼容 /今日战绩）
 
 /我的英雄 <名称> [UID] [赛季]
 查询指定英雄的生涯或单赛季综合分析（兼容 /英雄数据、/英雄）
 
-/对局详情 <matchUid>
-查询对局详情（兼容 /对局）
+/对局详情 <matchUid|N>
+查询对局详情（兼容 /对局 N；N 来自最近或战绩回顾列表）
+
+/对局 <N>
+查看当前最近对局或战绩回顾列表中的第 N 场
 
 /卡片测试
 测试 QQ 卡片能力
@@ -260,6 +286,7 @@ class MarvelRivalsPlugin(Star):
             hero_max_concurrency=signature_concurrency,
             max_inflight_requests=_safe_int_config(env_config, "MRCN_MAX_INFLIGHT_REQUESTS", 8),
         )
+        self.match_history = MatchHistoryService(self.service)
         self.qq_card_sender = QQOfficialCardSender()
         self.message_sender = SenderRouter(OneBotSender())
         self.image_renderer = MatchImageRenderer(
@@ -299,7 +326,7 @@ class MarvelRivalsPlugin(Star):
             db_path = plugin_data_root / "bindings.sqlite3"
         self.bindings = BindingStore(Path(db_path))
         self.interaction_sessions = InteractionSessionStore(
-            _safe_float_config(env_config, "MRCN_INTERACTION_SESSION_SECONDS", 300, minimum=1)
+            _safe_float_config(env_config, "MRCN_INTERACTION_SESSION_SECONDS", 600, minimum=1)
         )
         self.meta_enabled = str(env_config.get("MRCN_META_ENABLED", "true")).lower() not in {"0", "false", "no", "off"}
         self.meta_source = None
@@ -557,9 +584,9 @@ class MarvelRivalsPlugin(Star):
             sessions = getattr(self, "interaction_sessions", None)
             if sessions is not None:
                 match_uids = [
-                    str(item.get("matchUid", item.get("matchUID", item.get("id", ""))))
-                    for item in matches[:10]
-                    if isinstance(item, dict)
+                    match_uid
+                    for match_uid in (self._selection_match_uid(item) for item in matches[:10])
+                    if match_uid
                 ]
                 sessions.set_recent(self._qq_id(event), self._group_id(event), match_uids)
             try:
@@ -575,7 +602,7 @@ class MarvelRivalsPlugin(Star):
             else:
                 yield self._image_result(event, image_url)
                 if self._group_id(event):
-                    yield event.plain_result("回复 /对局 1 ~ /对局 10 查看详情")
+                    yield event.plain_result(f"回复 /对局 1 ~ /对局 {len(matches[:10])} 查看详情")
         except DataSourceError as exc:
             yield event.plain_result(f"查询失败：{exc}")
 
@@ -585,21 +612,7 @@ class MarvelRivalsPlugin(Star):
         async for result in self.recent(event, uid, season):
             yield result
 
-    @filter.command("每日战绩", alias={"今日战绩"})
-    async def daily_stats(
-        self,
-        event: AstrMessageEvent,
-        arg1: str = "",
-        arg2: str = "",
-        arg3: str = "",
-    ):
-        """查询指定北京时间日期的聚合战绩，可独立指定日期、UID 和赛季。"""
-
-        try:
-            args = parse_daily_command_args(arg1, arg2, arg3)
-        except DailyCommandUsageError as exc:
-            yield event.plain_result(self._usage_error(str(exc), "/每日战绩 [今天|昨天|YYYY-MM-DD] [UID] [赛季]"))
-            return
+    async def _match_window_results(self, event: AstrMessageEvent, args, command_name: str):
         try:
             uid = args.uid or self._bound_uid(event)
         except BindingStoreError as exc:
@@ -609,21 +622,92 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result("请提供 UID，或先使用 /绑定漫威 <UID>")
             return
         try:
-            report = await self.service.get_daily_report(uid, args.target_date, args.season or None)
-            try:
-                image_url = await self.image_renderer.daily(report)
-            except Exception as exc:
-                if logger:
-                    logger.warning(f"每日战绩图片渲染失败 command=每日战绩 uid={uid} error={exc}")
-                yield event.plain_result(self._render_failure("每日战绩", str(report.date)))
-                return
-            if self.qq_card_sender.supports(event):
-                if not await self._send_image(event, image_url):
-                    yield event.plain_result(self._render_failure("每日战绩", str(report.date)))
+            history = getattr(self, "match_history", None)
+            window_loader = getattr(history, "build_match_window_report", None) if history is not None else None
+            if not callable(window_loader):
+                window_loader = getattr(self.service, "get_match_window_report", None)
+            if callable(window_loader):
+                report = await window_loader(uid, args.window)
             else:
-                yield self._image_result(event, image_url)
+                # Compatibility for integrations that still expose only the
+                # previous daily facade while upgrading the plugin shell.
+                report = await self.service.get_daily_report(uid, args.window.start_at.date())
+            renderer = getattr(self.image_renderer, "match_window", None)
+            if callable(renderer):
+                image_urls = await renderer(report)
+            else:
+                image_urls = [await self.image_renderer.daily(report)]
+            if not image_urls:
+                raise RuntimeError("未生成战绩图片")
+            sessions = getattr(self, "interaction_sessions", None)
+            if sessions is not None:
+                sessions.set_window(
+                    self._qq_id(event),
+                    self._group_id(event),
+                    [match.match_uid for match in report.matches],
+                    report.window.label,
+                )
+            if self.qq_card_sender.supports(event):
+                for image_url in image_urls:
+                    if not await self._send_image(event, image_url):
+                        yield event.plain_result(format_match_window(report))
+                        return
+            else:
+                for image_url in image_urls:
+                    yield self._image_result(event, image_url)
         except DataSourceError as exc:
             yield event.plain_result(f"查询失败：{exc}")
+        except Exception as exc:
+            if logger:
+                logger.warning(f"{command_name}图片或查询失败 command={command_name} error={exc}")
+            yield event.plain_result(self._render_failure(command_name))
+
+    @filter.command("战绩回顾")
+    async def match_window(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+        arg4: str = "",
+        arg5: str = "",
+    ):
+        """查询指定北京时间时间范围内的统计和全部对局。"""
+
+        try:
+            args = parse_match_window_command_args(arg1, arg2, arg3, arg4, arg5)
+        except MatchWindowCommandUsageError as exc:
+            yield event.plain_result(self._usage_error(str(exc), "/战绩回顾 [时间范围] [UID]"))
+            return
+        async for result in self._match_window_results(event, args, "战绩回顾"):
+            yield result
+
+    @filter.command("每日战绩", alias={"今日战绩"})
+    async def daily_stats(
+        self,
+        event: AstrMessageEvent,
+        arg1: str = "",
+        arg2: str = "",
+        arg3: str = "",
+        arg4: str = "",
+        arg5: str = "",
+    ):
+        """查询指定北京时间日期全天战绩，是战绩回顾的快捷入口。"""
+
+        try:
+            args = parse_match_window_command_args(arg1, arg2, arg3, arg4, arg5)
+        except MatchWindowCommandUsageError as exc:
+            yield event.plain_result(self._usage_error(str(exc), "/每日战绩 [日期] [UID]"))
+            return
+        daily_tokens = [str(value).strip() for value in (arg1, arg2, arg3, arg4, arg5) if str(value).strip()]
+        if len(daily_tokens) > 2 or any(
+            ":" in token or token.startswith("最近") or token == "本周"
+            for token in daily_tokens
+        ):
+            yield event.plain_result(self._usage_error("每日战绩只接受日期和 UID；需要具体时段请使用 /战绩回顾", "/每日战绩 [日期] [UID]"))
+            return
+        async for result in self._match_window_results(event, args, "每日战绩"):
+            yield result
 
     @filter.command("我的英雄", alias={"英雄数据", "英雄"})
     async def hero(self, event: AstrMessageEvent, hero_name: str, uid: str = "", season: str = ""):
@@ -681,18 +765,28 @@ class MarvelRivalsPlugin(Star):
             return candidate
         index = int(candidate)
         sessions = getattr(self, "interaction_sessions", None)
-        if sessions is None or index > 99:
+        if sessions is None:
             return candidate
-        session = sessions.get_recent(self._qq_id(event), self._group_id(event))
+        getter = getattr(sessions, "get", None) or getattr(sessions, "get_recent", None)
+        session = getter(self._qq_id(event), self._group_id(event)) if callable(getter) else None
         if session is None:
-            if not 1 <= index <= 10:
-                return candidate
-            raise CommandUsageError("最近对局选择已过期，请重新使用 /最近对局")
-        if not 1 <= index <= 10:
-            raise CommandUsageError("最近对局编号必须是 1-10")
-        if index > len(session.match_uids):
-            raise CommandUsageError(f"最近对局只有 {len(session.match_uids)} 场，无法选择第 {index} 场")
+            raise CommandUsageError("对局列表选择已过期，请重新使用 /最近对局或 /战绩回顾")
+        session_label = getattr(session, "label", "最近对局")
+        if not 1 <= index <= len(session.match_uids):
+            raise CommandUsageError(f"{session_label}只有 {len(session.match_uids)} 场，无法选择第 {index} 场")
         return session.match_uids[index - 1]
+
+    @staticmethod
+    def _selection_match_uid(item: object) -> str:
+        typed_uid = getattr(item, "match_uid", None)
+        if typed_uid not in (None, ""):
+            return str(typed_uid)
+        getter = getattr(item, "get", None)
+        if callable(getter):
+            match_uid = getter("matchUid", getter("matchUID", getter("id", "")))
+            if match_uid not in (None, ""):
+                return str(match_uid)
+        return ""
 
     @filter.command("对局详情")
     async def match_detail(self, event: AstrMessageEvent, match_uid: str):
@@ -713,7 +807,7 @@ class MarvelRivalsPlugin(Star):
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
-            yield event.plain_result(self._usage_error(str(exc), "/对局 <matchUid|1-10>"))
+            yield event.plain_result(self._usage_error(str(exc), "/对局 <matchUid|N>"))
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
 

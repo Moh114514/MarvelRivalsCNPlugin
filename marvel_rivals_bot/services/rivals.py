@@ -10,9 +10,22 @@ from typing import Any, TypeVar
 from ..datasource.base import DataSourceError, GameMode, RivalsDataSource
 from ..game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
 from ..reference.dates import GAME_TZ, game_date_window
+from ..reference.time_ranges import MAX_WINDOW_SECONDS, parse_match_time_window
 from ..reference.heroes import HERO_ROLE_LABELS, format_hero_name, get_hero_id, get_hero_identity, get_hero_name
-from ..models import HeroQueryResult, ModeStats, PlayerHeroStats, PlayerProfile, PlayerStats
-from ..models import DailyHeroStats, DailyMatch, DailyModeStats, DailyReport, MatchSummaryPage
+from ..models import (
+    HeroQueryResult,
+    MatchPlayer,
+    MatchRecord,
+    MatchSummaryPage,
+    MatchTimeWindow,
+    MatchWindowReport,
+    ModeStats,
+    PlayerHeroStats,
+    PlayerProfile,
+    PlayerStats,
+    WindowHeroStats,
+    WindowStats,
+)
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
 from ..reference.seasons import season_identity_from_cn_code, season_identity_from_name
@@ -78,10 +91,13 @@ class RivalsService:
         self._inflight: dict[str, asyncio.Task[Any]] = {}
         self._player_cache: dict[str, tuple[float, PlayerStats]] = {}
         self._profile_cache: dict[str, tuple[float, PlayerProfile]] = {}
-        self._matches_cache: dict[str, tuple[float, list[dict]]] = {}
+        self._matches_cache: dict[str, tuple[float, list[MatchRecord]]] = {}
         self._hero_cache: dict[str, tuple[float, HeroQueryResult]] = {}
         self._match_detail_cache: dict[str, tuple[float, dict]] = {}
-        self._daily_cache: dict[str, tuple[float, DailyReport]] = {}
+        self._window_cache: dict[str, tuple[float, MatchWindowReport]] = {}
+        # Keep the old attribute as a compatibility view for integrations
+        # that inspected it during the daily-only release.
+        self._daily_cache = self._window_cache
 
     @property
     def request_semaphore(self) -> asyncio.Semaphore:
@@ -247,14 +263,14 @@ class RivalsService:
         values = await asyncio.gather(*(load_one(hero_id) for hero_id in hero_ids))
         return [value for value in values if value is not None]
 
-    async def get_recent_matches(self, uid: str, season: str | None = None) -> list[dict]:
+    async def get_recent_matches(self, uid: str, season: str | None = None) -> list[MatchRecord]:
         season_code = self._season_code(season)
         cache_key = f"{uid}:{season_code}"
         cached = self._cached(self._matches_cache, cache_key)
         if cached is not None:
             return cached
 
-        async def load() -> list[dict]:
+        async def load() -> list[MatchRecord]:
             summary_loader = getattr(self.source, "get_match_summary_page", None)
             inherited_loader = (
                 isinstance(self.source, RivalsDataSource)
@@ -264,7 +280,7 @@ class RivalsService:
             if callable(summary_loader) and not inherited_loader:
                 try:
                     page = await self._request(
-                        lambda: summary_loader(uid, season_code, page=0, page_size=10)
+                        lambda: summary_loader(uid, season=season_code, page=0, page_size=10)
                     )
                     matches = _summary_page_items(page)
                     matches = await self._enrich_match_summaries(uid, matches)
@@ -272,8 +288,9 @@ class RivalsService:
                     matches = await self._request(lambda: self.source.get_recent_matches(uid, season_code))
             else:
                 matches = await self._request(lambda: self.source.get_recent_matches(uid, season_code))
-            self._matches_cache[cache_key] = (time.monotonic(), matches)
-            return matches
+            records = _coerce_match_records(matches, uid)
+            self._matches_cache[cache_key] = (time.monotonic(), records)
+            return records
 
         return await self._singleflight(f"recent:{uid}:{season_code}", load)
 
@@ -352,17 +369,24 @@ class RivalsService:
     async def get_matches_by_time_range(
         self,
         uid: str,
-        season: str | None,
+        season: str | None = None,
         *,
         start_timestamp: int,
         end_timestamp: int,
         page_size: int | None = None,
         max_pages: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch all Summary rows in a server-filtered half-open time range."""
 
+        uid = str(uid).strip()
+        if not uid.isdigit():
+            raise DataSourceError("UID 必须是数字")
+        if int(end_timestamp) <= int(start_timestamp):
+            raise DataSourceError("时间范围结束时间必须晚于开始时间")
+        if int(end_timestamp) - int(start_timestamp) > MAX_WINDOW_SECONDS:
+            raise DataSourceError("单次战绩回顾最多查询 7 天")
         season_text = str(season or "").strip()
-        season_code = season_text if season_text.isdigit() else self._season_code(season)
+        season_code = season_text if season_text.isdigit() else self._season_code(season) if season_text else None
         loader = getattr(self.source, "get_match_summary_page", None)
         inherited_loader = (
             isinstance(self.source, RivalsDataSource)
@@ -378,7 +402,7 @@ class RivalsService:
             result = await self._request(
                 lambda page_number=page_number: loader(
                     uid,
-                    season_code,
+                    season=season_code,
                     page=page_number,
                     page_size=page_size,
                     start_timestamp=int(start_timestamp),
@@ -390,6 +414,86 @@ class RivalsService:
             if len(rows) < page_size:
                 break
         return matches
+
+    async def get_match_window_report(
+        self,
+        uid: str,
+        window: MatchTimeWindow,
+        *,
+        season: str | None = None,
+    ) -> MatchWindowReport:
+        """Fetch, normalize and aggregate every match in ``window``."""
+
+        if not isinstance(window, MatchTimeWindow):
+            raise DataSourceError("时间范围无效")
+        uid = str(uid).strip()
+        if not uid.isdigit():
+            raise DataSourceError("UID 必须是数字")
+        now = datetime.now(GAME_TZ)
+        cache_key = f"match-window:{uid}:{window.start_timestamp}:{window.end_timestamp}"
+        contains_now = window.end_timestamp >= int(now.timestamp()) - 2
+        cache_ttl = self.daily_current_cache_seconds if contains_now else self.daily_cache_seconds
+        cached = self._window_cache.get(cache_key)
+        if cached is not None and cache_ttl > 0 and time.monotonic() - cached[0] < cache_ttl:
+            return cached[1]
+
+        async def load() -> MatchWindowReport:
+            summaries = await self.get_matches_by_time_range(
+                uid,
+                season,
+                start_timestamp=window.start_timestamp,
+                end_timestamp=window.end_timestamp,
+            )
+            details = await self.get_summary_details([_match_uid(item) for item in summaries])
+            records: list[MatchRecord] = []
+            player_name = ""
+            for summary in summaries:
+                match_uid = _match_uid(summary)
+                detail = details.get(match_uid)
+                target = _target_player(detail, uid)
+                if target is None:
+                    target = _target_player(summary.get("matchPlayer"), uid)
+                if target is None and isinstance(summary.get("matchPlayer"), Mapping):
+                    target = dict(summary["matchPlayer"])
+                target = target or {"playerUid": uid}
+                player_name = player_name or _text_value(target, "nickName", "playerName", "name")
+                records.append(_match_record(summary, detail, target, match_uid, uid))
+            if not player_name:
+                player_name = await self._fallback_player_name(uid, self._season_code(season))
+            report = _build_match_window_report(
+                uid=uid,
+                player_name=player_name or uid,
+                window=window,
+                season=self._season_code(season) if season else "",
+                matches=records,
+            )
+            if cache_ttl > 0:
+                self._window_cache[cache_key] = (time.monotonic(), report)
+            return report
+
+        return await self._singleflight(cache_key, load)
+
+    async def get_window_report(
+        self,
+        uid: str,
+        window: MatchTimeWindow,
+        *,
+        season: str | None = None,
+    ) -> MatchWindowReport:
+        return await self.get_match_window_report(uid, window, season=season)
+
+    async def get_daily_report(
+        self,
+        uid: str,
+        target_date: date,
+        season: str | None = None,
+    ) -> MatchWindowReport:
+        """Compatibility shortcut: build a full Beijing calendar-day window."""
+
+        if not isinstance(target_date, date):
+            raise DataSourceError("每日战绩日期无效")
+        window = parse_match_time_window([target_date.isoformat()])
+        return await self.get_match_window_report(uid, window, season=season)
 
     async def get_summary_details(self, match_uids: list[str]) -> dict[str, dict[str, Any]]:
         """Load details in batches, reusing the per-match cache."""
@@ -420,6 +524,11 @@ class RivalsService:
             return details
 
         batch_loader = getattr(self.source, "get_summary_details", None)
+        inherited_batch_loader = (
+            isinstance(self.source, RivalsDataSource)
+            and getattr(type(self.source), "get_summary_details", None)
+            is RivalsDataSource.get_summary_details
+        )
         semaphore = asyncio.Semaphore(self.detail_max_concurrency)
         batches = [
             missing[index:index + self.match_detail_batch_size]
@@ -428,7 +537,7 @@ class RivalsService:
 
         async def load_batch(batch: list[str]) -> list[dict[str, Any]]:
             async with semaphore:
-                if callable(batch_loader):
+                if callable(batch_loader) and not inherited_batch_loader:
                     payload = await self._request(lambda: batch_loader(batch))
                     rows = _detail_rows(payload)
                 else:
@@ -447,69 +556,6 @@ class RivalsService:
                     details[match_uid] = row
         return details
 
-    async def get_daily_report(
-        self,
-        uid: str,
-        target_date: date,
-        season: str | None = None,
-    ) -> DailyReport:
-        """Build one Beijing-calendar-day report from Summary and Detail data."""
-
-        if not isinstance(target_date, date):
-            raise DataSourceError("每日战绩日期无效")
-        if target_date > datetime.now(GAME_TZ).date():
-            raise DataSourceError("不能查询未来日期的战绩")
-        uid = str(uid).strip()
-        if not uid.isdigit():
-            raise DataSourceError("UID 必须是数字")
-        season_code = self._season_code(season)
-        cache_key = f"daily:{uid}:{season_code}:{target_date.isoformat()}"
-        now = time.monotonic()
-        cache_ttl = (
-            self.daily_current_cache_seconds
-            if target_date == datetime.now(GAME_TZ).date()
-            else self.daily_cache_seconds
-        )
-        cached = self._daily_cache.get(cache_key)
-        if cached is not None and cache_ttl > 0 and now - cached[0] < cache_ttl:
-            return cached[1]
-
-        async def load() -> DailyReport:
-            start_timestamp, end_timestamp = game_date_window(target_date)
-            summaries = await self.get_matches_by_time_range(
-                uid,
-                season_code,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp,
-            )
-            details = await self.get_summary_details([_match_uid(item) for item in summaries])
-            daily_matches: list[DailyMatch] = []
-            player_name = ""
-            for summary in summaries:
-                match_uid = _match_uid(summary)
-                detail = details.get(match_uid)
-                target = _target_player(detail, uid)
-                if target is None:
-                    target = _target_player(summary.get("matchPlayer"), uid)
-                if target is None:
-                    continue
-                player_name = player_name or _text_value(target, "nickName", "playerName", "name")
-                daily_matches.append(_daily_match(summary, detail, target, match_uid))
-            if not player_name:
-                player_name = await self._fallback_player_name(uid, season_code)
-            report = _build_daily_report(
-                uid=uid,
-                player_name=player_name or uid,
-                target_date=target_date,
-                season=season_code,
-                matches=daily_matches,
-            )
-            if cache_ttl > 0:
-                self._daily_cache[cache_key] = (time.monotonic(), report)
-            return report
-
-        return await self._singleflight(cache_key, load)
-
     async def _fallback_player_name(self, uid: str, season_code: str) -> str:
         loader = getattr(self.source, "get_player_profile", None)
         if not callable(loader):
@@ -524,7 +570,11 @@ class RivalsService:
         details = await self.get_summary_details([_match_uid(item) for item in matches])
         for match in matches:
             detail = details.get(_match_uid(match))
+            if detail is not None:
+                match["_matchDetail"] = dict(detail)
             target = _target_player(detail, uid)
+            if target is None and isinstance(match.get("matchPlayer"), Mapping):
+                target = dict(match["matchPlayer"])
             if target is not None:
                 match["matchPlayer"] = dict(target)
         return matches
@@ -622,7 +672,13 @@ def _detail_rows(value: Any) -> list[dict[str, Any]]:
             return [dict(item) for item in matches if isinstance(item, Mapping)]
         # A few test and compatibility adapters return a UID -> match map.
         if matches is None and all(isinstance(item, Mapping) for item in data.values()):
-            return [dict(item) for item in data.values()]
+            rows = []
+            for key, item in data.items():
+                row = dict(item)
+                if not _match_uid(row):
+                    row["matchUid"] = str(key)
+                rows.append(row)
+            return rows
     return [dict(data)] if isinstance(data, Mapping) and _match_uid(data) else []
 
 
@@ -704,28 +760,58 @@ def _first_value(*values: Any) -> Any:
     return None
 
 
-def _daily_match(
+def _coerce_match_records(value: Any, uid: str) -> list[MatchRecord]:
+    records: list[MatchRecord] = []
+    if not isinstance(value, list):
+        return records
+    for item in value:
+        if isinstance(item, MatchRecord):
+            records.append(item)
+            continue
+        if not isinstance(item, Mapping):
+            continue
+        summary = dict(item)
+        detail = summary.get("_matchDetail") or summary.get("detail")
+        if not isinstance(detail, Mapping):
+            detail = None
+        target = _target_player(detail, uid) or _target_player(summary.get("matchPlayer"), uid)
+        if target is None and isinstance(summary.get("matchPlayer"), Mapping):
+            target = dict(summary["matchPlayer"])
+        records.append(_match_record(summary, detail, target or {"playerUid": uid}, _match_uid(summary), uid))
+    return records
+
+
+def _match_record(
     summary: Mapping[str, Any],
     detail: Mapping[str, Any] | None,
     target: Mapping[str, Any],
     match_uid: str,
-) -> DailyMatch:
+    uid: str,
+) -> MatchRecord:
     detail = detail or {}
-    return DailyMatch(
-        match_uid=match_uid,
-        timestamp=_int_value(_first_value(summary.get("matchTimeStamp"), detail.get("matchTimeStamp")), default=0) or None,
-        game_mode_id=_int_value(_first_value(summary.get("gameModeId"), detail.get("gameModeId")), default=0) or None,
-        play_mode_id=_int_value(_first_value(summary.get("playModeId"), detail.get("playModeId")), default=0) or None,
-        duration_seconds=_number_value(_first_value(summary.get("matchPlayDuration"), detail.get("matchPlayDuration"))) or 0,
-        hero_id=str(_first_value(target.get("curHeroId"), target.get("heroId"))) if _first_value(target.get("curHeroId"), target.get("heroId")) not in (None, "") else None,
+    hero_value = _first_value(target.get("curHeroId"), target.get("heroId"))
+    player_uid = _text_value(target, "playerUid", "uid") or str(uid)
+    player = MatchPlayer(
+        player_uid=player_uid,
+        hero_id=str(hero_value) if hero_value not in (None, "") else None,
         is_win=_bool_result(target.get("isWin")),
-        kills=_int_value(target.get("k", target.get("kills"))),
-        deaths=_int_value(target.get("d", target.get("deaths"))),
-        assists=_int_value(target.get("a", target.get("assists"))),
+        kills=_optional_int(target, "k", "kills"),
+        deaths=_optional_int(target, "d", "deaths"),
+        assists=_optional_int(target, "a", "assists"),
         hero_damage=_optional_int(target, "totalHeroDamage", "heroDamage"),
         healing=_optional_int(target, "totalHeroHeal", "totalHeal", "heroHeal", "heal"),
         damage_taken=_optional_int(target, "totalDamageTaken", "damageTaken"),
         player_name=_text_value(target, "nickName", "playerName", "name"),
+        raw=dict(target),
+    )
+    return MatchRecord(
+        match_uid=match_uid,
+        timestamp=_optional_int({"value": _first_value(summary.get("matchTimeStamp"), detail.get("matchTimeStamp"))}, "value"),
+        game_mode_id=_optional_int({"value": _first_value(summary.get("gameModeId"), detail.get("gameModeId"))}, "value"),
+        play_mode_id=_optional_int({"value": _first_value(summary.get("playModeId"), detail.get("playModeId"))}, "value"),
+        map_id=_optional_int({"value": _first_value(summary.get("matchMapId"), detail.get("matchMapId"))}, "value"),
+        duration_seconds=_number_value(_first_value(summary.get("matchPlayDuration"), detail.get("matchPlayDuration"))),
+        player=player,
         raw={**dict(summary), "detail": dict(detail), "matchPlayer": dict(target)},
     )
 
@@ -735,91 +821,120 @@ def _optional_int(value: Mapping[str, Any], *keys: str) -> int | None:
     return int(round(number)) if number is not None else None
 
 
-def _build_daily_report(
+def _build_match_window_report(
     *,
     uid: str,
     player_name: str,
-    target_date: date,
+    window: MatchTimeWindow,
     season: str,
-    matches: list[DailyMatch],
-) -> DailyReport:
-    total = DailyModeStats()
-    quick = DailyModeStats()
-    competitive = DailyModeStats()
-    other = DailyModeStats()
-    hero_map: dict[str, DailyHeroStats] = {}
+    matches: list[MatchRecord],
+) -> MatchWindowReport:
+    total = WindowStats()
+    quick = WindowStats()
+    competitive = WindowStats()
+    other = WindowStats()
+    hero_map: dict[str, WindowHeroStats] = {}
     for match in matches:
         bucket = quick if match.game_mode_id == 1 else competitive if match.game_mode_id == 2 else other
         for stats in (total, bucket):
             _accumulate_mode(stats, match)
-        if match.hero_id:
+        if match.player.hero_id:
             hero = hero_map.setdefault(
-                match.hero_id,
-                DailyHeroStats(
-                    hero_id=match.hero_id,
-                    hero_name=_daily_hero_name(match.hero_id),
+                match.player.hero_id,
+                WindowHeroStats(
+                    hero_id=match.player.hero_id,
+                    hero_name=_daily_hero_name(match.player.hero_id),
                 ),
             )
             _accumulate_hero(hero, match)
     heroes = sorted(
         hero_map.values(),
-        key=lambda item: (item.matches, item.play_time_seconds, item.hero_id),
-        reverse=True,
+        key=lambda item: (-item.matches, -item.play_time_seconds, item.hero_id),
     )
-    return DailyReport(
+    for hero in heroes:
+        hero.usage_rate = hero.matches * 100 / total.matches if total.matches else None
+    return MatchWindowReport(
         uid=uid,
         player_name=player_name,
-        date=target_date,
-        timezone="Asia/Shanghai",
-        season=season,
+        window=window,
         total=total,
         quick=quick,
         competitive=competitive,
         other=other,
         heroes=heroes,
         matches=matches,
+        season=season,
     )
 
 
-def _accumulate_mode(stats: DailyModeStats, match: DailyMatch) -> None:
+def _build_daily_report(
+    *,
+    uid: str,
+    player_name: str,
+    target_date: date,
+    season: str,
+    matches: list[MatchRecord],
+) -> MatchWindowReport:
+    """Compatibility helper retained for older integrations."""
+
+    start_timestamp, end_timestamp = game_date_window(target_date)
+    start = datetime.fromtimestamp(start_timestamp, GAME_TZ)
+    end = datetime.fromtimestamp(end_timestamp, GAME_TZ)
+    window = MatchTimeWindow(
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+        start_at=start,
+        end_at=end,
+        timezone="Asia/Shanghai",
+        label=f"{target_date.year}年{target_date.month}月{target_date.day}日",
+    )
+    return _build_match_window_report(
+        uid=uid, player_name=player_name, window=window, season=season, matches=matches
+    )
+
+
+_daily_match = _match_record
+
+
+def _accumulate_mode(stats: WindowStats, match: MatchRecord) -> None:
     stats.matches += 1
-    if match.is_win is True:
+    if match.player.is_win is True:
         stats.wins += 1
-    elif match.is_win is False:
+    elif match.player.is_win is False:
         stats.losses += 1
-    stats.kills += match.kills
-    stats.deaths += match.deaths
-    stats.assists += match.assists
-    stats.play_time_seconds += match.duration_seconds
-    if match.hero_damage is not None:
-        stats.hero_damage = (stats.hero_damage or 0) + match.hero_damage
+    stats.kills += match.player.kills or 0
+    stats.deaths += match.player.deaths or 0
+    stats.assists += match.player.assists or 0
+    stats.play_time_seconds += match.duration_seconds or 0
+    if match.player.hero_damage is not None:
+        stats.hero_damage = (stats.hero_damage or 0) + match.player.hero_damage
         stats.damage_samples += 1
-    if match.healing is not None:
-        stats.healing = (stats.healing or 0) + match.healing
+    if match.player.healing is not None:
+        stats.healing = (stats.healing or 0) + match.player.healing
         stats.healing_samples += 1
-    if match.damage_taken is not None:
-        stats.damage_taken = (stats.damage_taken or 0) + match.damage_taken
+    if match.player.damage_taken is not None:
+        stats.damage_taken = (stats.damage_taken or 0) + match.player.damage_taken
         stats.damage_taken_samples += 1
 
 
-def _accumulate_hero(stats: DailyHeroStats, match: DailyMatch) -> None:
+def _accumulate_hero(stats: WindowHeroStats, match: MatchRecord) -> None:
     stats.matches += 1
-    if match.is_win is True:
+    if match.player.is_win is True:
         stats.wins += 1
-    elif match.is_win is False:
+    elif match.player.is_win is False:
         stats.losses += 1
-    stats.kills += match.kills
-    stats.deaths += match.deaths
-    stats.assists += match.assists
-    stats.play_time_seconds += match.duration_seconds
-    if match.hero_damage is not None:
-        stats.hero_damage = (stats.hero_damage or 0) + match.hero_damage
+    stats.kills += match.player.kills or 0
+    stats.deaths += match.player.deaths or 0
+    stats.assists += match.player.assists or 0
+    stats.play_time_seconds += match.duration_seconds or 0
+    if match.player.hero_damage is not None:
+        stats.hero_damage = (stats.hero_damage or 0) + match.player.hero_damage
         stats.damage_samples += 1
-    if match.healing is not None:
-        stats.healing = (stats.healing or 0) + match.healing
+    if match.player.healing is not None:
+        stats.healing = (stats.healing or 0) + match.player.healing
         stats.healing_samples += 1
-    if match.damage_taken is not None:
-        stats.damage_taken = (stats.damage_taken or 0) + match.damage_taken
+    if match.player.damage_taken is not None:
+        stats.damage_taken = (stats.damage_taken or 0) + match.player.damage_taken
         stats.damage_taken_samples += 1
 
 
@@ -1015,6 +1130,31 @@ def format_matches(matches: list[dict], season: str | None = None) -> str:
             f"{_duration(item.get('matchPlayDuration'))}\n"
             f"地图 {map_name}  {mode_text}\n"
             f"matchUid={match_uid}"
+        )
+    return "\n".join(lines)
+
+
+def format_match_window(report: MatchWindowReport) -> str:
+    """Compact text fallback for platforms without image support."""
+
+    total = report.total
+    lines = [
+        "战绩回顾",
+        report.window.label,
+        f"共 {_count(total.matches)} 场 · {_count(total.wins)} 胜 {_count(total.losses)} 负 · "
+        f"胜率 {_fmt(total.win_rate)}%" if total.win_rate is not None else f"共 {_count(total.matches)} 场 · {_count(total.wins)} 胜 {_count(total.losses)} 负",
+        f"总 K/D/A：{total.kda} · 游戏时间 {_duration(total.play_time_seconds)}",
+    ]
+    if not report.matches:
+        lines.append("暂无对局记录")
+        return "\n".join(lines)
+    lines += ["", "该时间段对局"]
+    for index, match in enumerate(report.matches, 1):
+        result = "胜" if match.player.is_win is True else "负" if match.player.is_win is False else "?"
+        hero = _daily_hero_name(match.player.hero_id) if match.player.hero_id else "未知英雄"
+        lines.append(
+            f"{index:02d} {_time(match.timestamp)} {result} {hero} "
+            f"{_count(match.player.kills)}/{_count(match.player.deaths)}/{_count(match.player.assists)}"
         )
     return "\n".join(lines)
 
