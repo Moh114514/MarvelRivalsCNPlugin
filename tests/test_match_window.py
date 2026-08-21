@@ -150,6 +150,8 @@ class TestMatchWindow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(pages), 2)
         self.assertIn("对局 1-25", pages[0])
         self.assertIn("对局 26-44", pages[1])
+        self.assertIn('class="mr-match-list mr-match-list--window" style="--mr-window-match-rows:13"', pages[0])
+        self.assertIn('style="--mr-window-match-rows:10"', pages[1])
 
     def test_role_stats_use_role_specific_denominators_and_group_heroes(self):
         window = MatchTimeWindow(
@@ -230,6 +232,9 @@ class TestMatchWindow(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(heroes["1018"].role_usage_rate, 100)
         text = format_match_window(report)
         self.assertIn("每10分钟击败", text)
+        html = build_match_window_html(report)
+        self.assertIn("每10分钟治疗", html)
+        self.assertIn("每10分钟承伤", html)
 
     async def test_cn_time_query_omits_season_but_keeps_it_when_explicit(self):
         bodies = []

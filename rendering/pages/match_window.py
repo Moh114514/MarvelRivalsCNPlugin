@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import ceil
 from typing import Iterable
 
 try:
@@ -223,12 +224,19 @@ def _overview(report: MatchWindowReport) -> str:
         label = HERO_ROLE_LABELS.get(role, "未识别职责")
         rows = []
         for index, hero in enumerate(heroes, 1):
-            hero_metric = (
-                f'游玩 {_duration(hero.play_time_seconds)} · 每10分钟击败 {_number(hero.per10_kills, "数据不足")} · '
-                f'每10分钟伤害 {_number(hero.per10_hero_damage, "数据不完整")}'
+            hero_metric_primary = (
+                f'游玩 {_duration(hero.play_time_seconds)} · 每10分钟击败 {_number(hero.per10_kills, "数据不足")}'
                 if hero.per10_available else
-                f'游玩 {_duration(hero.play_time_seconds)} · 场均击败 {_number(hero.average_kills)} · '
-                f'场均伤害 {_number(hero.average_hero_damage, "数据不完整")}'
+                f'游玩 {_duration(hero.play_time_seconds)} · 场均击败 {_number(hero.average_kills)}'
+            )
+            hero_metric_resources = (
+                f'每10分钟伤害 {_number(hero.per10_hero_damage, "数据不完整")} · '
+                f'每10分钟治疗 {_number(hero.per10_healing, "数据不完整")} · '
+                f'每10分钟承伤 {_number(hero.per10_damage_taken, "数据不完整")}'
+                if hero.per10_available else
+                f'场均伤害 {_number(hero.average_hero_damage, "数据不完整")} · '
+                f'场均治疗 {_number(hero.average_healing, "数据不完整")} · '
+                f'场均承伤 {_number(hero.average_damage_taken, "数据不完整")}'
             )
             rows.append(
                 '<article class="mr-window-hero-row">'
@@ -239,7 +247,8 @@ def _overview(report: MatchWindowReport) -> str:
                 f'{_number(hero.wins)} 胜 · 胜率 {_percent(hero.win_rate)} · 全局使用 {_percent(hero.usage_rate)} · '
                 f'职责内使用 {_percent(hero.role_usage_rate)}</div>'
                 f'<div class="mr-window-hero-row__meta">KDA {escape_text(hero.kda)} · '
-                f'{hero_metric}</div>'
+                f'{hero_metric_primary}</div>'
+                f'<div class="mr-window-hero-row__meta">{hero_metric_resources}</div>'
                 '</div></article>'
             )
         hero_groups.append(
@@ -277,10 +286,16 @@ def build_match_window_html(
     content = header
     if page_number == 1:
         content += _overview(report)
+    row_count = max(1, ceil(len(selected) / 2))
+    match_list = (
+        f'<div class="mr-match-list mr-match-list--window" style="--mr-window-match-rows:{row_count}">'
+        f'{_match_rows(selected, start_index) if selected else empty_state("暂无对局记录")}'
+        '</div>'
+    )
     content += (
         '<section class="mr-section">'
         + section_title(title, f"MATCH LIST {page_number}/{total_pages}")
-        + f'<div class="mr-match-list">{_match_rows(selected, start_index) if selected else empty_state("暂无对局记录")}</div>'
+        + match_list
         + '</section>'
     )
     return page_shell(content, watermark="MATCH REVIEW")

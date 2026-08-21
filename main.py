@@ -58,7 +58,7 @@ try:
     from .marvel_rivals_bot.reference.seasons import parse_season_name
     from .marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, PlayerSignatureService
     from .qq_official import (
-        QQOfficialCardSender, build_capability_test_card, build_recent_card,
+        QQOfficialCardSender, build_capability_test_card, build_match_window_card, build_recent_card,
     )
     from .rendering import AssetManager, MatchImageRenderer
     from .messaging import OneBotSender, SenderRouter
@@ -118,7 +118,7 @@ except ImportError:
     from marvel_rivals_bot.reference.seasons import parse_season_name
     from marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, PlayerSignatureService
     from qq_official import (
-        QQOfficialCardSender, build_capability_test_card, build_recent_card,
+        QQOfficialCardSender, build_capability_test_card, build_match_window_card, build_recent_card,
     )
     from rendering import AssetManager, MatchImageRenderer
     from messaging import OneBotSender, SenderRouter
@@ -181,7 +181,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.5", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.6", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -199,6 +199,8 @@ class MarvelRivalsPlugin(Star):
 
 /最近对局 [UID] [赛季]
 查询最近十场（兼容 /最近）
+
+最近对局、战绩回顾和每日战绩结果会保留 10 分钟；可点击按钮，或回复 /对局 1 ~ /对局 N 查看具体对局。
 
 /战绩回顾 [时间范围] [UID]
 查询指定北京时间范围内的统计和全部对局（默认今天）
@@ -461,6 +463,23 @@ class MarvelRivalsPlugin(Star):
                 logger.warning(f"QQ Official 图片发送失败，回退普通文本：{exc}")
             return False
 
+    def _selection_session_minutes(self) -> int:
+        ttl_seconds = getattr(getattr(self, "interaction_sessions", None), "ttl_seconds", 600)
+        try:
+            return max(1, int((float(ttl_seconds) + 59) // 60))
+        except (TypeError, ValueError):
+            return 10
+
+    def _match_window_selection_prompt(self, report) -> str:
+        total = len(getattr(report, "matches", ()) or ())
+        minutes = self._selection_session_minutes()
+        if not total:
+            return f"{report.window.label}暂无可供选择的对局。"
+        return (
+            f"{report.window.label}共 {total} 场对局。"
+            f"请在 {minutes} 分钟内回复 /对局 1 ~ /对局 {total} 查看具体对局。"
+        )
+
     @staticmethod
     def _uid_and_season(uid: str, season: str) -> tuple[str, str]:
         uid, season = uid.strip(), season.strip()
@@ -658,11 +677,22 @@ class MarvelRivalsPlugin(Star):
             if self.qq_card_sender.supports(event):
                 for image_url in image_urls:
                     if not await self._send_image(event, image_url):
-                        yield event.plain_result(format_match_window(report))
+                        yield event.plain_result(
+                            format_match_window(report) + "\n\n" + self._match_window_selection_prompt(report)
+                        )
                         return
+                if not await self._send_card(
+                    event,
+                    build_match_window_card,
+                    report.window.label,
+                    report.matches,
+                    self._selection_session_minutes(),
+                ):
+                    yield event.plain_result(self._match_window_selection_prompt(report))
             else:
                 for image_url in image_urls:
                     yield self._image_result(event, image_url)
+                yield event.plain_result(self._match_window_selection_prompt(report))
         except DataSourceError as exc:
             yield event.plain_result(f"查询失败：{exc}")
         except Exception as exc:

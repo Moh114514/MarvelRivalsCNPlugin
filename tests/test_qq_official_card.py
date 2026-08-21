@@ -3,13 +3,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from main import MarvelRivalsPlugin
-from qq_official.cards import build_capability_test_card, build_recent_card
+from qq_official.cards import build_capability_test_card, build_match_window_card, build_recent_card
 from qq_official.sender import QQOfficialCardSender
 from rendering import (
     MatchImageRenderer, build_hero_query_html, build_match_detail_html,
     build_player_stats_html, build_recent_matches_html,
 )
-from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, PlayerProfile, PlayerStats
+from marvel_rivals_bot.models import CareerSummary, HeroQueryResult, HeroStat, MatchRecord, PlayerProfile, PlayerStats
 
 
 class FakeEvent:
@@ -59,6 +59,45 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
             [button.data for row in card.rows for button in row],
             ["/对局详情 m-1", "/对局详情 m-2"],
         )
+
+    def test_window_card_reuses_detail_buttons_and_exposes_window_ttl(self):
+        matches = [MatchRecord(match_uid=f"window-{index}") for index in range(23)]
+        card = build_match_window_card("2026年8月20日", matches, 10)
+        self.assertEqual(sum(len(row) for row in card.rows), 23)
+        self.assertLessEqual(len(card.rows), 5)
+        self.assertEqual(card.rows[0][0].data, "/对局详情 window-0")
+        self.assertEqual(card.rows[-1][-1].data, "/对局详情 window-22")
+        self.assertIn("有效 10 分钟", card.markdown)
+
+    async def test_window_query_sends_images_then_selectable_detail_card(self):
+        report = SimpleNamespace(
+            window=SimpleNamespace(label="2026年8月20日"),
+            matches=[MatchRecord(match_uid="window-1"), MatchRecord(match_uid="window-2")],
+        )
+
+        plugin = object.__new__(MarvelRivalsPlugin)
+        plugin.match_history = SimpleNamespace(
+            build_match_window_report=AsyncMock(return_value=report),
+        )
+        plugin.service = SimpleNamespace()
+        plugin.image_renderer = SimpleNamespace(
+            match_window=AsyncMock(return_value=["https://example.com/window.png"]),
+        )
+        plugin.qq_card_sender = QQOfficialCardSender()
+        plugin.interaction_sessions = SimpleNamespace(ttl_seconds=600, set_window= lambda *args: None)
+        plugin._qq_id = lambda _event: "user-1"
+        plugin._group_id = lambda _event: "group-1"
+        event = FakeEvent()
+
+        results = [item async for item in plugin._match_window_results(
+            event, SimpleNamespace(uid="123", window=SimpleNamespace()), "战绩回顾",
+        )]
+        self.assertEqual(results, [])
+        self.assertEqual(event.bot.api.post_group_file.await_count, 1)
+        self.assertEqual(event.bot.api.post_group_message.await_count, 2)
+        card_payload = event.bot.api.post_group_message.await_args_list[-1].kwargs
+        self.assertIn("选择要查看的对局", card_payload["markdown"]["content"])
+        self.assertEqual(card_payload["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"], "/对局详情 window-1")
 
     async def test_image_renderer_builds_recent_and_detail_cards(self):
         html_render = AsyncMock(return_value="rendered.png")
