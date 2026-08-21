@@ -114,6 +114,39 @@ class NormalizedModeStats:
     mvp: int | None = None
     svp: int | None = None
 
+    def _per10(self, value: int | float | None) -> float | None:
+        if value is None or self.play_time is None or self.play_time <= 0:
+            return None
+        return value * 600 / self.play_time
+
+    @property
+    def per10_kills(self) -> float | None:
+        return self._per10(self.kills)
+
+    @property
+    def per10_deaths(self) -> float | None:
+        return self._per10(self.deaths)
+
+    @property
+    def per10_assists(self) -> float | None:
+        return self._per10(self.assists)
+
+    @property
+    def per10_final_hits(self) -> float | None:
+        return self._per10(self.final_hits)
+
+    @property
+    def per10_hero_damage(self) -> float | None:
+        return self._per10(self.hero_damage)
+
+    @property
+    def per10_heal(self) -> float | None:
+        return self._per10(self.heal)
+
+    @property
+    def per10_damage_taken(self) -> float | None:
+        return self._per10(self.damage_taken)
+
     @classmethod
     def from_mode(cls, mode: Any) -> "NormalizedModeStats":
         if mode is None:

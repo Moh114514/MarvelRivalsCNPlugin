@@ -9,10 +9,10 @@ from marvel_rivals_bot.commands.time_window import (
     MatchWindowCommandUsageError,
     parse_match_window_command_args,
 )
-from marvel_rivals_bot.models import MatchPlayer, MatchRecord, MatchTimeWindow, MatchWindowReport
+from marvel_rivals_bot.models import HeroMatchSlice, MatchPlayer, MatchRecord, MatchTimeWindow, MatchWindowReport
 from marvel_rivals_bot.reference.dates import GAME_TZ
 from marvel_rivals_bot.reference.time_ranges import parse_match_time_window
-from marvel_rivals_bot.services.rivals import RivalsService, _build_match_window_report, format_match_window
+from marvel_rivals_bot.services.rivals import RivalsService, _build_match_window_report, _match_record, format_match_window
 from marvel_rivals_bot.storage.interaction_sessions import InteractionSessionStore
 from marvel_rivals_bot.datasource.cn import CNDataSource
 from main import CommandUsageError, MarvelRivalsPlugin
@@ -190,6 +190,46 @@ class TestMatchWindow(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ROLE BREAKDOWN", html)
         self.assertIn("策略家", html)
         self.assertNotIn("总治疗", html)
+
+    def test_player_heroes_split_roles_and_normalize_every_ten_minutes(self):
+        window = MatchTimeWindow(
+            1, 2, datetime(2026, 8, 15, tzinfo=GAME_TZ),
+            datetime(2026, 8, 15, 0, 0, 1, tzinfo=GAME_TZ), label="测试窗口",
+        )
+        record = _match_record(
+            {"matchUid": "split-1", "matchTimeStamp": 1, "gameModeId": 2, "matchPlayDuration": 900},
+            None,
+            {
+                "playerUid": "123", "nickName": "Tester", "isWin": 1,
+                "playTime": 780.729, "k": 6, "d": 2, "a": 8, "lastKill": 3,
+                "totalHeroDamage": 12000, "totalHeroHeal": 3000, "totalDamageTaken": 9000,
+                "playerHeroes": [
+                    {"heroId": 1018, "role": "vanguard", "playTime": 600, "k": 4, "d": 1, "a": 2,
+                     "lastKill": 2, "totalHeroDamage": 9000, "totalHeroHeal": 0, "totalDamageTaken": 7000},
+                    {"heroId": 1016, "role": "strategist", "playTime": 180.729, "k": 2, "d": 1, "a": 6,
+                     "lastKill": 1, "totalHeroDamage": 3000, "totalHeroHeal": 3000, "totalDamageTaken": 2000},
+                ],
+            },
+            "split-1",
+            "123",
+        )
+        self.assertTrue(record.player.role_breakdown_valid)
+        self.assertEqual(record.player.main_hero.hero_id, "1018")
+        self.assertEqual(record.player.hero_switch_count, 1)
+        self.assertAlmostEqual(record.player.play_time_seconds, 780.729)
+        report = _build_match_window_report(
+            uid="123", player_name="Tester", window=window, season="", matches=[record],
+        )
+        self.assertAlmostEqual(report.total.play_time_seconds, 780.729)
+        self.assertAlmostEqual(report.roles["vanguard"].play_time_seconds, 600)
+        self.assertAlmostEqual(report.roles["strategist"].play_time_seconds, 180.729)
+        self.assertAlmostEqual(report.roles["vanguard"].per10_kills, 4)
+        self.assertAlmostEqual(report.roles["strategist"].per10_healing, 3000 * 600 / 180.729)
+        heroes = {hero.hero_id: hero for hero in report.heroes}
+        self.assertAlmostEqual(heroes["1018"].usage_rate, 600 * 100 / 780.729)
+        self.assertAlmostEqual(heroes["1018"].role_usage_rate, 100)
+        text = format_match_window(report)
+        self.assertIn("每10分钟击败", text)
 
     async def test_cn_time_query_omits_season_but_keeps_it_when_explicit(self):
         bodies = []

@@ -31,20 +31,34 @@ def _mode_block(title: str, stats) -> str:
     if stats is None or stats.matches is None:
         return empty_state(f"{title}暂无数据")
     matches = stats.matches
-    average = lambda name: "—" if getattr(stats, name, None) is None or not matches else f"{getattr(stats, name) / matches:.1f}"
+    if stats.play_time and stats.play_time > 0:
+        average = lambda name: "—" if getattr(stats, name, None) is None else f"{getattr(stats, name) * 600 / stats.play_time:.1f}"
+        metric_prefix = "每10分钟"
+        count_metrics = (
+            ("每10分钟击败", stats.kills * 600 / stats.play_time if stats.kills is not None else None),
+            ("每10分钟最后一击", stats.final_hits * 600 / stats.play_time if stats.final_hits is not None else None),
+            ("每10分钟死亡", stats.deaths * 600 / stats.play_time if stats.deaths is not None else None),
+            ("每10分钟助攻", stats.assists * 600 / stats.play_time if stats.assists is not None else None),
+        )
+    else:
+        average = lambda name: "—" if getattr(stats, name, None) is None or not matches else f"{getattr(stats, name) / matches:.1f}"
+        metric_prefix = "场均"
+        count_metrics = (
+            ("击败", stats.kills),
+            ("最后一击", stats.final_hits),
+            ("死亡", stats.deaths),
+            ("助攻", stats.assists),
+        )
     return (
         '<section class="mr-section">'
         + section_title(title, "MODE DETAILS")
         + metric_grid((
             ("场次", _value(stats.matches)),
             ("胜率", _percent(stats.win_rate)),
-            ("击败", _value(stats.kills)),
-            ("最后一击", _value(stats.final_hits)),
-            ("死亡", _value(stats.deaths)),
-            ("助攻", _value(stats.assists)),
-            ("场均伤害", average("hero_damage")),
-            ("场均治疗", average("heal")),
-            ("场均承伤", average("damage_taken")),
+            *tuple((label, _value(value)) for label, value in count_metrics),
+            (f"{metric_prefix}伤害", average("hero_damage")),
+            (f"{metric_prefix}治疗", average("heal")),
+            (f"{metric_prefix}承伤", average("damage_taken")),
             ("游戏时长", _hours(stats.play_time)),
             ("MVP", _value(stats.mvp)),
             ("SVP", _value(stats.svp)),

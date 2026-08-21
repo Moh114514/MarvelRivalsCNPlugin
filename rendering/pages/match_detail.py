@@ -13,6 +13,47 @@ from ..components import empty_state, metric_grid, page_header, page_shell, play
 from ..formatters import extract_first_match, format_duration, format_number, format_timestamp
 
 
+def _number_value(value):
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _per10(player: dict, *keys: str) -> str:
+    play_time = _number_value(player.get("playTime", player.get("playerPlayTime")))
+    value = next((_number_value(player.get(key)) for key in keys if _number_value(player.get(key)) is not None), None)
+    if value is None or play_time is None or play_time <= 0:
+        return "数据不足"
+    return f"{value * 600 / play_time:,.1f}"
+
+
+def _per10_stat(player: dict, key: str) -> str:
+    value = _number_value(player.get(key))
+    play_time = _number_value(player.get("playTime", player.get("playerPlayTime")))
+    if value is None or play_time is None or play_time <= 0:
+        return format_number(player, key)
+    return f"{value * 600 / play_time:,.1f}"
+
+
+def _main_hero(player: dict) -> tuple[object, int]:
+    rows = player.get("playerHeroes")
+    if not isinstance(rows, list):
+        return player.get("curHeroId"), 0
+    valid = [
+        row for row in rows
+        if isinstance(row, dict) and row.get("heroId", row.get("curHeroId")) is not None
+    ]
+    if not valid:
+        return player.get("curHeroId"), 0
+    main = max(valid, key=lambda row: _number_value(row.get("playTime", row.get("play_time"))) or 0)
+    ids = {
+        str(row.get("heroId", row.get("curHeroId")))
+        for row in valid
+    }
+    return main.get("heroId", main.get("curHeroId")), max(0, len(ids) - 1)
+
+
 def build_match_detail_html(payload: dict) -> str:
     match = extract_first_match(payload)
     if not match:
@@ -38,14 +79,22 @@ def build_match_detail_html(payload: dict) -> str:
             for player in players:
                 if not isinstance(player, dict) or player.get("camp") != camp:
                     continue
+                hero_id, switch_count = _main_hero(player)
+                hero_name = format_hero_name(hero_id) if hero_id is not None else "未知英雄"
+                if switch_count:
+                    hero_name += f"（另使用 {switch_count} 名英雄）"
                 members.append(player_row(
                     name=player.get("nickName", player.get("playerUid", "-")),
-                    hero=format_hero_name(player.get("curHeroId")),
-                    stats="/".join(format_number(player, key) for key in ("k", "d", "a")),
+                    hero=hero_name,
+                    stats=(
+                        "每10分钟 " + "/".join(_per10_stat(player, key) for key in ("k", "d", "a"))
+                        if _number_value(player.get("playTime", player.get("playerPlayTime"))) else
+                        "/".join(format_number(player, key) for key in ("k", "d", "a"))
+                    ),
                     extra=(
-                        f"伤害 {format_number(player, 'totalHeroDamage')} · "
-                        f"治疗 {format_number(player, 'totalHeroHeal')} · "
-                        f"承伤 {format_number(player, 'totalDamageTaken')}"
+                        f"伤害 {format_number(player, 'totalHeroDamage')}（每10分钟 {_per10(player, 'totalHeroDamage', 'heroDamage')}） · "
+                        f"治疗 {format_number(player, 'totalHeroHeal')}（每10分钟 {_per10(player, 'totalHeroHeal', 'totalHeal', 'heal')}） · "
+                        f"承伤 {format_number(player, 'totalDamageTaken')}（每10分钟 {_per10(player, 'totalDamageTaken', 'damageTaken')}）"
                     ),
                 ))
             teams.append(team_panel(camp, "".join(members), winner_side=winner_side))

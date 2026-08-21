@@ -181,7 +181,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.4", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.5", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -206,6 +206,7 @@ class MarvelRivalsPlugin(Star):
 也支持：/战绩回顾 8月20日 8月21日
 或：/战绩回顾 8月20日到8月21日
 跨日期带时间：/战绩回顾 2026-08-15 20:00 2026-08-16 02:00
+时间窗口中的击败、死亡、助攻、最后一击、伤害、治疗和承伤按玩家实际游戏时间统一折算为每10分钟；旧接口缺少 playTime 时使用兼容场均口径。
 
 /每日战绩 [日期] [UID]
 查询指定日期全天战绩（兼容 /今日战绩）
@@ -289,6 +290,9 @@ class MarvelRivalsPlugin(Star):
             hero_batch_size=signature_batch_size,
             hero_max_concurrency=signature_concurrency,
             max_inflight_requests=_safe_int_config(env_config, "MRCN_MAX_INFLIGHT_REQUESTS", 8),
+            match_detail_cache_seconds=_safe_float_config(
+                env_config, "MRCN_MATCH_DETAIL_CACHE_SECONDS", 86400, minimum=0
+            ),
         )
         self.match_history = MatchHistoryService(self.service)
         self.qq_card_sender = QQOfficialCardSender()

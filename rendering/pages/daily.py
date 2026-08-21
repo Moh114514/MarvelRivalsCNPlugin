@@ -58,16 +58,28 @@ def _role_row(label: str, stats: RoleWindowStats) -> str:
             '<div class="mr-window-role-row__empty">0 场 · 暂无该职责对局</div>'
             '</article>'
         )
-    metrics = metric_grid((
-        ("K / D / A", stats.kda),
-        ("场均击败", _number(stats.average_kills)),
-        ("场均死亡", _number(stats.average_deaths)),
-        ("场均助攻", _number(stats.average_assists)),
-        ("场均伤害", _number(stats.average_hero_damage, "数据不完整")),
-        ("场均治疗", _number(stats.average_healing, "数据不完整")),
-        ("场均承伤", _number(stats.average_damage_taken, "数据不完整")),
-        ("游戏时间", _duration(stats.play_time_seconds)),
-    ))
+    if stats.per10_available:
+        metrics = metric_grid((
+            ("K / D / A", stats.kda),
+            ("每10分钟击败", _number(stats.per10_kills)),
+            ("每10分钟死亡", _number(stats.per10_deaths)),
+            ("每10分钟助攻", _number(stats.per10_assists)),
+            ("每10分钟伤害", _number(stats.per10_hero_damage, "数据不完整")),
+            ("每10分钟治疗", _number(stats.per10_healing, "数据不完整")),
+            ("每10分钟承伤", _number(stats.per10_damage_taken, "数据不完整")),
+            ("游戏时间", _duration(stats.play_time_seconds)),
+        ))
+    else:
+        metrics = metric_grid((
+            ("K / D / A", stats.kda),
+            ("场均击败", _number(stats.average_kills)),
+            ("场均死亡", _number(stats.average_deaths)),
+            ("场均助攻", _number(stats.average_assists)),
+            ("场均伤害", _number(stats.average_hero_damage, "数据不完整")),
+            ("场均治疗", _number(stats.average_healing, "数据不完整")),
+            ("场均承伤", _number(stats.average_damage_taken, "数据不完整")),
+            ("游戏时间", "未知"),
+        ))
     return (
         '<article class="mr-window-role-row">'
         f'<div class="mr-window-role-row__heading"><div class="mr-window-role-row__title">{escape_text(label)}</div>'
@@ -79,10 +91,16 @@ def _role_row(label: str, stats: RoleWindowStats) -> str:
 
 
 def _hero_row(index: int, hero, total_matches: int) -> str:
-    usage = hero.matches * 100 / total_matches if total_matches else None
+    hero_metric = (
+        f'游玩 {_duration(hero.play_time_seconds)} · 每10分钟击败 {_number(hero.per10_kills, "数据不足")} · '
+        f'每10分钟伤害 {_number(hero.per10_hero_damage, "数据不足")}'
+        if hero.per10_available else
+        f'游玩 {_duration(hero.play_time_seconds)} · 场均击败 {_number(hero.average_kills)} · '
+        f'场均伤害 {_number(hero.average_hero_damage, "数据不完整")}'
+    )
     summary = (
         f"{_number(hero.matches)} 场 · {_number(hero.wins)} 胜 {_number(hero.losses)} 负 · "
-        f"胜率 {_percent(hero.win_rate)} · 使用 {_percent(usage)}"
+        f"胜率 {_percent(hero.win_rate)} · 全局使用 {_percent(hero.usage_rate)} · 职责内使用 {_percent(hero.role_usage_rate)}"
     )
     return (
         '<article class="mr-daily-hero-row">'
@@ -90,7 +108,7 @@ def _hero_row(index: int, hero, total_matches: int) -> str:
         '<div class="mr-daily-hero-row__body">'
         f'<div class="mr-daily-hero-row__title">{escape_text(hero.hero_name)}</div>'
         f'<div class="mr-daily-hero-row__meta">{escape_text(summary)}</div>'
-        f'<div class="mr-daily-hero-row__meta">游玩 {_duration(hero.play_time_seconds)}</div>'
+        f'<div class="mr-daily-hero-row__meta">{hero_metric}</div>'
         '</div>'
         '</article>'
     )
@@ -129,7 +147,9 @@ def build_daily_report_html(report: MatchWindowReport) -> str:
     total = report.total
     incomplete = total.incomplete_metrics
     note = (
-        '<p class="mr-daily-note">部分对局缺少' + escape_text("、".join(incomplete)) + '统计，职责场均值按各职责已返回数据样本计算。</p>'
+        '<p class="mr-daily-note">当前接口未返回完整的玩家 playTime，相关指标按兼容场均口径展示。</p>'
+        if report.total.matches and not report.total.per10_available else
+        '<p class="mr-daily-note">部分对局缺少' + escape_text("、".join(incomplete)) + '统计，职责每10分钟指标按各职责已返回数据样本和实际使用时长计算。</p>'
         if incomplete else ""
     )
     role_section = (

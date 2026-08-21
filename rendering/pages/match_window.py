@@ -78,19 +78,33 @@ def _role_row(label: str, stats: RoleWindowStats) -> str:
     note = (
         '<div class="mr-window-role-row__note">部分对局缺少'
         + escape_text("、".join(incomplete))
-        + '，相关场均值按该职责已返回数据样本计算。</div>'
+        + '，每10分钟指标按该职责已返回数据样本和实际使用时长计算。</div>'
         if incomplete else ""
     )
-    metrics = (
-        ("K / D / A", stats.kda),
-        ("场均击败", _number(stats.average_kills)),
-        ("场均死亡", _number(stats.average_deaths)),
-        ("场均助攻", _number(stats.average_assists)),
-        ("场均伤害", _number(stats.average_hero_damage, "数据不完整")),
-        ("场均治疗", _number(stats.average_healing, "数据不完整")),
-        ("场均承伤", _number(stats.average_damage_taken, "数据不完整")),
-        ("游戏时间", _duration(stats.play_time_seconds)),
-    )
+    if stats.per10_available:
+        metrics = (
+            ("K / D / A", stats.kda),
+            ("每10分钟击败", _number(stats.per10_kills)),
+            ("每10分钟死亡", _number(stats.per10_deaths)),
+            ("每10分钟助攻", _number(stats.per10_assists)),
+            ("每10分钟伤害", _number(stats.per10_hero_damage, "数据不完整")),
+            ("每10分钟治疗", _number(stats.per10_healing, "数据不完整")),
+            ("每10分钟承伤", _number(stats.per10_damage_taken, "数据不完整")),
+            ("游戏时间", _duration(stats.play_time_seconds)),
+        )
+    else:
+        # Old adapters may not expose player playTime; retain a truthful
+        # per-match fallback until the upstream field is available.
+        metrics = (
+            ("K / D / A", stats.kda),
+            ("场均击败", _number(stats.average_kills)),
+            ("场均死亡", _number(stats.average_deaths)),
+            ("场均助攻", _number(stats.average_assists)),
+            ("场均伤害", _number(stats.average_hero_damage, "数据不完整")),
+            ("场均治疗", _number(stats.average_healing, "数据不完整")),
+            ("场均承伤", _number(stats.average_damage_taken, "数据不完整")),
+            ("游戏时间", "未知"),
+        )
     metric_rows = "".join(
         f'<div class="mr-window-role-row__metric"><span>{escape_text(title)}</span><strong>{escape_text(value)}</strong></div>'
         for title, value in metrics
@@ -122,31 +136,56 @@ def _match_rows(matches: Iterable[MatchRecord], start_index: int = 1) -> str:
             else ("失败", "loss") if player.is_win is False
             else ("未知", "unknown")
         )
+        if player.play_time_seconds and player.play_time_seconds > 0:
+            kda_values = (player.per10_kills, player.per10_deaths, player.per10_assists)
+            kda = "每10分钟 " + "/".join(_number(value) for value in kda_values)
+        else:
+            kda = "/".join(_number(value) for value in (player.kills, player.deaths, player.assists))
         rows.append(match_row(
             index=index,
             result=result,
             result_class=result_class,
-            hero=_hero_name(player.hero_id),
+            hero=_hero_name(player.main_hero.hero_id if player.main_hero else player.hero_id)
+            + (f"（另使用 {player.hero_switch_count} 名英雄）" if player.hero_switch_count else ""),
             timestamp=_timestamp(match.timestamp),
             map_name=format_match_map(match.map_id),
             queue=format_queue(match.game_mode_id, match.play_mode_id),
             duration=_duration(match.duration_seconds),
-            kda="/".join(_number(value) for value in (player.kills, player.deaths, player.assists)),
+            kda=kda,
         ))
     return "".join(rows)
 
 
 def _overview(report: MatchWindowReport) -> str:
     total = report.total
+    if total.per10_available:
+        normalized_metrics = (
+            ("每10分钟击败", _number(total.per10_kills)),
+            ("每10分钟伤害", _number(total.per10_hero_damage, "数据不足")),
+            ("每10分钟治疗", _number(total.per10_healing, "数据不足")),
+            ("每10分钟承伤", _number(total.per10_damage_taken, "数据不足")),
+        )
+    else:
+        normalized_metrics = (
+            ("场均击败", _number(total.average_kills)),
+            ("场均伤害", _number(total.average_hero_damage, "数据不完整")),
+            ("场均治疗", _number(total.average_healing, "数据不完整")),
+            ("场均承伤", _number(total.average_damage_taken, "数据不完整")),
+        )
+    overview_kda = (
+        "/".join(_number(value) for value in (total.per10_kills, total.per10_deaths, total.per10_assists))
+        if total.per10_available else total.kda
+    )
     metrics = metric_grid((
         ("总场次", f"{total.matches} 场"),
         ("战绩", f"{total.wins} 胜 {total.losses} 负"),
         ("胜率", _percent(total.win_rate)),
         ("游戏时间", _duration(total.play_time_seconds)),
-        ("总 K / D / A", total.kda),
+        ("每10分钟 K / D / A" if total.per10_available else "总 K / D / A", overview_kda),
         ("总击败", _number(total.kills)),
         ("总死亡", _number(total.deaths)),
         ("总助攻", _number(total.assists)),
+        *normalized_metrics,
     ))
     modes = (
         '<section class="mr-section">'
@@ -159,9 +198,11 @@ def _overview(report: MatchWindowReport) -> str:
     )
     incomplete = total.incomplete_metrics
     note = (
+        '<p class="mr-window-note">当前接口未返回完整的玩家 playTime，相关指标按兼容场均口径展示。</p>'
+        if total.matches and not total.per10_available else
         '<p class="mr-window-note">部分对局缺少'
         + escape_text("、".join(incomplete))
-        + '统计，职责场均值按各职责已返回数据样本计算。</p>'
+        + '统计，职责每10分钟指标按各职责已返回数据样本和实际使用时长计算。</p>'
         if incomplete else ""
     )
     role_rows = "".join(
@@ -182,15 +223,23 @@ def _overview(report: MatchWindowReport) -> str:
         label = HERO_ROLE_LABELS.get(role, "未识别职责")
         rows = []
         for index, hero in enumerate(heroes, 1):
+            hero_metric = (
+                f'游玩 {_duration(hero.play_time_seconds)} · 每10分钟击败 {_number(hero.per10_kills, "数据不足")} · '
+                f'每10分钟伤害 {_number(hero.per10_hero_damage, "数据不完整")}'
+                if hero.per10_available else
+                f'游玩 {_duration(hero.play_time_seconds)} · 场均击败 {_number(hero.average_kills)} · '
+                f'场均伤害 {_number(hero.average_hero_damage, "数据不完整")}'
+            )
             rows.append(
                 '<article class="mr-window-hero-row">'
                 f'<span class="mr-window-hero-row__index">{index:02d}</span>'
                 '<div class="mr-window-hero-row__body">'
                 f'<div class="mr-window-hero-row__title">{escape_text(hero.hero_name)}</div>'
                 f'<div class="mr-window-hero-row__meta">{_number(hero.matches)} 场 · '
-                f'{_number(hero.wins)} 胜 · 胜率 {_percent(hero.win_rate)} · 使用 {_percent(hero.usage_rate)}</div>'
+                f'{_number(hero.wins)} 胜 · 胜率 {_percent(hero.win_rate)} · 全局使用 {_percent(hero.usage_rate)} · '
+                f'职责内使用 {_percent(hero.role_usage_rate)}</div>'
                 f'<div class="mr-window-hero-row__meta">KDA {escape_text(hero.kda)} · '
-                f'游玩 {_duration(hero.play_time_seconds)}</div>'
+                f'{hero_metric}</div>'
                 '</div></article>'
             )
         hero_groups.append(

@@ -37,14 +37,33 @@ def _mode_analysis_lines(title: str, mode) -> list[str]:
     matches = getattr(mode, "matches", None)
     def average(field: str) -> str:
         value = getattr(mode, field, None)
-        return "—" if value is None or not matches else f"{value / matches:.1f}"
+        play_time = getattr(mode, "play_time", None)
+        if value is None:
+            return "—"
+        if play_time and play_time > 0:
+            return f"{value * 600 / play_time:.1f}"
+        return "—" if not matches else f"{value / matches:.1f}"
+    metric_prefix = "每10分钟" if getattr(mode, "play_time", None) and mode.play_time > 0 else "场均"
+    if getattr(mode, "play_time", None) and mode.play_time > 0:
+        count_values = [
+            getattr(mode, "kills", None), getattr(mode, "final_hits", None),
+            getattr(mode, "deaths", None), getattr(mode, "assists", None),
+        ]
+        count_values = [value * 600 / mode.play_time if value is not None else None for value in count_values]
+        count_label = "每10分钟击败 / 最后一击 / 死亡 / 助攻："
+    else:
+        count_values = [
+            getattr(mode, "kills", None), getattr(mode, "final_hits", None),
+            getattr(mode, "deaths", None), getattr(mode, "assists", None),
+        ]
+        count_label = "击败 / 最后一击 / 死亡 / 助攻："
     return [
         title,
         f"场次：{_count(matches)}｜胜率：{_percent(getattr(mode, 'win_rate', None))}",
-        "击败 / 最后一击 / 死亡 / 助攻："
-        f"{_count(getattr(mode, 'kills', None))} / { _count(getattr(mode, 'final_hits', None))} / "
-        f"{_count(getattr(mode, 'deaths', None))} / {_count(getattr(mode, 'assists', None))}",
-        f"场均伤害 / 治疗 / 承伤：{average('hero_damage')} / {average('heal')} / {average('damage_taken')}",
+        count_label
+        + f"{_count(count_values[0])} / {_count(count_values[1])} / "
+        f"{_count(count_values[2])} / {_count(count_values[3])}",
+        f"{metric_prefix}伤害 / 治疗 / 承伤：{average('hero_damage')} / {average('heal')} / {average('damage_taken')}",
         f"游戏时长：{_hours(getattr(mode, 'play_time', None))}｜MVP：{_count(getattr(mode, 'mvp', None))}｜SVP：{_count(getattr(mode, 'svp', None))}",
     ]
 

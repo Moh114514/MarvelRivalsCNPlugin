@@ -51,6 +51,11 @@
     "type": "int",
     "default": 60
   },
+  "MRCN_MATCH_DETAIL_CACHE_SECONDS": {
+    "description": "Cache duration for immutable match-detail payloads",
+    "type": "int",
+    "default": 86400
+  },
   "MRCN_MAX_INFLIGHT_REQUESTS": {
     "description": "Maximum concurrent CN and Meta requests",
     "type": "int",

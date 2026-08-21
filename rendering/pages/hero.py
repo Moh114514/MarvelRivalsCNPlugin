@@ -31,16 +31,33 @@ def _stat_value(value: int | float | None) -> str:
 
 def _mode_grid(mode, *, prefix: str) -> str:
     matches = mode.matches
+    if getattr(mode, "play_time_seconds", None) and mode.play_time_seconds > 0:
+        count_metrics = (
+            ("每10分钟击败", mode.per10_kills),
+            ("每10分钟最后一击", mode.per10_final_hits),
+            ("每10分钟死亡", mode.per10_deaths),
+            ("每10分钟助攻", mode.per10_assists),
+        )
+        damage_label, damage = "每10分钟伤害", mode.per10_hero_damage
+        heal_label, healing = "每10分钟治疗", mode.per10_heal
+        taken_label, taken = "每10分钟承伤", mode.per10_damage_taken
+    else:
+        count_metrics = (
+            ("击败", mode.kills),
+            ("最后一击", mode.final_hits),
+            ("死亡", mode.deaths),
+            ("助攻", mode.assists),
+        )
+        damage_label, damage = "场均伤害", _average(mode.hero_damage, matches)
+        heal_label, healing = "场均治疗", _average(mode.heal, matches)
+        taken_label, taken = "场均承伤", _average(mode.damage_taken, matches)
     return metric_grid((
         (f"{prefix}场次", _stat_value(matches)),
         (f"{prefix}胜率", _percent(mode.win_rate)),
-        ("击败", _stat_value(mode.kills)),
-        ("最后一击", _stat_value(mode.final_hits)),
-        ("死亡", _stat_value(mode.deaths)),
-        ("助攻", _stat_value(mode.assists)),
-        ("场均伤害", _stat_value(_average(mode.hero_damage, matches))),
-        ("场均治疗", _stat_value(_average(mode.heal, matches))),
-        ("场均承伤", _stat_value(_average(mode.damage_taken, matches))),
+        *tuple((label, _stat_value(value)) for label, value in count_metrics),
+        (damage_label, _stat_value(damage)),
+        (heal_label, _stat_value(healing)),
+        (taken_label, _stat_value(taken)),
     ))
 
 

@@ -33,6 +33,42 @@ class ModeStats:
     mvp: int | None = None
     svp: int | None = None
 
+    @property
+    def _per10_factor(self) -> float | None:
+        return 600 / self.play_time_seconds if self.play_time_seconds and self.play_time_seconds > 0 else None
+
+    def _per10(self, value: int | float | None) -> float | None:
+        factor = self._per10_factor
+        return value * factor if value is not None and factor is not None else None
+
+    @property
+    def per10_kills(self) -> float | None:
+        return self._per10(self.kills)
+
+    @property
+    def per10_deaths(self) -> float | None:
+        return self._per10(self.deaths)
+
+    @property
+    def per10_assists(self) -> float | None:
+        return self._per10(self.assists)
+
+    @property
+    def per10_final_hits(self) -> float | None:
+        return self._per10(self.final_hits)
+
+    @property
+    def per10_hero_damage(self) -> float | None:
+        return self._per10(self.hero_damage if self.hero_damage is not None else self.damage)
+
+    @property
+    def per10_heal(self) -> float | None:
+        return self._per10(self.heal)
+
+    @property
+    def per10_damage_taken(self) -> float | None:
+        return self._per10(self.damage_taken)
+
 
 @dataclass(slots=True)
 class PlayerProfile:
@@ -272,6 +308,8 @@ class WindowStats:
     damage_samples: int = field(default=0, repr=False)
     healing_samples: int = field(default=0, repr=False)
     damage_taken_samples: int = field(default=0, repr=False)
+    final_hits: int = 0
+    play_time_authoritative: bool = field(default=True, repr=False)
 
     @property
     def win_rate(self) -> float | None:
@@ -306,6 +344,43 @@ class WindowStats:
         return f"{self.kills} / {self.deaths} / {self.assists}"
 
     @property
+    def per10_available(self) -> bool:
+        return self.play_time_authoritative and self.play_time_seconds > 0
+
+    def _per10(self, value: int | float | None) -> float | None:
+        if value is None or not self.play_time_authoritative or self.play_time_seconds <= 0:
+            return None
+        return value * 600 / self.play_time_seconds
+
+    @property
+    def per10_kills(self) -> float | None:
+        return self._per10(self.kills)
+
+    @property
+    def per10_deaths(self) -> float | None:
+        return self._per10(self.deaths)
+
+    @property
+    def per10_assists(self) -> float | None:
+        return self._per10(self.assists)
+
+    @property
+    def per10_final_hits(self) -> float | None:
+        return self._per10(self.final_hits)
+
+    @property
+    def per10_hero_damage(self) -> float | None:
+        return self._per10(self.hero_damage)
+
+    @property
+    def per10_healing(self) -> float | None:
+        return self._per10(self.healing)
+
+    @property
+    def per10_damage_taken(self) -> float | None:
+        return self._per10(self.damage_taken)
+
+    @property
     def incomplete_metrics(self) -> tuple[str, ...]:
         missing: list[str] = []
         if self.damage_samples < self.matches:
@@ -333,6 +408,23 @@ class RoleWindowStats(WindowStats):
 
 
 @dataclass(slots=True)
+class HeroMatchSlice:
+    """One hero's contribution to a match, normalized from ``playerHeroes``."""
+
+    hero_id: str
+    role: str | None = None
+    play_time_seconds: float = 0
+    kills: int | None = None
+    deaths: int | None = None
+    assists: int | None = None
+    final_hits: int | None = None
+    hero_damage: int | None = None
+    healing: int | None = None
+    damage_taken: int | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
 class MatchPlayer:
     """The selected player's normalized fields from one match detail."""
 
@@ -347,6 +439,53 @@ class MatchPlayer:
     damage_taken: int | None = None
     player_name: str = ""
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
+    play_time_seconds: float | None = None
+    final_hits: int | None = None
+    heroes: list[HeroMatchSlice] = field(default_factory=list)
+    role_breakdown_valid: bool = False
+
+    @property
+    def main_hero(self) -> HeroMatchSlice | None:
+        if not self.heroes:
+            return None
+        return max(self.heroes, key=lambda item: (item.play_time_seconds, item.hero_id))
+
+    @property
+    def hero_switch_count(self) -> int:
+        return max(0, len({item.hero_id for item in self.heroes}) - 1)
+
+    def _per10(self, value: int | float | None) -> float | None:
+        if value is None or self.play_time_seconds is None or self.play_time_seconds <= 0:
+            return None
+        return value * 600 / self.play_time_seconds
+
+    @property
+    def per10_kills(self) -> float | None:
+        return self._per10(self.kills)
+
+    @property
+    def per10_deaths(self) -> float | None:
+        return self._per10(self.deaths)
+
+    @property
+    def per10_assists(self) -> float | None:
+        return self._per10(self.assists)
+
+    @property
+    def per10_final_hits(self) -> float | None:
+        return self._per10(self.final_hits)
+
+    @property
+    def per10_hero_damage(self) -> float | None:
+        return self._per10(self.hero_damage)
+
+    @property
+    def per10_healing(self) -> float | None:
+        return self._per10(self.healing)
+
+    @property
+    def per10_damage_taken(self) -> float | None:
+        return self._per10(self.damage_taken)
 
 
 @dataclass(slots=True)
@@ -393,11 +532,30 @@ class MatchRecord:
             "k": self.player.kills if self.player.kills is not None else player_mapping.get("k"),
             "d": self.player.deaths if self.player.deaths is not None else player_mapping.get("d"),
             "a": self.player.assists if self.player.assists is not None else player_mapping.get("a"),
+            "lastKill": self.player.final_hits if self.player.final_hits is not None else player_mapping.get("lastKill"),
+            "finalHits": self.player.final_hits if self.player.final_hits is not None else player_mapping.get("finalHits"),
+            "playTime": self.player.play_time_seconds if self.player.play_time_seconds is not None else player_mapping.get("playTime"),
             "totalHeroDamage": self.player.hero_damage if self.player.hero_damage is not None else player_mapping.get("totalHeroDamage"),
             "totalHeroHeal": self.player.healing if self.player.healing is not None else player_mapping.get("totalHeroHeal"),
             "totalDamageTaken": self.player.damage_taken if self.player.damage_taken is not None else player_mapping.get("totalDamageTaken"),
             "nickName": self.player.player_name or player_mapping.get("nickName"),
         })
+        if self.player.heroes and not player_mapping.get("playerHeroes"):
+            player_mapping["playerHeroes"] = [
+                {
+                    "heroId": item.hero_id,
+                    "role": item.role,
+                    "playTime": item.play_time_seconds,
+                    "k": item.kills,
+                    "d": item.deaths,
+                    "a": item.assists,
+                    "lastKill": item.final_hits,
+                    "totalHeroDamage": item.hero_damage,
+                    "totalHeroHeal": item.healing,
+                    "totalDamageTaken": item.damage_taken,
+                }
+                for item in self.player.heroes
+            ]
         value["matchPlayer"] = player_mapping
         return value
 
@@ -417,10 +575,13 @@ class WindowHeroStats:
     healing: int | None = None
     damage_taken: int | None = None
     usage_rate: float | None = None
+    role_usage_rate: float | None = None
     damage_samples: int = field(default=0, repr=False)
     healing_samples: int = field(default=0, repr=False)
     damage_taken_samples: int = field(default=0, repr=False)
     role: str | None = None
+    final_hits: int = 0
+    play_time_authoritative: bool = field(default=True, repr=False)
 
     @property
     def win_rate(self) -> float | None:
@@ -429,6 +590,43 @@ class WindowHeroStats:
     @property
     def kda(self) -> str:
         return f"{self.kills} / {self.deaths} / {self.assists}"
+
+    @property
+    def per10_available(self) -> bool:
+        return self.play_time_authoritative and self.play_time_seconds > 0
+
+    def _per10(self, value: int | float | None) -> float | None:
+        if value is None or not self.play_time_authoritative or self.play_time_seconds <= 0:
+            return None
+        return value * 600 / self.play_time_seconds
+
+    @property
+    def per10_kills(self) -> float | None:
+        return self._per10(self.kills)
+
+    @property
+    def per10_deaths(self) -> float | None:
+        return self._per10(self.deaths)
+
+    @property
+    def per10_assists(self) -> float | None:
+        return self._per10(self.assists)
+
+    @property
+    def per10_final_hits(self) -> float | None:
+        return self._per10(self.final_hits)
+
+    @property
+    def per10_hero_damage(self) -> float | None:
+        return self._per10(self.hero_damage)
+
+    @property
+    def per10_healing(self) -> float | None:
+        return self._per10(self.healing)
+
+    @property
+    def per10_damage_taken(self) -> float | None:
+        return self._per10(self.damage_taken)
 
     @property
     def average_kills(self) -> float | None:

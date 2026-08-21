@@ -13,6 +13,7 @@ from ..reference.dates import GAME_TZ, game_date_window
 from ..reference.time_ranges import MAX_WINDOW_SECONDS, parse_match_time_window
 from ..reference.heroes import HERO_ROLE_LABELS, format_hero_name, get_hero_id, get_hero_identity, get_hero_name
 from ..models import (
+    HeroMatchSlice,
     HeroQueryResult,
     MatchPlayer,
     MatchRecord,
@@ -76,6 +77,8 @@ class RivalsService:
         max_match_pages: int = MAX_MATCH_PAGES,
         match_detail_batch_size: int = MATCH_DETAIL_BATCH_SIZE,
         detail_max_concurrency: int = DETAIL_MAX_CONCURRENCY,
+        match_detail_cache_seconds: float = 86400,
+        match_detail_cache_max_entries: int = 1000,
     ):
         self.source = source
         self.cache_seconds = max(0, cache_seconds)
@@ -88,6 +91,8 @@ class RivalsService:
         self.max_match_pages = max(1, int(max_match_pages))
         self.match_detail_batch_size = max(1, int(match_detail_batch_size))
         self.detail_max_concurrency = max(1, int(detail_max_concurrency))
+        self.match_detail_cache_seconds = max(0, float(match_detail_cache_seconds))
+        self.match_detail_cache_max_entries = max(1, int(match_detail_cache_max_entries))
         self._request_semaphore = asyncio.Semaphore(self.max_inflight_requests)
         self._hero_request_semaphore: asyncio.Semaphore | None = None
         self._inflight: dict[str, asyncio.Task[Any]] = {}
@@ -352,15 +357,19 @@ class RivalsService:
     async def get_match_detail(self, match_uid: str) -> dict:
         normalized_uid = normalize_match_uid(match_uid)
         cache_key = normalized_uid
-        cached = self._cached(self._match_detail_cache, cache_key)
+        cached = self._cached(
+            self._match_detail_cache, cache_key, ttl_seconds=self.match_detail_cache_seconds
+        )
         if cached is not None:
             return cached
 
         async def load() -> dict:
             payload = await self._request(lambda: self.source.get_summary_detail(normalized_uid))
             self._cache_detail_payload(payload)
-            if self.cache_seconds > 0:
+            if self.match_detail_cache_seconds > 0:
                 self._match_detail_cache[cache_key] = (time.monotonic(), payload)
+                while len(self._match_detail_cache) > self.match_detail_cache_max_entries:
+                    self._match_detail_cache.pop(next(iter(self._match_detail_cache)))
             return payload
 
         return await self._singleflight(f"match:{cache_key}", load)
@@ -513,7 +522,9 @@ class RivalsService:
         details: dict[str, dict[str, Any]] = {}
         missing: list[str] = []
         for match_uid in normalized:
-            cached = self._cached(self._match_detail_cache, match_uid)
+            cached = self._cached(
+                self._match_detail_cache, match_uid, ttl_seconds=self.match_detail_cache_seconds
+            )
             if cached is None:
                 missing.append(match_uid)
                 continue
@@ -588,12 +599,14 @@ class RivalsService:
                 self._cache_detail_row(match_uid, row)
 
     def _cache_detail_row(self, match_uid: str, row: dict[str, Any]) -> None:
-        if self.cache_seconds <= 0:
+        if self.match_detail_cache_seconds <= 0:
             return
         self._match_detail_cache[match_uid] = (
             time.monotonic(),
             {"data": {"matches": [dict(row)]}},
         )
+        while len(self._match_detail_cache) > self.match_detail_cache_max_entries:
+            self._match_detail_cache.pop(next(iter(self._match_detail_cache)))
 
     def _season_code(self, season: str | None) -> str:
         if season is None or not str(season).strip():
@@ -636,11 +649,18 @@ class RivalsService:
             self._inflight[key] = task
         return await asyncio.shield(task)
 
-    def _cached(self, cache: dict[str, tuple[float, CacheValue]], key: str) -> CacheValue | None:
-        if self.cache_seconds <= 0:
+    def _cached(
+        self,
+        cache: dict[str, tuple[float, CacheValue]],
+        key: str,
+        *,
+        ttl_seconds: float | None = None,
+    ) -> CacheValue | None:
+        ttl = self.cache_seconds if ttl_seconds is None else ttl_seconds
+        if ttl <= 0:
             return None
         item = cache.get(key)
-        if item and time.monotonic() - item[0] < self.cache_seconds:
+        if item and time.monotonic() - item[0] < ttl:
             return item[1]
         cache.pop(key, None)
         return None
@@ -791,7 +811,13 @@ def _match_record(
     uid: str,
 ) -> MatchRecord:
     detail = detail or {}
-    hero_value = _first_value(target.get("curHeroId"), target.get("heroId"))
+    hero_slices = _hero_match_slices(target)
+    main_slice = max(hero_slices, key=lambda item: (item.play_time_seconds, item.hero_id)) if hero_slices else None
+    hero_value = _first_value(
+        main_slice.hero_id if main_slice is not None else None,
+        target.get("curHeroId"),
+        target.get("heroId"),
+    )
     player_uid = _text_value(target, "playerUid", "uid") or str(uid)
     player = MatchPlayer(
         player_uid=player_uid,
@@ -800,11 +826,18 @@ def _match_record(
         kills=_optional_int(target, "k", "kills"),
         deaths=_optional_int(target, "d", "deaths"),
         assists=_optional_int(target, "a", "assists"),
+        final_hits=_optional_int(target, "lastKill", "finalHits", "finalHit", "lastKills"),
         hero_damage=_optional_int(target, "totalHeroDamage", "heroDamage"),
         healing=_optional_int(target, "totalHeroHeal", "totalHeal", "heroHeal", "heal"),
         damage_taken=_optional_int(target, "totalDamageTaken", "damageTaken"),
         player_name=_text_value(target, "nickName", "playerName", "name"),
         raw=dict(target),
+        play_time_seconds=_number_value(_first_value(
+            target.get("playTime"), target.get("playerPlayTime"),
+            target.get("play_time"), target.get("totalPlayTime"),
+        )),
+        heroes=hero_slices,
+        role_breakdown_valid=bool(hero_slices),
     )
     return MatchRecord(
         match_uid=match_uid,
@@ -821,6 +854,53 @@ def _match_record(
 def _optional_int(value: Mapping[str, Any], *keys: str) -> int | None:
     number = _number_value(_first_value(*(value.get(key) for key in keys)))
     return int(round(number)) if number is not None else None
+
+
+def _hero_match_slices(target: Mapping[str, Any]) -> list[HeroMatchSlice]:
+    """Normalize the selected player's per-hero match contribution rows."""
+
+    rows = _first_value(target.get("playerHeroes"), target.get("heroes"), target.get("heroStats"))
+    if not isinstance(rows, list):
+        return []
+    result: list[HeroMatchSlice] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        hero_value = _first_value(row.get("heroId"), row.get("curHeroId"), row.get("id"))
+        if hero_value in (None, ""):
+            continue
+        hero_id = str(hero_value)
+        role = _normalize_match_role(_first_value(
+            row.get("role"), row.get("heroRole"), row.get("position"), row.get("type")
+        ), hero_id)
+        result.append(HeroMatchSlice(
+            hero_id=hero_id,
+            role=role,
+            play_time_seconds=_number_value(_first_value(
+                row.get("playTime"), row.get("play_time"), row.get("time"), row.get("duration")
+            )) or 0,
+            kills=_optional_int(row, "k", "kills"),
+            deaths=_optional_int(row, "d", "deaths"),
+            assists=_optional_int(row, "a", "assists"),
+            final_hits=_optional_int(row, "lastKill", "finalHits", "finalHit", "lastKills"),
+            hero_damage=_optional_int(row, "totalHeroDamage", "heroDamage", "damage"),
+            healing=_optional_int(row, "totalHeroHeal", "totalHeal", "healing", "heal"),
+            damage_taken=_optional_int(row, "totalDamageTaken", "damageTaken"),
+            raw=dict(row),
+        ))
+    return result
+
+
+def _normalize_match_role(value: Any, hero_id: str) -> str | None:
+    normalized = str(value).strip().lower() if value not in (None, "") else ""
+    aliases = {
+        "vanguard": "vanguard", "tank": "vanguard", "坦克": "vanguard", "先锋": "vanguard", "t": "vanguard",
+        "duelist": "duelist", "输出": "duelist", "决斗者": "duelist", "dps": "duelist", "c": "duelist",
+        "strategist": "strategist", "support": "strategist", "辅助": "strategist", "战略家": "strategist", "奶": "strategist",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    return get_hero_identity(hero_id).role
 
 
 def _build_match_window_report(
@@ -841,26 +921,55 @@ def _build_match_window_report(
         bucket = quick if match.game_mode_id == 1 else competitive if match.game_mode_id == 2 else other
         for stats in (total, bucket):
             _accumulate_mode(stats, match)
-        role = _match_role(match)
-        if role in roles:
-            _accumulate_mode(roles[role], match)
-        if match.player.hero_id:
-            hero = hero_map.setdefault(
-                match.player.hero_id,
-                WindowHeroStats(
-                    hero_id=match.player.hero_id,
-                    hero_name=_daily_hero_name(match.player.hero_id),
-                    role=role,
-                ),
-            )
-            _accumulate_hero(hero, match)
+        if match.player.heroes:
+            role_slices: dict[str, list[HeroMatchSlice]] = {}
+            hero_slices: dict[str, list[HeroMatchSlice]] = {}
+            for item in match.player.heroes:
+                hero_slices.setdefault(item.hero_id, []).append(item)
+                if item.role in roles:
+                    role_slices.setdefault(item.role, []).append(item)
+            for role, slices in role_slices.items():
+                _accumulate_slice_group(roles[role], match, slices)
+            for hero_id, slices in hero_slices.items():
+                hero = hero_map.setdefault(
+                    hero_id,
+                    WindowHeroStats(
+                        hero_id=hero_id,
+                        hero_name=_daily_hero_name(hero_id),
+                        role=_slice_role(slices),
+                    ),
+                )
+                _accumulate_slice_group(hero, match, slices)
+        else:
+            # Legacy details may contain only curHeroId. Keep them usable while
+            # explicitly avoiding a fake multi-hero split.
+            role = _match_role(match)
+            if role in roles:
+                _accumulate_mode(roles[role], match)
+            if match.player.hero_id:
+                hero = hero_map.setdefault(
+                    match.player.hero_id,
+                    WindowHeroStats(
+                        hero_id=match.player.hero_id,
+                        hero_name=_daily_hero_name(match.player.hero_id),
+                        role=role,
+                    ),
+                )
+                _accumulate_hero(hero, match)
     heroes = sorted(
         hero_map.values(),
         key=lambda item: (-item.matches, -item.play_time_seconds, item.hero_id),
     )
     for hero in heroes:
-        denominator = roles.get(hero.role).matches if hero.role in roles else total.matches
-        hero.usage_rate = hero.matches * 100 / denominator if denominator else None
+        hero.usage_rate = (
+            hero.play_time_seconds * 100 / total.play_time_seconds
+            if total.play_time_seconds > 0 else None
+        )
+        role_stats = roles.get(hero.role) if hero.role in roles else None
+        hero.role_usage_rate = (
+            hero.play_time_seconds * 100 / role_stats.play_time_seconds
+            if role_stats is not None and role_stats.play_time_seconds > 0 else None
+        )
     return MatchWindowReport(
         uid=uid,
         player_name=player_name,
@@ -912,15 +1021,71 @@ def _match_role(match: MatchRecord) -> str | None:
 
 
 def _accumulate_mode(stats: WindowStats, match: MatchRecord) -> None:
+    player = match.player
+    if player.play_time_seconds is None and not player.heroes:
+        stats.play_time_authoritative = False
+    stats.matches += 1
+    if player.is_win is True:
+        stats.wins += 1
+    elif player.is_win is False:
+        stats.losses += 1
+    stats.kills += _player_metric(player, "kills")
+    stats.final_hits += _player_metric(player, "final_hits")
+    stats.deaths += _player_metric(player, "deaths")
+    stats.assists += _player_metric(player, "assists")
+    stats.play_time_seconds += _player_play_time(match)
+    hero_damage = _player_metric(player, "hero_damage") if player.hero_damage is not None else _slice_metric(player, "hero_damage")
+    healing = _player_metric(player, "healing") if player.healing is not None else _slice_metric(player, "healing")
+    damage_taken = _player_metric(player, "damage_taken") if player.damage_taken is not None else _slice_metric(player, "damage_taken")
+    if hero_damage is not None:
+        stats.hero_damage = (stats.hero_damage or 0) + hero_damage
+        stats.damage_samples += 1
+    if healing is not None:
+        stats.healing = (stats.healing or 0) + healing
+        stats.healing_samples += 1
+    if damage_taken is not None:
+        stats.damage_taken = (stats.damage_taken or 0) + damage_taken
+        stats.damage_taken_samples += 1
+
+
+def _slice_metric(player: MatchPlayer, field_name: str) -> int | None:
+    values = [getattr(item, field_name) for item in player.heroes if getattr(item, field_name) is not None]
+    return sum(values) if values else None
+
+
+def _player_metric(player: MatchPlayer, field_name: str) -> int:
+    value = getattr(player, field_name)
+    if value is not None:
+        return value
+    return _slice_metric(player, field_name) or 0
+
+
+def _player_play_time(match: MatchRecord) -> float:
+    player = match.player
+    if player.play_time_seconds is not None:
+        return player.play_time_seconds
+    if player.heroes:
+        return sum(item.play_time_seconds for item in player.heroes)
+    return match.duration_seconds or 0
+
+
+def _accumulate_hero(stats: WindowHeroStats, match: MatchRecord) -> None:
+    if match.player.play_time_seconds is None and not match.player.heroes:
+        stats.play_time_authoritative = False
     stats.matches += 1
     if match.player.is_win is True:
         stats.wins += 1
     elif match.player.is_win is False:
         stats.losses += 1
     stats.kills += match.player.kills or 0
+    stats.final_hits += match.player.final_hits or 0
     stats.deaths += match.player.deaths or 0
     stats.assists += match.player.assists or 0
-    stats.play_time_seconds += match.duration_seconds or 0
+    stats.play_time_seconds += (
+        match.player.play_time_seconds
+        if match.player.play_time_seconds is not None
+        else match.duration_seconds or 0
+    )
     if match.player.hero_damage is not None:
         stats.hero_damage = (stats.hero_damage or 0) + match.player.hero_damage
         stats.damage_samples += 1
@@ -932,24 +1097,49 @@ def _accumulate_mode(stats: WindowStats, match: MatchRecord) -> None:
         stats.damage_taken_samples += 1
 
 
-def _accumulate_hero(stats: WindowHeroStats, match: MatchRecord) -> None:
+def _slice_role(slices: list[HeroMatchSlice]) -> str | None:
+    roles = {item.role for item in slices if item.role}
+    if len(roles) == 1:
+        return next(iter(roles))
+    if roles:
+        return max(
+            roles,
+            key=lambda role: sum(item.play_time_seconds for item in slices if item.role == role),
+        )
+    return None
+
+
+def _accumulate_slice_group(
+    stats: WindowStats | WindowHeroStats,
+    match: MatchRecord,
+    slices: list[HeroMatchSlice],
+) -> None:
+    """Aggregate one distinct role/hero group using its actual used time."""
+
+    if not slices:
+        return
     stats.matches += 1
     if match.player.is_win is True:
         stats.wins += 1
     elif match.player.is_win is False:
         stats.losses += 1
-    stats.kills += match.player.kills or 0
-    stats.deaths += match.player.deaths or 0
-    stats.assists += match.player.assists or 0
-    stats.play_time_seconds += match.duration_seconds or 0
-    if match.player.hero_damage is not None:
-        stats.hero_damage = (stats.hero_damage or 0) + match.player.hero_damage
+    stats.kills += sum(item.kills or 0 for item in slices)
+    stats.final_hits += sum(item.final_hits or 0 for item in slices)
+    stats.deaths += sum(item.deaths or 0 for item in slices)
+    stats.assists += sum(item.assists or 0 for item in slices)
+    stats.play_time_seconds += sum(item.play_time_seconds for item in slices)
+
+    damage_values = [item.hero_damage for item in slices if item.hero_damage is not None]
+    if damage_values:
+        stats.hero_damage = (stats.hero_damage or 0) + sum(damage_values)
         stats.damage_samples += 1
-    if match.player.healing is not None:
-        stats.healing = (stats.healing or 0) + match.player.healing
+    healing_values = [item.healing for item in slices if item.healing is not None]
+    if healing_values:
+        stats.healing = (stats.healing or 0) + sum(healing_values)
         stats.healing_samples += 1
-    if match.player.damage_taken is not None:
-        stats.damage_taken = (stats.damage_taken or 0) + match.player.damage_taken
+    taken_values = [item.damage_taken for item in slices if item.damage_taken is not None]
+    if taken_values:
+        stats.damage_taken = (stats.damage_taken or 0) + sum(taken_values)
         stats.damage_taken_samples += 1
 
 
@@ -1085,6 +1275,20 @@ def _mode_average(total: int | float | None, matches: int | None) -> str:
     return _fmt(total / matches)
 
 
+def _mode_rate_value(mode: ModeStats, metric: str, total: int | float | None) -> str:
+    if mode.play_time_seconds and mode.play_time_seconds > 0:
+        return _fmt(getattr(mode, f"per10_{metric}", None), "数据不足")
+    return _mode_average(total, mode.matches)
+
+
+def _mapping_per10(player: Mapping[str, Any], key: str) -> float | None:
+    play_time = _number_value(_first_value(player.get("playTime"), player.get("playerPlayTime")))
+    value = _number_value(player.get(key))
+    if value is None or play_time is None or play_time <= 0:
+        return None
+    return value * 600 / play_time
+
+
 def format_player(stats: PlayerStats) -> str:
     p, s = stats.profile, stats.summary
     lines = [f"漫威争锋国服个人资料（{format_season_name(stats.season)}的数据）", f"玩家：{p.name}", f"UID：{p.uid}"]
@@ -1134,8 +1338,17 @@ def format_matches(matches: list[dict], season: str | None = None) -> str:
         match_uid = str(item.get("matchUid", item.get("matchUID", item.get("id", ""))))
         player = item.get("matchPlayer", {})
         result = "胜" if player.get("isWin") == 1 else "负" if player.get("isWin") == 0 else "?"
-        kda = f"{_count(player.get('k'))}/{_count(player.get('d'))}/{_count(player.get('a'))}"
-        hero = format_hero_name(player.get("curHeroId")) if player.get("curHeroId") is not None else "未知英雄"
+        kda_values = [_mapping_per10(player, key) for key in ("k", "d", "a")]
+        if all(value is not None for value in kda_values):
+            kda = "每10分钟 " + "/".join(_fmt(value) for value in kda_values)
+        else:
+            kda = f"{_count(player.get('k'))}/{_count(player.get('d'))}/{_count(player.get('a'))}"
+        hero_slices = _hero_match_slices(player) if isinstance(player, Mapping) else []
+        main_slice = max(hero_slices, key=lambda item: (item.play_time_seconds, item.hero_id)) if hero_slices else None
+        hero_id = main_slice.hero_id if main_slice is not None else player.get("curHeroId")
+        hero = format_hero_name(hero_id) if hero_id is not None else "未知英雄"
+        if len({item.hero_id for item in hero_slices}) > 1:
+            hero += f"（另使用 {len({item.hero_id for item in hero_slices}) - 1} 名英雄）"
         map_name = format_match_map(item.get("matchMapId"))
         queue = format_queue(item.get("gameModeId"), item.get("playModeId"))
         map_mode = get_map_mode(item.get("matchMapId"))
@@ -1153,13 +1366,19 @@ def format_match_window(report: MatchWindowReport) -> str:
     """Compact text fallback for platforms without image support."""
 
     total = report.total
+    total_kda = (
+        "每10分钟 " + "/".join(_fmt(value) for value in (total.per10_kills, total.per10_deaths, total.per10_assists))
+        if total.per10_available else total.kda
+    )
     lines = [
         "战绩回顾",
         report.window.label,
         f"共 {_count(total.matches)} 场 · {_count(total.wins)} 胜 {_count(total.losses)} 负 · "
         f"胜率 {_fmt(total.win_rate)}%" if total.win_rate is not None else f"共 {_count(total.matches)} 场 · {_count(total.wins)} 胜 {_count(total.losses)} 负",
-        f"总 K/D/A：{total.kda} · 游戏时间 {_duration(total.play_time_seconds)}",
+        f"{'总 ' if not total.per10_available else ''}K/D/A：{total_kda} · 游戏时间 {_duration(total.play_time_seconds)}",
     ]
+    if total.matches and not total.per10_available:
+        lines.append("提示：接口未返回完整的玩家 playTime，相关指标按兼容场均口径展示")
     if not report.matches:
         lines.append("暂无对局记录")
         return "\n".join(lines)
@@ -1173,23 +1392,40 @@ def format_match_window(report: MatchWindowReport) -> str:
         lines.append(
             f"{label}：{stats.matches} 场 · {stats.wins} 胜 {stats.losses} 负 · 胜率 {_fmt(stats.win_rate)}%"
         )
-        lines.append(
-            f"K/D/A {stats.kda} · 场均击败 {_fmt(stats.average_kills)} · "
-            f"场均死亡 {_fmt(stats.average_deaths)} · 场均助攻 {_fmt(stats.average_assists)}"
-        )
-        lines.append(
-            f"场均伤害 {_fmt(stats.average_hero_damage, '数据不完整')} · "
-            f"场均治疗 {_fmt(stats.average_healing, '数据不完整')} · "
-            f"场均承伤 {_fmt(stats.average_damage_taken, '数据不完整')}"
-        )
+        if stats.per10_available:
+            lines.append(
+                f"K/D/A {stats.kda} · 每10分钟击败 {_fmt(stats.per10_kills)} · "
+                f"每10分钟死亡 {_fmt(stats.per10_deaths)} · 每10分钟助攻 {_fmt(stats.per10_assists)}"
+            )
+            lines.append(
+                f"每10分钟伤害 {_fmt(stats.per10_hero_damage, '数据不完整')} · "
+                f"每10分钟治疗 {_fmt(stats.per10_healing, '数据不完整')} · "
+                f"每10分钟承伤 {_fmt(stats.per10_damage_taken, '数据不完整')}"
+            )
+        else:
+            lines.append(
+                f"K/D/A {stats.kda} · 场均击败 {_fmt(stats.average_kills)} · "
+                f"场均死亡 {_fmt(stats.average_deaths)} · 场均助攻 {_fmt(stats.average_assists)}"
+            )
+            lines.append(
+                f"场均伤害 {_fmt(stats.average_hero_damage, '数据不完整')} · "
+                f"场均治疗 {_fmt(stats.average_healing, '数据不完整')} · "
+                f"场均承伤 {_fmt(stats.average_damage_taken, '数据不完整')}"
+            )
     lines += ["", "该时间段对局"]
     for index, match in enumerate(report.matches, 1):
         result = "胜" if match.player.is_win is True else "负" if match.player.is_win is False else "?"
-        hero = _daily_hero_name(match.player.hero_id) if match.player.hero_id else "未知英雄"
-        lines.append(
-            f"{index:02d} {_time(match.timestamp)} {result} {hero} "
-            f"{_count(match.player.kills)}/{_count(match.player.deaths)}/{_count(match.player.assists)}"
-        )
+        main_slice = match.player.main_hero
+        hero = _daily_hero_name(main_slice.hero_id if main_slice else match.player.hero_id) if (main_slice or match.player.hero_id) else "未知英雄"
+        if match.player.hero_switch_count:
+            hero += f"（另使用 {match.player.hero_switch_count} 名英雄）"
+        if match.player.play_time_seconds and match.player.play_time_seconds > 0:
+            kda = "每10分钟 " + "/".join(
+                _fmt(value) for value in (match.player.per10_kills, match.player.per10_deaths, match.player.per10_assists)
+            )
+        else:
+            kda = f"{_count(match.player.kills)}/{_count(match.player.deaths)}/{_count(match.player.assists)}"
+        lines.append(f"{index:02d} {_time(match.timestamp)} {result} {hero} {kda}")
     return "\n".join(lines)
 
 
@@ -1248,6 +1484,8 @@ def format_hero_result(result: HeroQueryResult) -> str:
     total_rate = getattr(stats, "total_win_rate", None)
     quick = stats.quick
     ranked = stats.competitive
+    ranked_per10 = bool(ranked.play_time_seconds and ranked.play_time_seconds > 0)
+    quick_per10 = bool(quick.play_time_seconds and quick.play_time_seconds > 0)
     if total_rate is None and total_matches and total_wins is not None:
         total_rate = total_wins * 100 / total_matches
     hero_name = format_hero_name(result.hero_id, result.hero_name)
@@ -1258,15 +1496,15 @@ def format_hero_result(result: HeroQueryResult) -> str:
         f"总计胜率：{_mode_rate(ModeStats(win_rate=total_rate))}    总胜场：{_count(total_wins)}",
         f"竞技：{_count(ranked.matches)} 场    胜场：{_count(ranked.wins)}    胜率：{_mode_rate(ranked)}",
         f"快速：{_count(quick.matches)} 场    胜场：{_count(quick.wins)}    胜率：{_mode_rate(quick)}",
-        f"竞技 K/D/A：{_count(ranked.kills)} / {_count(ranked.deaths)} / {_count(ranked.assists)}",
-        f"竞技 击败：{_count(ranked.kills)}    最后一击：{_count(ranked.final_hits)}    死亡：{_count(ranked.deaths)}    助攻：{_count(ranked.assists)}",
-        f"竞技场均伤害：{_mode_average(ranked.hero_damage, ranked.matches)}    场均治疗：{_mode_average(ranked.heal, ranked.matches)}",
-        f"竞技场均承伤：{_mode_average(ranked.damage_taken, ranked.matches)}",
+        f"竞技{'每10分钟' if ranked_per10 else ''} K/D/A：{_fmt(ranked.per10_kills if ranked_per10 else ranked.kills)} / {_fmt(ranked.per10_deaths if ranked_per10 else ranked.deaths)} / {_fmt(ranked.per10_assists if ranked_per10 else ranked.assists)}",
+        f"竞技{'每10分钟' if ranked_per10 else ''} 击败：{_fmt(ranked.per10_kills if ranked_per10 else ranked.kills)}    最后一击：{_fmt(ranked.per10_final_hits if ranked_per10 else ranked.final_hits)}    死亡：{_fmt(ranked.per10_deaths if ranked_per10 else ranked.deaths)}    助攻：{_fmt(ranked.per10_assists if ranked_per10 else ranked.assists)}",
+        f"竞技{'每10分钟' if ranked_per10 else '场均'}伤害：{_mode_rate_value(ranked, 'hero_damage', ranked.hero_damage)}    {'每10分钟' if ranked_per10 else '场均'}治疗：{_mode_rate_value(ranked, 'heal', ranked.heal)}",
+        f"竞技{'每10分钟' if ranked_per10 else '场均'}承伤：{_mode_rate_value(ranked, 'damage_taken', ranked.damage_taken)}",
         f"竞技累计伤害：{_fmt(ranked.hero_damage)}    累计治疗：{_fmt(ranked.heal)}    累计承伤：{_fmt(ranked.damage_taken)}",
         f"竞技游戏时长：{_hours(ranked.play_time_seconds)}",
         f"竞技 MVP：{_count(ranked.mvp)}    SVP：{_count(ranked.svp)}",
-        f"快速 击败：{_count(quick.kills)}    最后一击：{_count(quick.final_hits)}    死亡：{_count(quick.deaths)}    助攻：{_count(quick.assists)}",
-        f"快速场均伤害：{_mode_average(quick.hero_damage, quick.matches)}    场均治疗：{_mode_average(quick.heal, quick.matches)}    场均承伤：{_mode_average(quick.damage_taken, quick.matches)}",
+        f"快速{'每10分钟' if quick_per10 else ''} 击败：{_fmt(quick.per10_kills if quick_per10 else quick.kills)}    最后一击：{_fmt(quick.per10_final_hits if quick_per10 else quick.final_hits)}    死亡：{_fmt(quick.per10_deaths if quick_per10 else quick.deaths)}    助攻：{_fmt(quick.per10_assists if quick_per10 else quick.assists)}",
+        f"快速{'每10分钟' if quick_per10 else '场均'}伤害：{_mode_rate_value(quick, 'hero_damage', quick.hero_damage)}    {'每10分钟' if quick_per10 else '场均'}治疗：{_mode_rate_value(quick, 'heal', quick.heal)}    {'每10分钟' if quick_per10 else '场均'}承伤：{_mode_rate_value(quick, 'damage_taken', quick.damage_taken)}",
     ]
     return "\n".join(lines)
 
@@ -1296,9 +1534,28 @@ def format_match_detail(payload: dict) -> str:
             for player in players:
                 if not isinstance(player, dict) or player.get("camp") != camp:
                     continue
+                hero_slices = _hero_match_slices(player)
+                main_slice = max(hero_slices, key=lambda item: (item.play_time_seconds, item.hero_id)) if hero_slices else None
+                hero_id = main_slice.hero_id if main_slice is not None else player.get("curHeroId")
+                hero = format_hero_name(hero_id) if hero_id is not None else "未知英雄"
+                if len({item.hero_id for item in hero_slices}) > 1:
+                    hero += f"（另使用 {len({item.hero_id for item in hero_slices}) - 1} 名英雄）"
+                play_time = _number_value(_first_value(player.get("playTime"), player.get("playerPlayTime")))
+                detail_kda = [_mapping_per10(player, key) for key in ("k", "d", "a")]
+                kda = (
+                    "每10分钟 " + "/".join(_fmt(value) for value in detail_kda)
+                    if all(value is not None for value in detail_kda)
+                    else "/".join(_count(player.get(key)) for key in ("k", "d", "a"))
+                )
+                per10 = lambda *keys: _fmt(
+                    (_number_value(_first_value(*(player.get(key) for key in keys))) or 0) * 600 / play_time,
+                    "数据不足",
+                ) if play_time and play_time > 0 else "数据不足"
                 lines.append(
                     f"{'胜' if player.get('isWin') == 1 else '负'} {player.get('nickName', player.get('playerUid', '-'))} "
-                    f"英雄 {format_hero_name(player.get('curHeroId'))}  {_count(player.get('k'))}/{_count(player.get('d'))}/{_count(player.get('a'))}  "
-                    f"伤害 {_fmt(player.get('totalHeroDamage'))} 治疗 {_fmt(player.get('totalHeroHeal'))} 承伤 {_fmt(player.get('totalDamageTaken'))}"
+                    f"英雄 {hero}  {kda}  "
+                    f"伤害 {_fmt(player.get('totalHeroDamage'))}（每10分钟 {per10('totalHeroDamage', 'heroDamage')}） "
+                    f"治疗 {_fmt(player.get('totalHeroHeal'))}（每10分钟 {per10('totalHeroHeal', 'totalHeal', 'heal')}） "
+                    f"承伤 {_fmt(player.get('totalDamageTaken'))}（每10分钟 {per10('totalDamageTaken', 'damageTaken')}）"
                 )
     return "\n".join(lines)
