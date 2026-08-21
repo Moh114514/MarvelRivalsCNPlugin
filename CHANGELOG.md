@@ -7,6 +7,8 @@
 - `/战绩回顾` 和 `/每日战绩` 复用 `/最近对局` 的具体对局选择体验：QQ Official 发送详情按钮卡片，其他平台提示使用 `/对局 N`。
 - 时间窗口选择会话默认保留 10 分钟；窗口图片按实际对局数量动态排版，超过 25 场仍可分页展示。
 - 时间窗口英雄表现补充每 10 分钟治疗和承伤指标。
+- 新增 `MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT` 图片传输模式：`auto` 自动选择、`direct_url` 由 QQ Official 直接拉取图片 URL、`astrbot_media` 使用 AstrBot Media 服务；图片发送失败时回退为纯文本消息。
+- 支持通过 `astrbot_media` 为本地 T2I 渲染结果提供可发送的媒体地址，并提供可选的通用 AstrBot T2I 模板 `extras/astrbot-t2i/marvel_rivals.html`。
 
 ## [1.3.5] - 2026-08-21
 

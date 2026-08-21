@@ -76,6 +76,17 @@
     "type": "float",
     "default": 15
   },
+  "MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT": {
+    "description": "QQ Official 图片发送路径",
+    "type": "string",
+    "options": [
+      "auto",
+      "astrbot_media",
+      "direct_url"
+    ],
+    "default": "auto",
+    "hint": "auto：优先使用 AstrBot 本地媒体上传；astrbot_media：AstrBot 先获取图片并以媒体数据上传，支持 127.0.0.1 本地 T2I；direct_url：直接将图片 URL 提交给 QQ，要求该 URL 可被腾讯服务器公网访问。"
+  },
   "MRCN_INTERACTION_SESSION_SECONDS": {
     "description": "Lifetime of recent-match and time-window numeric selection sessions",
     "type": "int",

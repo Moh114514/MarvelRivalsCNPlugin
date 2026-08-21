@@ -85,6 +85,46 @@
 
 Token 是微信小程序会话中的临时凭据，不是玩家 UID。Token 决定请求使用哪个小程序会话，命令中的 UID 决定查询哪个玩家；查询其他玩家还要求对方在小程序中开放战绩查询权限。
 
+### QQ Official 图片发送与本地 T2I 配置
+
+图片生成和图片发送是两层独立配置：
+
+```text
+AstrBot T2I 设置
+    -> 生成 HTML 图片并得到 image_url
+
+插件 MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT
+    -> 决定 QQ Official 如何上传这张图片
+```
+
+插件配置项为 `MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT`，默认值是 `auto`，可在 AstrBot WebUI 的插件配置下拉框中选择：
+
+| 值 | 行为 | 适用场景 |
+| --- | --- | --- |
+| `auto` | 优先让 AstrBot 在本机获取图片并以 Base64/file_data 上传；当前适配器不支持该能力时才回退 URL | 推荐默认值 |
+| `astrbot_media` | 强制使用 AstrBot 本机媒体解析和 QQ Official 媒体上传 | 本地 T2I，尤其是 `127.0.0.1` 地址 |
+| `direct_url` | 保持旧行为，把图片 URL 交给 QQ Official/腾讯服务器下载 | 公网可访问的 T2I 或 CDN URL |
+
+桌面端使用本地 T2I 时，推荐组合如下：
+
+```text
+AstrBot T2I Strategy = remote
+AstrBot T2I Endpoint = http://127.0.0.1:8999
+MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT = auto
+```
+
+T2I Strategy 和 T2I Endpoint 属于 AstrBot 系统设置，不由本插件重复管理；不同 AstrBot 版本的设置名称可能略有不同。无需也不要额外配置 `MRCN_USE_LOCAL_T2I` 之类的插件开关。`auto` 会让运行 AstrBot 的同一台机器下载 `127.0.0.1:8999` 返回的图片，再通过 QQ Official 的 `file_data` 上传，因此不要求腾讯服务器能访问本机端口。
+
+如果使用 `direct_url`，图片 URL 必须能被腾讯服务器从公网访问；`http://127.0.0.1:8999/...`、局域网地址或仅本机可访问的地址不能使用该模式。`astrbot_media` 需要当前 QQ Official 适配器提供本地媒体上传接口；如果要强制发现适配器兼容性问题，可先使用 `astrbot_media`，普通兼容部署建议保留 `auto`。OneBot 和其他平台不经过这个配置项。
+
+图片上传失败时，插件会回退为明确的纯文本，并关闭该条回退消息的 AstrBot 二次 T2I，避免再次生成一张与原始页面不同的白底图片。
+
+### 可选的通用 AstrBot T2I 模板
+
+`extras/astrbot-t2i/marvel_rivals.html` 是可选的通用文字模板，只用于 AstrBot 普通长文本、错误消息或其他非本插件结构化页面的 T2I。插件不会自动修改 AstrBot 的模板目录。
+
+需要时可在 AstrBot 的“设置 → 自定义 T2I 模板”中新建模板，并粘贴该文件内容；模板只依赖 AstrBot 提供的 `text` 和 `version` 变量。插件正式的战绩、英雄和 Meta 图片仍由仓库内的 `rendering/` 页面生成，不建议把这些结构化页面改成通用 `{{ text }}` 模板。
+
 ## 抓包并获取 Token
 
 这是推荐的配置获取方式。以下命令均在仓库根目录执行，Windows PowerShell 示例适用。

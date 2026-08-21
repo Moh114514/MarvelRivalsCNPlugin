@@ -297,7 +297,9 @@ class MarvelRivalsPlugin(Star):
             ),
         )
         self.match_history = MatchHistoryService(self.service)
-        self.qq_card_sender = QQOfficialCardSender()
+        self.qq_card_sender = QQOfficialCardSender(
+            image_transport=self._qq_image_transport(env_config),
+        )
         self.message_sender = SenderRouter(OneBotSender())
         self.image_renderer = MatchImageRenderer(
             self.html_render,
@@ -408,11 +410,28 @@ class MarvelRivalsPlugin(Star):
                     return str(value)
         return ""
 
+    @staticmethod
+    def _qq_image_transport(env_config: Mapping[str, object]) -> str:
+        value = str(env_config.get("MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT", "auto")).strip().lower()
+        if value not in {"auto", "astrbot_media", "direct_url"}:
+            return "auto"
+        return value
+
     def _image_result(self, event: AstrMessageEvent, image_url: str):
         sender = getattr(self, "message_sender", None)
         if sender is None:
             return event.image_result(image_url)
         return sender.send_image_with_mention(event, image_url)
+
+    @staticmethod
+    def _plain_image_fallback(event: AstrMessageEvent, text: str):
+        """Return text after an image failure without triggering AstrBot T2I."""
+
+        result = event.plain_result(text)
+        setter = getattr(result, "use_t2i", None)
+        if callable(setter):
+            setter(False)
+        return result
 
     @staticmethod
     def _render_failure(command: str, context: str | None = None) -> str:
@@ -513,7 +532,10 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(self._render_failure("查询", getattr(stats.profile, "name", None)))
+                    yield self._plain_image_fallback(
+                        event,
+                        self._render_failure("查询", getattr(stats.profile, "name", None)),
+                    )
             else:
                 yield self._image_result(event, image_url)
         except DataSourceError as exc:
@@ -533,7 +555,7 @@ class MarvelRivalsPlugin(Star):
             return
         if self.qq_card_sender.supports(event):
             if not await self._send_image(event, image_url):
-                yield event.plain_result(self.HELP_TEXT)
+                yield self._plain_image_fallback(event, self.HELP_TEXT)
         else:
             yield self._image_result(event, image_url)
 
@@ -625,7 +647,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_card(event, build_recent_card, uid, season_code, matches, image_url=image_url):
-                    yield event.plain_result(format_matches(matches, season_code))
+                    yield self._plain_image_fallback(event, format_matches(matches, season_code))
             else:
                 yield self._image_result(event, image_url)
                 if self._group_id(event):
@@ -677,7 +699,8 @@ class MarvelRivalsPlugin(Star):
             if self.qq_card_sender.supports(event):
                 for image_url in image_urls:
                     if not await self._send_image(event, image_url):
-                        yield event.plain_result(
+                        yield self._plain_image_fallback(
+                            event,
                             format_match_window(report) + "\n\n" + self._match_window_selection_prompt(report)
                         )
                         return
@@ -777,7 +800,7 @@ class MarvelRivalsPlugin(Star):
                     return
                 if self.qq_card_sender.supports(event):
                     if not await self._send_image(event, image_url):
-                        yield event.plain_result(fallback)
+                        yield self._plain_image_fallback(event, fallback)
                 else:
                     yield self._image_result(event, image_url)
                 return
@@ -791,7 +814,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(format_hero_result(result))
+                    yield self._plain_image_fallback(event, format_hero_result(result))
             else:
                 yield self._image_result(event, image_url)
         except (DataSourceError, BindingStoreError, PlayerMetaQueryError, ValueError) as exc:
@@ -841,7 +864,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(format_match_detail(payload))
+                    yield self._plain_image_fallback(event, format_match_detail(payload))
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
@@ -880,7 +903,7 @@ class MarvelRivalsPlugin(Star):
             return event.plain_result(self._render_failure("英雄环境"))
         if self.qq_card_sender.supports(event):
             if not await self._send_image(event, image_url):
-                return event.plain_result(fallback)
+                return self._plain_image_fallback(event, fallback)
             return None
         return self._image_result(event, image_url)
 
@@ -907,7 +930,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
@@ -951,7 +974,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
@@ -998,7 +1021,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
@@ -1037,7 +1060,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
@@ -1085,7 +1108,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except CommandUsageError as exc:
@@ -1263,7 +1286,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except (ValueError, DataSourceError) as exc:
@@ -1298,7 +1321,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except (ValueError, DataSourceError) as exc:
@@ -1336,7 +1359,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except (ValueError, DataSourceError) as exc:
@@ -1374,7 +1397,7 @@ class MarvelRivalsPlugin(Star):
                 return
             if self.qq_card_sender.supports(event):
                 if not await self._send_image(event, image_url):
-                    yield event.plain_result(fallback)
+                    yield self._plain_image_fallback(event, fallback)
             else:
                 yield self._image_result(event, image_url)
         except (ValueError, DataSourceError) as exc:

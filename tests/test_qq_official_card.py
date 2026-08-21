@@ -1,6 +1,6 @@
 import unittest
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from types import ModuleType, SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from main import MarvelRivalsPlugin
 from qq_official.cards import build_capability_test_card, build_match_window_card, build_recent_card
@@ -41,6 +41,20 @@ class FakeEvent:
 
 
 class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _astrbot_image_modules(image_url="https://example.com/image.png", image_base64="base64-image"):
+        convert_to_base64 = AsyncMock(return_value=image_base64)
+        image = SimpleNamespace(convert_to_base64=convert_to_base64)
+        image_type = SimpleNamespace(fromURL=Mock(return_value=image))
+        api_module = ModuleType("astrbot.api")
+        api_module.message_components = SimpleNamespace(Image=image_type)
+        astrbot_module = ModuleType("astrbot")
+        astrbot_module.api = api_module
+        return {
+            "astrbot": astrbot_module,
+            "astrbot.api": api_module,
+        }, image_type, convert_to_base64
+
     def test_recent_card_has_match_detail_buttons_within_qq_limit(self):
         matches = [{
             "matchUid": f"match-{index}",
@@ -334,6 +348,163 @@ class TestQQOfficialCard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["msg_seq"], 1)
         self.assertNotIn("markdown", kwargs)
         self.assertNotIn("keyboard", kwargs)
+
+    async def test_astrbot_media_uploads_local_t2i_url_with_file_data(self):
+        event = FakeEvent()
+        event.upload_group_and_c2c_image = AsyncMock(
+            return_value={"file_info": "local-uploaded-image", "ttl": 60}
+        )
+        modules, image_type, convert_to_base64 = self._astrbot_image_modules(
+            "http://127.0.0.1:8999/text2img/data/test",
+            "local-image-base64",
+        )
+
+        with patch.dict("sys.modules", modules):
+            await QQOfficialCardSender(image_transport="astrbot_media").send_image(
+                event,
+                "http://127.0.0.1:8999/text2img/data/test",
+            )
+
+        image_type.fromURL.assert_called_once_with(
+            "http://127.0.0.1:8999/text2img/data/test"
+        )
+        convert_to_base64.assert_awaited_once_with()
+        event.upload_group_and_c2c_image.assert_awaited_once_with(
+            "local-image-base64",
+            1,
+            group_openid="group-1",
+        )
+        event.bot.api.post_group_file.assert_not_awaited()
+        media_payload = event.bot.api.post_group_message.await_args.kwargs
+        self.assertEqual(media_payload["media"]["file_info"], "local-uploaded-image")
+
+    async def test_auto_prefers_astrbot_media_when_available(self):
+        event = FakeEvent()
+        event.upload_group_and_c2c_image = AsyncMock(
+            return_value={"file_info": "auto-uploaded-image", "ttl": 60}
+        )
+        modules, _, _ = self._astrbot_image_modules()
+
+        with patch.dict("sys.modules", modules):
+            await QQOfficialCardSender().send_image(
+                event, "http://127.0.0.1:8999/text2img/data/test"
+            )
+
+        event.upload_group_and_c2c_image.assert_awaited_once()
+        event.bot.api.post_group_file.assert_not_awaited()
+
+    async def test_direct_url_skips_astrbot_media_when_available(self):
+        event = FakeEvent()
+        event.upload_group_and_c2c_image = AsyncMock(
+            return_value={"file_info": "unused-image", "ttl": 60}
+        )
+
+        await QQOfficialCardSender(image_transport="direct_url").send_image(
+            event, "https://example.com/forced-url.png"
+        )
+
+        event.upload_group_and_c2c_image.assert_not_awaited()
+        event.bot.api.post_group_file.assert_awaited_once_with(
+            group_openid="group-1",
+            file_type=1,
+            url="https://example.com/forced-url.png",
+            srv_send_msg=False,
+        )
+
+    async def test_auto_does_not_fallback_to_url_after_media_conversion_failure(self):
+        event = FakeEvent()
+        event.upload_group_and_c2c_image = AsyncMock()
+        modules, image_type, _ = self._astrbot_image_modules()
+        image_type.fromURL.return_value.convert_to_base64.side_effect = RuntimeError(
+            "local media download failed"
+        )
+
+        with patch.dict("sys.modules", modules):
+            with self.assertRaisesRegex(RuntimeError, "local media download failed"):
+                await QQOfficialCardSender().send_image(
+                    event, "http://127.0.0.1:8999/text2img/data/failure"
+                )
+
+        event.bot.api.post_group_file.assert_not_awaited()
+
+    async def test_astrbot_media_preserves_card_message_sequence(self):
+        event = FakeEvent()
+        event.upload_group_and_c2c_image = AsyncMock(
+            return_value={"file_info": "local-card-image", "ttl": 60}
+        )
+        modules, _, _ = self._astrbot_image_modules()
+        card = build_capability_test_card()
+        card = type(card)(card.markdown, card.rows, "http://127.0.0.1:8999/card.png")
+
+        with patch.dict("sys.modules", modules):
+            await QQOfficialCardSender(image_transport="astrbot_media").send(event, card)
+
+        self.assertEqual(event.bot.api.post_group_message.await_count, 2)
+        markdown_payload, media_payload = [
+            call.kwargs for call in event.bot.api.post_group_message.await_args_list
+        ]
+        self.assertEqual(markdown_payload["msg_seq"], 1)
+        self.assertEqual(media_payload["msg_seq"], 2)
+        self.assertIn("keyboard", markdown_payload)
+        self.assertEqual(media_payload["media"]["file_info"], "local-card-image")
+
+    async def test_astrbot_media_uploads_c2c_with_openid(self):
+        event = FakeEvent(group=False)
+        event.upload_group_and_c2c_image = AsyncMock(
+            return_value={"file_info": "c2c-uploaded-image", "ttl": 60}
+        )
+        modules, _, _ = self._astrbot_image_modules()
+
+        with patch.dict("sys.modules", modules):
+            await QQOfficialCardSender(image_transport="astrbot_media").send_image(
+                event, "https://example.com/result.png"
+            )
+
+        event.upload_group_and_c2c_image.assert_awaited_once_with(
+            "base64-image",
+            1,
+            openid="user-1",
+        )
+        event.bot.api.post_c2c_file.assert_not_awaited()
+        kwargs = event.post_c2c_message.await_args.kwargs
+        self.assertEqual(kwargs["openid"], "user-1")
+        self.assertEqual(kwargs["media"]["file_info"], "c2c-uploaded-image")
+
+    async def test_auto_falls_back_to_direct_url_for_older_event(self):
+        event = FakeEvent()
+        await QQOfficialCardSender(image_transport="auto").send_image(
+            event, "https://example.com/compat.png"
+        )
+        event.bot.api.post_group_file.assert_awaited_once_with(
+            group_openid="group-1",
+            file_type=1,
+            url="https://example.com/compat.png",
+            srv_send_msg=False,
+        )
+
+    def test_image_failure_fallback_disables_t2i(self):
+        result = SimpleNamespace(use_t2i=Mock())
+        event = SimpleNamespace(plain_result=Mock(return_value=result))
+
+        returned = MarvelRivalsPlugin._plain_image_fallback(event, "纯文本回退")
+
+        self.assertIs(returned, result)
+        event.plain_result.assert_called_once_with("纯文本回退")
+        result.use_t2i.assert_called_once_with(False)
+
+    def test_invalid_main_config_falls_back_to_auto(self):
+        self.assertEqual(
+            MarvelRivalsPlugin._qq_image_transport(
+                {"MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT": "unsupported"}
+            ),
+            "auto",
+        )
+        self.assertEqual(
+            MarvelRivalsPlugin._qq_image_transport(
+                {"MRCN_QQ_OFFICIAL_IMAGE_TRANSPORT": "DIRECT_URL"}
+            ),
+            "direct_url",
+        )
 
     async def test_card_test_falls_back_on_non_qq_platform(self):
         plugin = object.__new__(MarvelRivalsPlugin)

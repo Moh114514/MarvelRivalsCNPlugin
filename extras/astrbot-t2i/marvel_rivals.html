@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --mr-paper: #e1e5f1;
+      --mr-paper-strong: #ebeef7;
+      --mr-ink: #241c3d;
+      --mr-purple: #6842b4;
+      --mr-night: #2f205b;
+      --mr-yellow: #fbdc2b;
+      --mr-muted: #5d5870;
+      --mr-line: #c6cede;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: var(--mr-paper);
+      color: var(--mr-ink);
+      font-family: "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    }
+
+    body { padding: 32px; }
+
+    .mr-t2i {
+      position: relative;
+      width: min(100%, 1120px);
+      min-height: 260px;
+      margin: 0 auto;
+      padding: 32px;
+      overflow: hidden;
+      border-top: 8px solid var(--mr-night);
+      background: var(--mr-paper);
+    }
+
+    .mr-t2i::before {
+      position: absolute;
+      top: 0;
+      right: -3%;
+      width: 48%;
+      height: 74px;
+      content: "";
+      background: var(--mr-yellow);
+      clip-path: polygon(18% 0, 100% 0, 100% 58%, 84% 45%, 68% 68%, 51% 42%, 33% 61%, 0 36%);
+      opacity: .9;
+      pointer-events: none;
+    }
+
+    .mr-t2i::after {
+      position: absolute;
+      right: -9%;
+      bottom: -22px;
+      width: 55%;
+      height: 120px;
+      content: "";
+      background: var(--mr-paper-strong);
+      clip-path: polygon(25% 100%, 42% 0, 100% 22%, 100% 100%);
+      opacity: .85;
+      pointer-events: none;
+    }
+
+    .mr-t2i__header,
+    .mr-t2i__message,
+    .mr-t2i__footer {
+      position: relative;
+      z-index: 1;
+    }
+
+    .mr-t2i__header {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      padding-bottom: 20px;
+      border-bottom: 3px solid var(--mr-ink);
+    }
+
+    .mr-t2i__eyebrow {
+      color: var(--mr-purple);
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .mr-t2i__title {
+      margin: 10px 0 0;
+      color: var(--mr-night);
+      font-size: clamp(26px, 4vw, 42px);
+      font-weight: 950;
+      letter-spacing: .04em;
+      line-height: 1.1;
+    }
+
+    .mr-t2i__version {
+      flex: 0 0 auto;
+      padding: 9px 13px;
+      border: 3px solid var(--mr-night);
+      background: var(--mr-yellow);
+      color: var(--mr-night);
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    .mr-t2i__message {
+      margin-top: 24px;
+      padding: 22px 24px 26px;
+      border-left: 7px solid var(--mr-purple);
+      border-bottom: 2px solid var(--mr-line);
+      background: var(--mr-paper-strong);
+    }
+
+    .mr-t2i__message::before {
+      display: block;
+      width: 48px;
+      height: 6px;
+      margin-bottom: 17px;
+      content: "";
+      background: var(--mr-yellow);
+      box-shadow: 5px 5px 0 var(--mr-night);
+      transform: skewX(-24deg);
+    }
+
+    .mr-t2i__text {
+      min-width: 0;
+      color: var(--mr-ink);
+      font-size: clamp(18px, 2vw, 24px);
+      font-weight: 650;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .mr-t2i__footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 24px;
+      padding-top: 13px;
+      border-top: 3px solid var(--mr-ink);
+      color: var(--mr-muted);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 560px) {
+      body { padding: 16px; }
+
+      .mr-t2i { padding: 24px 18px; }
+
+      .mr-t2i__header { gap: 12px; }
+
+      .mr-t2i__version { max-width: 38%; }
+
+      .mr-t2i__message { padding: 18px 17px 21px; }
+
+      .mr-t2i__footer { flex-direction: column; gap: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="mr-t2i">
+    <header class="mr-t2i__header">
+      <div>
+        <div class="mr-t2i__eyebrow">Marvel Rivals // Text Output</div>
+        <h1 class="mr-t2i__title">战局信息</h1>
+      </div>
+      <div class="mr-t2i__version">{{ version | e }}</div>
+    </header>
+
+    <section class="mr-t2i__message" aria-label="消息内容">
+      <div class="mr-t2i__text">{{ text | e }}</div>
+    </section>
+
+    <footer class="mr-t2i__footer">
+      <span>MRCN / TEXT2IMAGE</span>
+      <span>SAFE TEXT FALLBACK</span>
+    </footer>
+  </main>
+</body>
+</html>
