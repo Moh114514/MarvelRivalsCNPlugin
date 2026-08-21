@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from marvel_rivals_bot.analytics.models import AnalysisScope, PlayerSignatureProfile
 from marvel_rivals_bot.analytics.formatters import format_player_signature
+from marvel_rivals_bot.analytics.formatters import format_player_hero_analysis
 from marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, PlayerSignatureService
 from marvel_rivals_bot.meta.models import HeroMetaBoard, HeroMetaResult
 from marvel_rivals_bot.models import ModeStats, PlayerHeroStats, PlayerProfile
@@ -219,6 +220,21 @@ class TestPlayerSignatureService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile.analyzed_seasons, ("S7.5",))
         self.assertEqual(hero.competitive_matches, 30)
         self.assertEqual(hero.competitive_wins, 18)
+
+    async def test_meta_disabled_keeps_personal_scope_and_marks_meta_unavailable(self):
+        profile = await PlayerCareerAnalysisService(
+            FakeRivals(), None, cache_root=None
+        ).get_analysis("123", AnalysisScope.season("15"))
+
+        self.assertFalse(profile.meta_available)
+        self.assertEqual(profile.meta_source, "未启用 Meta")
+        self.assertEqual(profile.meta_coverage, 0.0)
+        hero = profile.heroes[0]
+        self.assertIsNone(hero.expected_meta_win_rate)
+        self.assertEqual(hero.comparable_competitive_matches, 0)
+        rendered = format_player_hero_analysis(profile, hero)
+        self.assertIn("当前缺少同期 Meta", rendered)
+        self.assertNotIn("19分析", rendered)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from ..meta.models import HeroMetaOverview
+from ..reference.seasons import season_identity_from_cn_code
 
 
 @dataclass(slots=True)
@@ -226,6 +227,17 @@ class AnalysisScope:
         return "career" if self.kind == "career" else f"season:{self.season_code}"
 
 
+def analysis_scope_label(scope: AnalysisScope | None) -> str:
+    """Return the only user-facing label allowed for an analysis scope."""
+
+    if scope is None or scope.kind == "career":
+        return "生涯"
+    try:
+        return season_identity_from_cn_code(scope.season_code).canonical_name
+    except (TypeError, ValueError):
+        return f"S{scope.season_code}"
+
+
 @dataclass(slots=True)
 class HeroSeasonPerformance:
     """One hero's competitive performance in one historical season."""
@@ -295,6 +307,19 @@ class CareerHeroSignature:
     performance_index: float = 0.0
     signature_score: float = 0.0
     sickness_score: float = 0.0
+    raw_meta_delta: float | None = None
+    raw_personal_competitive_delta: float | None = None
+    adjusted_personal_competitive_delta: float | None = None
+    raw_personal_quick_delta: float | None = None
+    adjusted_personal_quick_delta: float | None = None
+    evidence_factor: float = 1.0
+    status: str = "常用英雄"
+    is_analysis_eligible: bool = False
+    is_signature_candidate: bool = False
+    is_sickness_candidate: bool = False
+    comparable_competitive_matches: int = 0
+    comparable_competitive_wins: int = 0
+    comparable_competitive_win_rate: float | None = None
 
 
 @dataclass(slots=True)
@@ -316,6 +341,7 @@ class PlayerSignatureProfile:
     meta_source: str = "RivalsMeta"
     meta_source_timestamp: str | None = None
     meta_stale: bool = False
+    meta_available: bool = True
     sick_heroes: tuple[CareerHeroSignature, ...] = ()
     scope: AnalysisScope = field(default_factory=AnalysisScope.career)
     heroes: tuple[CareerHeroSignature, ...] = ()
@@ -325,7 +351,32 @@ class HeroPerformanceAnalysis(CareerHeroSignature):
     """Public name for the unified Player × Hero analysis ViewModel."""
 
 
-PlayerCareerAnalysis = PlayerSignatureProfile
+class PlayerCareerAnalysis(PlayerSignatureProfile):
+    """Unified player analysis profile consumed by all personal views."""
+
+
+@dataclass(slots=True)
+class HeroPoolAnalysis:
+    """Locally derived structure/quality view over one career analysis."""
+
+    uid: str
+    player_name: str
+    scope: AnalysisScope
+    total_matches: int
+    active_heroes: int
+    core_heroes: tuple[CareerHeroSignature, ...]
+    top1_share: float
+    top3_share: float
+    effective_pool_width: float
+    vanguard_share: float
+    duelist_share: float
+    strategist_share: float
+    weighted_performance: float | None
+    positive_usage_share: float
+    negative_usage_share: float
+    structure_tags: tuple[str, ...]
+    meta_available: bool = True
+    meta_stale: bool = False
 
 
 def _optional_int(value: Any) -> int | None:

@@ -24,10 +24,27 @@ from ..datasource.base import GameMode
 from .models import (
     AnalysisScope,
     CareerHeroSignature,
+    HeroPoolAnalysis,
     HeroPerformanceAnalysis,
     HeroSeasonPerformance,
     NormalizedModeStats,
+    PlayerCareerAnalysis,
     PlayerSignatureProfile,
+)
+from .hero_pool import build_hero_pool_analysis
+from .performance import (
+    PERSONAL_COMPETITIVE_PRIOR_MATCHES,
+    PERSONAL_QUICK_PRIOR_MATCHES,
+    adjust_personal_delta,
+    calculate_evidence_factor,
+    calculate_performance_index as calculate_robust_performance_index,
+    calculate_play_index as calculate_robust_play_index,
+    calculate_signature_score as calculate_robust_signature_score,
+    calculate_sickness_score,
+    classify_hero_performance,
+    is_analysis_eligible,
+    is_performance_sickness_candidate,
+    is_signature_candidate,
 )
 from .player_meta import PlayerMetaQueryError
 from .signature_rules import (
@@ -35,22 +52,13 @@ from .signature_rules import (
     adjust_delta,
     build_signature_tags,
     calculate_confidence,
-    calculate_performance_index,
-    calculate_performance_sickness_score,
-    calculate_play_index,
-    calculate_signature_score,
-    calculate_sick_score,
-    calculate_weakness_index,
     classify_signature,
-    classification_sort_key,
-    is_sickness_candidate,
-    sick_hero_sort_key,
     stability_counts,
 )
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 6
+SIGNATURE_CACHE_SCHEMA_VERSION = 7
 SICKNESS_TOP_N = 10
 
 
@@ -178,6 +186,18 @@ class SignatureCache:
         suffix = f"_{safe_season}" if safe_season is not None else ""
         return self.root / f"{prefix}_{uid}{suffix}.json"
 
+    def _analysis_path(
+        self,
+        uid: str,
+        scope: AnalysisScope,
+        *,
+        meta_available: bool | None = None,
+    ) -> Path | None:
+        scope_key = scope.key
+        if meta_available is not None:
+            scope_key = f"{scope_key}:{'meta' if meta_available else 'personal'}"
+        return self._path("analysis", uid, scope_key)
+
     def _read(self, path: Path | None, ttl: float) -> dict[str, Any] | None:
         if path is None or ttl <= 0 or not path.exists():
             return None
@@ -236,9 +256,14 @@ class SignatureCache:
         self,
         uid: str,
         scope: AnalysisScope | None = None,
+        *,
+        meta_available: bool | None = None,
     ) -> PlayerSignatureProfile | None:
         scope = scope or AnalysisScope.career()
-        payload = self._read(self._path("analysis", uid, scope.key), self.result_seconds)
+        payload = self._read(
+            self._analysis_path(uid, scope, meta_available=meta_available),
+            self.result_seconds,
+        )
         if not payload:
             return None
         try:
@@ -254,7 +279,7 @@ class SignatureCache:
                 if isinstance(item, dict)
             )
             favorite = payload.get("favorite_hero")
-            return PlayerSignatureProfile(
+            return PlayerCareerAnalysis(
                 uid=str(payload["uid"]),
                 player_name=str(payload.get("player_name", "未知")),
                 first_season=str(payload.get("first_season", "")),
@@ -273,6 +298,7 @@ class SignatureCache:
                     if payload.get("meta_source_timestamp") is not None else None
                 ),
                 meta_stale=bool(payload.get("meta_stale", False)),
+                meta_available=bool(payload.get("meta_available", True)),
                 sick_heroes=tuple(
                     _signature_from_dict(item)
                     for item in payload.get("sick_heroes", [])
@@ -287,7 +313,11 @@ class SignatureCache:
     def save_profile(self, profile: PlayerSignatureProfile) -> None:
         scope = profile.scope or AnalysisScope.career()
         self._write(
-            self._path("analysis", profile.uid, scope.key),
+            self._analysis_path(
+                profile.uid,
+                scope,
+                meta_available=profile.meta_available,
+            ),
             _profile_to_dict(profile),
             uid=profile.uid,
             scope=scope.key,
@@ -342,16 +372,25 @@ class PlayerCareerAnalysisService:
         normalized_uid = str(uid).strip()
         if not normalized_uid.isdigit():
             raise PlayerMetaQueryError("UID 必须是数字")
-        if self.meta_service is None:
-            raise PlayerMetaQueryError("当前未启用英雄环境功能")
         scope = self._normalize_scope(scope)
         cache_key = f"{normalized_uid}:{scope.key}"
         now = time.monotonic()
         cached = self._memory_profiles.get(cache_key)
-        if cached and now - cached[0] < self.cache.result_seconds:
+        if (
+            cached
+            and now - cached[0] < self.cache.result_seconds
+            and cached[1].meta_available == (self.meta_service is not None)
+        ):
             return cached[1]
-        disk_profile = self.cache.load_profile(normalized_uid, scope)
-        if disk_profile is not None:
+        disk_profile = self.cache.load_profile(
+            normalized_uid,
+            scope,
+            meta_available=self.meta_service is not None,
+        )
+        if (
+            disk_profile is not None
+            and disk_profile.meta_available == (self.meta_service is not None)
+        ):
             self._memory_profiles[cache_key] = (now, disk_profile)
             return disk_profile
 
@@ -391,7 +430,7 @@ class PlayerCareerAnalysisService:
         top_n: int = 5,
     ) -> tuple[CareerHeroSignature, ...]:
         profile = await self.get_analysis(uid, scope)
-        candidates = [hero for hero in profile.heroes if hero.signature_score > 0]
+        candidates = [hero for hero in profile.heroes if is_signature_candidate(hero)]
         return tuple(sorted(candidates, key=_signature_score_sort_key)[:max(1, int(top_n))])
 
     async def get_sick_heroes(
@@ -402,8 +441,11 @@ class PlayerCareerAnalysisService:
         top_n: int = SICKNESS_TOP_N,
     ) -> tuple[CareerHeroSignature, ...]:
         profile = await self.get_analysis(uid, scope)
-        candidates = [hero for hero in profile.heroes if hero.sickness_score > 0]
-        return tuple(sorted(candidates, key=sick_hero_sort_key)[:max(1, int(top_n))])
+        candidates = [
+            hero for hero in profile.heroes
+            if is_performance_sickness_candidate(hero)
+        ]
+        return tuple(sorted(candidates, key=_sickness_score_sort_key)[:max(1, int(top_n))])
 
     async def get_player_signature(
         self,
@@ -416,6 +458,15 @@ class PlayerCareerAnalysisService:
 
         scope = self._scope_from_season(season)
         return _limit_profile(await self.get_analysis(uid, scope), top_n)
+
+    async def get_hero_pool_analysis(
+        self,
+        uid: str,
+        scope: AnalysisScope | None = None,
+    ) -> HeroPoolAnalysis:
+        """Derive hero-pool structure locally from the shared analysis cache."""
+
+        return build_hero_pool_analysis(await self.get_analysis(uid, scope))
 
     @staticmethod
     def _normalize_scope(scope: AnalysisScope | None) -> AnalysisScope:
@@ -528,7 +579,8 @@ class PlayerCareerAnalysisService:
                 meta_failures += 1
                 logger.warning("绝活 Meta 加载失败 season=%s error=%s", season.season_code, exc)
 
-        await asyncio.gather(*(load_meta(season) for season in meta_seasons))
+        if self.meta_service is not None:
+            await asyncio.gather(*(load_meta(season) for season in meta_seasons))
         meta_stale = any(bool(getattr(board, "stale", False)) for board in meta_boards.values())
         partial = partial or meta_failures > 0 or meta_stale
         signatures = self._build_signatures(profile, active_seasons, meta_boards, scope=scope)
@@ -544,7 +596,7 @@ class PlayerCareerAnalysisService:
         favorite = max(signatures, key=lambda item: item.total_matches, default=None)
         if favorite is not None and not _is_favorite_eligible(favorite):
             favorite = None
-        if favorite is not None:
+        if favorite is not None and scope.kind == "career":
             signatures = [
                 _with_tags(item, build_signature_tags(
                     seasons=item.seasons,
@@ -564,26 +616,19 @@ class PlayerCareerAnalysisService:
             sorted(
                 (
                     item for item in signatures
-                    if is_sickness_candidate(
-                        total_matches=item.total_matches,
-                        competitive_matches=item.competitive_matches,
-                        quick_matches=item.quick_matches,
-                        has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
-                        adjusted_delta=item.adjusted_delta,
-                        comparable_matches=item.comparable_matches,
-                    ) and item.sickness_score > 0
+                    if is_performance_sickness_candidate(item)
                 ),
-                key=sick_hero_sort_key,
+                key=_sickness_score_sort_key,
         )[:SICKNESS_TOP_N]
         )
         all_heroes = tuple(signatures)
         signature_heroes = tuple(
             sorted(
-                (item for item in signatures if item.signature_score > 0),
+                (item for item in signatures if is_signature_candidate(item)),
                 key=_signature_score_sort_key,
             )[:5]
         )
-        result = PlayerSignatureProfile(
+        result = PlayerCareerAnalysis(
             uid=uid,
             player_name=getattr(profile, "name", "未知") or "未知",
             first_season=first,
@@ -596,12 +641,21 @@ class PlayerCareerAnalysisService:
             favorite_hero=favorite,
             partial=partial,
             failed_seasons=tuple(failed_seasons),
-            meta_source=next(
-                (str(getattr(board, "source", "")) for board in meta_boards.values() if getattr(board, "source", None)),
-                "RivalsMeta",
+            meta_source=(
+                "未启用 Meta"
+                if self.meta_service is None
+                else next(
+                    (
+                        str(getattr(board, "source", ""))
+                        for board in meta_boards.values()
+                        if getattr(board, "source", None)
+                    ),
+                    "RivalsMeta",
+                )
             ),
             meta_source_timestamp=_latest_meta_timestamp(meta_boards.values()),
             meta_stale=meta_stale,
+            meta_available=self.meta_service is not None,
             sick_heroes=sick_heroes,
             scope=scope,
             heroes=all_heroes,
@@ -626,68 +680,97 @@ class PlayerCareerAnalysisService:
 
         enriched: list[CareerHeroSignature] = []
         for item in signatures:
-            personal_competitive = (
-                _season_weighted_personal_delta(item.hero_id, seasons or [], "competitive")
-                if seasons is not None else None
+            raw_personal_competitive, adjusted_personal_competitive, _ = (
+                _season_weighted_personal_deltas(
+                    item.hero_id,
+                    seasons or [],
+                    "competitive",
+                    PERSONAL_COMPETITIVE_PRIOR_MATCHES,
+                )
+                if seasons is not None else (None, None, 0)
             )
-            personal_quick = (
-                _season_weighted_personal_delta(item.hero_id, seasons or [], "quick")
-                if seasons is not None else None
+            raw_personal_quick, adjusted_personal_quick, _ = (
+                _season_weighted_personal_deltas(
+                    item.hero_id,
+                    seasons or [],
+                    "quick",
+                    PERSONAL_QUICK_PRIOR_MATCHES,
+                )
+                if seasons is not None else (None, None, 0)
             )
-            play_index = calculate_play_index(
+            play_index = calculate_robust_play_index(
                 competitive_matches=item.competitive_matches,
                 quick_matches=item.quick_matches,
                 usage_share=item.usage_share,
                 competitive_cap=20 if scope.kind == "season" else 50,
                 quick_cap=20 if scope.kind == "season" else 50,
             )
-            performance_index = calculate_performance_index(
-                meta_delta=item.adjusted_delta,
-                personal_competitive_delta=personal_competitive,
-                personal_quick_delta=personal_quick,
+            performance_index = calculate_robust_performance_index(
+                adjusted_meta_delta=item.adjusted_delta,
+                adjusted_personal_competitive_delta=adjusted_personal_competitive,
+                adjusted_personal_quick_delta=adjusted_personal_quick,
             )
             weakness_index = max(0.0, -performance_index)
+            evidence_factor = calculate_evidence_factor(item.confidence)
+            eligible = is_analysis_eligible(
+                total_matches=item.total_matches,
+                competitive_matches=item.competitive_matches,
+                quick_matches=item.quick_matches,
+            )
             meta_disadvantage = (
                 max(0.0, -float(item.adjusted_delta))
                 if item.adjusted_delta is not None else None
             )
-            sickness_candidate = is_sickness_candidate(
-                total_matches=item.total_matches,
-                competitive_matches=item.competitive_matches,
-                quick_matches=item.quick_matches,
-                has_win_rate=(item.actual_win_rate is not None or item.quick_win_rate is not None),
-                adjusted_delta=item.adjusted_delta,
-                comparable_matches=item.comparable_matches,
+            signature_score = calculate_robust_signature_score(
+                play_index, performance_index, evidence_factor
             )
-            sickness_score = (
-                calculate_performance_sickness_score(play_index, performance_index)
-                if sickness_candidate and performance_index < 0 else 0.0
+            sickness_score = calculate_sickness_score(
+                play_index, performance_index, evidence_factor
             )
-            classification = item.classification if performance_index > 0 else "常用英雄"
-            if performance_index > 0 and classification == "常用英雄":
-                classification = "潜力绝活"
+            candidate = replace(
+                item,
+                classification="常用英雄",
+                stability=item.stability if scope.kind == "career" else None,
+                play_index=play_index,
+                weakness_index=weakness_index,
+                meta_disadvantage=meta_disadvantage,
+                personal_competitive_disadvantage=(
+                    max(0.0, -adjusted_personal_competitive)
+                    if adjusted_personal_competitive is not None else None
+                ),
+                personal_quick_disadvantage=(
+                    max(0.0, -adjusted_personal_quick)
+                    if adjusted_personal_quick is not None else None
+                ),
+                personal_competitive_delta=adjusted_personal_competitive,
+                personal_quick_delta=adjusted_personal_quick,
+                performance_index=performance_index,
+                signature_score=signature_score if eligible and performance_index >= 10 else 0.0,
+                sickness_score=sickness_score if eligible and performance_index <= -10 else 0.0,
+                sick_score=sickness_score if eligible and performance_index <= -10 else 0.0,
+                raw_meta_delta=item.raw_delta,
+                raw_personal_competitive_delta=raw_personal_competitive,
+                adjusted_personal_competitive_delta=adjusted_personal_competitive,
+                raw_personal_quick_delta=raw_personal_quick,
+                adjusted_personal_quick_delta=adjusted_personal_quick,
+                evidence_factor=evidence_factor,
+                is_analysis_eligible=eligible,
+                comparable_competitive_matches=item.comparable_matches,
+                comparable_competitive_wins=(
+                    item.comparable_competitive_wins
+                    if item.comparable_competitive_wins is not None
+                    else 0
+                ),
+                comparable_competitive_win_rate=item.comparable_competitive_win_rate,
+            )
+            status = classify_hero_performance(candidate, scope)
             enriched.append(
                 replace(
-                    item,
-                    classification=classification,
-                    stability=item.stability if scope.kind == "career" else None,
-                    play_index=play_index,
-                    weakness_index=weakness_index,
-                    meta_disadvantage=meta_disadvantage,
-                    personal_competitive_disadvantage=(
-                        max(0.0, -personal_competitive)
-                        if personal_competitive is not None else None
-                    ),
-                    personal_quick_disadvantage=(
-                        max(0.0, -personal_quick)
-                        if personal_quick is not None else None
-                    ),
-                    personal_competitive_delta=personal_competitive,
-                    personal_quick_delta=personal_quick,
-                    performance_index=performance_index,
-                    signature_score=calculate_signature_score(play_index, performance_index),
-                    sickness_score=sickness_score,
-                    sick_score=sickness_score,
+                    candidate,
+                    status=status,
+                    classification=status,
+                    is_signature_candidate=is_signature_candidate(candidate),
+                    is_sickness_candidate=is_performance_sickness_candidate(candidate),
                 )
             )
         return enriched
@@ -932,6 +1015,10 @@ class PlayerCareerAnalysisService:
                 competitive_stats=competitive_stats,
                 meta_delta=raw_delta,
                 adjusted_meta_delta=adjusted,
+                raw_meta_delta=raw_delta,
+                comparable_competitive_matches=comparable_matches,
+                comparable_competitive_wins=comparable_wins,
+                comparable_competitive_win_rate=comparable_actual,
             ))
         return result
 
@@ -1034,6 +1121,54 @@ def _season_weighted_personal_delta(
     return weighted_delta / weighted_matches
 
 
+def _season_weighted_personal_deltas(
+    hero_id: str,
+    seasons: list[_NormalizedSeason],
+    mode_name: str,
+    prior_matches: int,
+) -> tuple[float | None, float | None, int]:
+    """Return raw and per-season-shrunk leave-one-out deltas."""
+
+    raw_weighted = 0.0
+    adjusted_weighted = 0.0
+    weighted_matches = 0
+    for season in seasons:
+        hero = season.heroes.get(hero_id)
+        if hero is None:
+            continue
+        current = getattr(hero, mode_name, None) or NormalizedModeStats()
+        matches = int(current.matches or 0)
+        if matches <= 0 or current.wins is None:
+            continue
+        other_matches = 0
+        other_wins = 0
+        for other_id, other in season.heroes.items():
+            if other_id == hero_id:
+                continue
+            stats = getattr(other, mode_name, None) or NormalizedModeStats()
+            candidate_matches = int(stats.matches or 0)
+            if candidate_matches <= 0 or stats.wins is None:
+                continue
+            other_matches += candidate_matches
+            other_wins += max(0, int(stats.wins))
+        if other_matches <= 0:
+            continue
+        raw_delta = float(current.wins) * 100 / matches - other_wins * 100 / other_matches
+        adjusted_delta = adjust_personal_delta(raw_delta, matches, prior_matches)
+        if adjusted_delta is None:
+            continue
+        raw_weighted += raw_delta * matches
+        adjusted_weighted += adjusted_delta * matches
+        weighted_matches += matches
+    if weighted_matches <= 0:
+        return None, None, 0
+    return (
+        raw_weighted / weighted_matches,
+        adjusted_weighted / weighted_matches,
+        weighted_matches,
+    )
+
+
 def _leave_one_out_disadvantage(
     item: CareerHeroSignature,
     signatures: list[CareerHeroSignature],
@@ -1083,7 +1218,7 @@ def _signature_from_dict(value: dict[str, Any]) -> CareerHeroSignature:
         data["scope"] = AnalysisScope(**data["scope"])
     for field_name in ("quick_stats", "competitive_stats"):
         if isinstance(data.get(field_name), dict):
-            data[field_name] = NormalizedModeStats(**data[field_name])
+            data[field_name] = NormalizedModeStats.from_dict(data[field_name])
     return HeroPerformanceAnalysis(**data)
 
 
@@ -1104,6 +1239,7 @@ def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
         "meta_source": profile.meta_source,
         "meta_source_timestamp": profile.meta_source_timestamp,
         "meta_stale": profile.meta_stale,
+        "meta_available": profile.meta_available,
         "sick_heroes": [asdict(item) for item in profile.sick_heroes],
         "scope": asdict(profile.scope or AnalysisScope.career()),
         "heroes": [asdict(item) for item in (profile.heroes or profile.signature_heroes)],
@@ -1129,10 +1265,22 @@ def _limit_profile(profile: PlayerSignatureProfile, top_n: int) -> PlayerSignatu
     return replace(profile, signature_heroes=profile.signature_heroes[:top_n])
 
 
-def _signature_score_sort_key(item: Any) -> tuple[float, float, int]:
+def _signature_score_sort_key(item: Any) -> tuple[float, float, float, float, int]:
     return (
         -float(getattr(item, "signature_score", 0.0) or 0.0),
         -float(getattr(item, "performance_index", 0.0) or 0.0),
+        -float(getattr(item, "evidence_factor", 0.0) or 0.0),
+        -float(getattr(item, "play_index", 0.0) or 0.0),
+        -int(getattr(item, "total_matches", 0) or 0),
+    )
+
+
+def _sickness_score_sort_key(item: Any) -> tuple[float, float, float, float, int]:
+    return (
+        -float(getattr(item, "sickness_score", 0.0) or 0.0),
+        -float(getattr(item, "weakness_index", 0.0) or 0.0),
+        -float(getattr(item, "evidence_factor", 0.0) or 0.0),
+        -float(getattr(item, "play_index", 0.0) or 0.0),
         -int(getattr(item, "total_matches", 0) or 0),
     )
 

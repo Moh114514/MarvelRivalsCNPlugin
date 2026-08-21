@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 try:
-    from ...marvel_rivals_bot.analytics.models import PlayerSignatureProfile
+    from ...marvel_rivals_bot.analytics.models import PlayerSignatureProfile, analysis_scope_label
     from ...marvel_rivals_bot.analytics.signature_rules import sickness_severity
 except ImportError:
-    from marvel_rivals_bot.analytics.models import PlayerSignatureProfile
+    from marvel_rivals_bot.analytics.models import PlayerSignatureProfile, analysis_scope_label
     from marvel_rivals_bot.analytics.signature_rules import sickness_severity
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
@@ -21,11 +21,16 @@ def _delta(value: float | None) -> str:
     return "—" if value is None else f"{value:+.1f}pp"
 
 
-def _deficit(value: float | None) -> str:
-    return "—" if value is None else f"{value:.1f}pp"
+def _meta_disadvantage(item) -> float | None:
+    value = getattr(item, "meta_disadvantage", None)
+    if value is not None:
+        return float(value)
+    raw_delta = getattr(item, "raw_meta_delta", getattr(item, "meta_delta", None))
+    return max(-float(raw_delta), 0.0) if raw_delta is not None else None
 
 
 def _sick_card(index: int, item) -> str:
+    sickness_score = float(getattr(item, "sickness_score", getattr(item, "sick_score", 0.0)) or 0.0)
     return (
         '<article class="mr-sickness-card">'
         f'<div class="mr-sickness-card__index">{index:02d}</div>'
@@ -41,9 +46,9 @@ def _sick_card(index: int, item) -> str:
         f'<span>同期 Meta {escape_text(_percent(item.expected_meta_win_rate))}</span>'
         '</div>'
         '<div class="mr-sickness-card__detail">'
-        f'<span>Meta 劣势 {escape_text(_deficit(item.meta_disadvantage))}</span>'
-        f'<span>个人竞技劣势 {escape_text(_deficit(item.personal_competitive_disadvantage))}</span>'
-        f'<span>个人快速劣势 {escape_text(_deficit(item.personal_quick_disadvantage))}</span>'
+        f'<span>Meta 劣势 {escape_text(_delta(_meta_disadvantage(item)))}</span>'
+        f'<span>个人竞技相对表现 {escape_text(_delta(item.personal_competitive_delta))}</span>'
+        f'<span>个人快速相对表现 {escape_text(_delta(item.personal_quick_delta))}</span>'
         f'<span>稳健环境差值 {escape_text(_delta(item.adjusted_delta))}</span>'
         f'<span>Meta 覆盖 {item.meta_coverage:.0f}%</span>'
         f'<span>可信度 {escape_text(item.confidence)}</span>'
@@ -51,9 +56,10 @@ def _sick_card(index: int, item) -> str:
         '</div>'
         '<div class="mr-sickness-card__score">'
         '<span>绝症指数</span>'
-        f'<strong>{getattr(item, "sickness_score", item.sick_score):.1f}</strong>'
-        f'<small>{escape_text(sickness_severity(item.sick_score))} · 爱玩 {item.play_index:.1f} · 菜度 {item.weakness_index:.1f}</small>'
+        f'<strong>{sickness_score:.1f}</strong>'
+        f'<small>{escape_text(sickness_severity(sickness_score))} · 使用指数 {item.play_index:.1f} · 弱势表现 {item.weakness_index:.1f}</small>'
         f'<small>综合表现 {item.performance_index:+.1f}</small>'
+        f'<small>状态 {escape_text(getattr(item, "status", "绝症候选"))}</small>'
         '</div>'
         '</article>'
     )
@@ -61,11 +67,11 @@ def _sick_card(index: int, item) -> str:
 
 def _sickness_glossary() -> str:
     entries = (
-        ("爱玩指数", "把竞技场次、快速场次和使用占比分别换算成 0—100 分，再按 40%、20%、40% 加权；分数越高，说明你越常回到这个英雄。"),
-        ("菜度指数", "把可用的 Meta 劣势、个人竞技劣势、个人快速劣势合成 0—100 分；缺少某类数据时，会按剩余数据重新分配权重。"),
-        ("绝症指数", "爱玩指数 × 菜度指数 ÷ 100。它是“玩得多且相对表现差”的排序分，不是医学诊断，也不是实际少赢场次。"),
-        ("Meta / 个人劣势", "Meta 劣势是低于同期环境多少个百分点；个人劣势是低于自己其他英雄平均表现多少个百分点，采用不包含当前英雄的留一法。"),
-        ("候选范围", "总场次至少 10，或竞技至少 5，或快速至少 20，并且至少一个模式有胜率。明显高于同期 Meta 的英雄不会进入绝症榜。"),
+        ("使用指数", "把竞技场次、快速场次和使用占比分别换算成 0—100 分，再按 40%、20%、40% 加权；分数越高，说明你越常回到这个英雄。"),
+        ("弱势表现", "统一取 max(-Performance Index, 0)，把 Meta、个人竞技和个人快速的可用相对表现合成为一个负向轴。"),
+        ("绝症指数", "使用指数 × 弱势表现 ÷ 100 × 证据修正。它是“玩得多且相对表现差”的排序分，不是医学诊断，也不是实际少赢场次。"),
+        ("Meta / 个人相对表现", "Meta 相对表现是低于同期环境多少个百分点；个人相对表现是低于自己其他英雄平均表现多少个百分点，采用不包含当前英雄的留一法，并按小样本先验收缩。"),
+        ("候选范围", "总场次至少 10，或竞技至少 5，或快速至少 20；Performance ≤ -10 且绝症指数 > 0 才进入绝症榜，-10 到 +10 是中性区。"),
         ("为什么没有凑满 Top 10", "这是最多 10 名的相对排名；没有足够使用量或胜率证据的英雄不会被硬塞进来，低分也不等于确诊。"),
     )
     cards = "".join(
@@ -84,9 +90,7 @@ def _sickness_glossary() -> str:
 
 
 def build_player_sickness_html(profile: PlayerSignatureProfile) -> str:
-    first = profile.first_season or "未知"
-    latest = profile.latest_season or first
-    scope_label = "生涯" if profile.scope.kind == "career" else profile.scope.season_code
+    scope_label = analysis_scope_label(profile.scope)
     content = page_header(
         "MY SICKNESS",
         "高使用量相对弱势分析",
@@ -106,6 +110,8 @@ def build_player_sickness_html(profile: PlayerSignatureProfile) -> str:
             '部分历史赛季或 Meta 数据不可用，以下仍会使用可用信号进行相对排名。'
             '</div>'
         )
+    if not profile.meta_available:
+        content += '<div class="mr-meta-source">当前缺少同期 Meta，综合表现仅基于个人竞技/快速基准，可信度已降级。</div>'
     if profile.meta_source_timestamp:
         stale_text = "（部分使用最近缓存）" if profile.meta_stale else ""
         content += (
@@ -135,7 +141,7 @@ def build_player_sickness_html(profile: PlayerSignatureProfile) -> str:
     content += (
         '<div class="mr-meta-source mr-sickness-footer">'
         '<span>本页最多展示 Top 10；绝症指数只表示相对排序，不代表实际损失或医学意义上的确诊。</span>'
-        '<span>快速模式是辅助信号，核心仍是长期使用量与相对表现。</span>'
+        f'<span>{"快速模式是辅助信号，核心仍是生涯使用量与相对表现。" if profile.scope.kind == "career" else "快速模式是辅助信号，核心仍是本赛季使用量与相对表现。"}</span>'
         '</div>'
     )
     return page_shell(content, watermark="MY SICKNESS")

@@ -1,6 +1,11 @@
 import unittest
 
-from marvel_rivals_bot.analytics.models import CareerHeroSignature, HeroSeasonPerformance, PlayerSignatureProfile
+from marvel_rivals_bot.analytics.models import (
+    AnalysisScope,
+    CareerHeroSignature,
+    HeroSeasonPerformance,
+    PlayerSignatureProfile,
+)
 from rendering.pages.player_signature import build_player_signature_html
 from rendering.pages.player_sickness import build_player_sickness_html
 
@@ -111,14 +116,66 @@ class TestSignatureRendering(unittest.TestCase):
         )
         html = build_player_sickness_html(profile)
         self.assertIn("绝症英雄排名 Top 10", html)
-        self.assertIn("爱玩指数", html)
-        self.assertIn("菜度指数", html)
+        self.assertIn("使用指数", html)
+        self.assertIn("弱势表现", html)
         self.assertIn("5.0", html)
         self.assertIn("Meta 劣势", html)
         self.assertIn("绝症指数", html)
         self.assertIn("测试英雄&lt;&amp;&gt;", html)
         self.assertIn("判定说明", html)
         self.assertNotIn("<script>", html)
+
+    def test_season_signature_page_omits_career_only_terms(self):
+        hero = CareerHeroSignature(
+            hero_id="1026",
+            hero_name="黑豹",
+            total_matches=30,
+            quick_matches=10,
+            competitive_matches=20,
+            competitive_wins=14,
+            usage_share=100.0,
+            actual_win_rate=70.0,
+            expected_meta_win_rate=55.0,
+            raw_delta=15.0,
+            adjusted_delta=10.0,
+            active_seasons=1,
+            competitive_seasons=1,
+            comparable_seasons=1,
+            effective_seasons=1,
+            positive_seasons=1,
+            stability=100.0,
+            comparable_matches=20,
+            meta_coverage=100.0,
+            rank_specific_coverage=100.0,
+            confidence="高",
+            classification="赛季表现优秀",
+            tags=(),
+            seasons=(),
+            status="赛季表现优秀",
+            performance_index=30.0,
+            signature_score=20.0,
+        )
+        profile = PlayerSignatureProfile(
+            uid="123",
+            player_name="玩家",
+            first_season="S9.5",
+            latest_season="S9.5",
+            analyzed_seasons=("S9.5",),
+            total_matches=30,
+            competitive_matches=20,
+            meta_coverage=100.0,
+            signature_heroes=(hero,),
+            favorite_hero=None,
+            partial=False,
+            failed_seasons=(),
+            scope=AnalysisScope.season("19"),
+        )
+        html = build_player_signature_html(profile)
+        self.assertIn("S9.5", html)
+        self.assertIn("本赛季样本", html)
+        self.assertNotIn("有效赛季", html)
+        self.assertNotIn("长期稳定性", html)
+        self.assertNotIn("常青绝活", html)
 
 
 if __name__ == "__main__":

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 try:
-    from ...marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerSignatureProfile
+    from ...marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerSignatureProfile, analysis_scope_label
 except ImportError:
-    from marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerSignatureProfile
+    from marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerSignatureProfile, analysis_scope_label
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
 from ..formatters import escape_text
@@ -57,17 +57,18 @@ def build_player_hero_analysis_html(
     profile: PlayerSignatureProfile,
     hero: CareerHeroSignature,
 ) -> str:
-    scope_label = "生涯" if profile.scope.kind == "career" else profile.scope.season_code
+    scope_label = analysis_scope_label(profile.scope)
+    is_career = profile.scope.kind == "career"
     title = f"{hero.hero_name} · {scope_label}分析"
-    if hero.signature_score > 0:
-        conclusion = "强势绝活"
-        description = "长期表现明显高于自身及同期环境。"
-    elif hero.sickness_score > 0:
-        conclusion = "高使用量相对弱势"
-        description = "使用量较高，但相对同期环境和个人同模式基准表现偏低。"
+    conclusion = hero.status
+    if is_career and conclusion in {"招牌绝活", "强势绝活", "潜力绝活"}:
+        description = "生涯表现高于个人基准和可用同期环境。"
+    elif not is_career and conclusion in {"赛季强势", "赛季表现优秀"}:
+        description = "本赛季表现高于个人基准和可用同期环境。"
+    elif conclusion in {"绝症候选", "赛季偏弱", "相对弱势"}:
+        description = "当前使用量和证据显示相对表现偏弱。"
     else:
-        conclusion = "潜力 / 常用英雄"
-        description = "当前数据不足以归入强势绝活或高使用量弱势。"
+        description = "当前处于中性区或证据不足。"
     content = page_header(
         "MY HERO ANALYSIS",
         description,
@@ -80,26 +81,32 @@ def build_player_hero_analysis_html(
         ),
     )
     content += '<section class="mr-section">' + section_title(conclusion, "CONCLUSION")
-    content += metric_grid((
+    usage_metrics = [
         ("绝活指数", f"{hero.signature_score:.1f}"),
         ("绝症指数", f"{hero.sickness_score:.1f}"),
         ("总场次", _value(hero.total_matches)),
         ("竞技场次", _value(hero.competitive_matches)),
         ("快速场次", _value(hero.quick_matches)),
-        ("活跃赛季", _value(hero.active_seasons)),
-    )) + '</section>'
+    ]
+    if is_career:
+        usage_metrics.append(("活跃赛季", _value(hero.active_seasons)))
+    content += metric_grid(tuple(usage_metrics)) + '</section>'
     content += '<section class="mr-section">' + section_title("竞技环境比较", "ENVIRONMENT")
     content += metric_grid((
-        ("个人竞技胜率", _percent(hero.actual_win_rate)),
+        ("可比较竞技胜率", _percent(hero.comparable_competitive_win_rate)),
         ("同期同段位 Meta", _percent(hero.expected_meta_win_rate)),
-        ("Meta 表现", _delta(
+        ("原始环境差值", _delta(hero.raw_meta_delta if hero.raw_meta_delta is not None else hero.raw_delta)),
+        ("稳健环境差值", _delta(
             hero.adjusted_meta_delta
             if hero.adjusted_meta_delta is not None else hero.adjusted_delta
         )),
         ("个人竞技相对表现", _delta(hero.personal_competitive_delta)),
         ("个人快速相对表现", _delta(hero.personal_quick_delta)),
         ("Meta 覆盖", f"{hero.meta_coverage:.0f}%"),
+        ("证据修正", f"{hero.evidence_factor:.2f}"),
     )) + '</section>'
+    if not profile.meta_available:
+        content += '<div class="mr-meta-source">当前缺少同期 Meta，综合表现仅基于个人竞技/快速基准，可信度已降级。</div>'
     content += _mode_block("竞技详细数据", hero.competitive_stats)
     content += _mode_block("快速详细数据", hero.quick_stats)
     return page_shell(content, watermark="MY HERO ANALYSIS")

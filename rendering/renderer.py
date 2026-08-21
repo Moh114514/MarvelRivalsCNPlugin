@@ -36,6 +36,7 @@ from .pages import (
     build_help_html,
     build_hero_query_html,
     build_player_hero_analysis_html,
+    build_player_hero_pool_analysis_html,
     build_match_detail_html,
     build_meta_board_html,
     build_meta_role_boards_html,
@@ -117,6 +118,9 @@ class RivalsImageRenderer:
         hero: CareerHeroSignature,
     ) -> str:
         return await self._render(build_player_hero_analysis_html(profile, hero))
+
+    async def player_hero_pool_analysis(self, pool) -> str:
+        return await self._render(build_player_hero_pool_analysis_html(pool))
 
     async def help(self, help_text: str) -> str:
         return await self._render(build_help_html(help_text))

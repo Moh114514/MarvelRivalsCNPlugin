@@ -8,9 +8,8 @@ class TestSignatureCommandArgs(unittest.TestCase):
         self.assertEqual(parse_signature_args().uid, None)
         self.assertEqual(parse_signature_args("uid=1287101468").uid, "1287101468")
 
-    def test_rejects_legacy_season_and_minimum_arguments_with_migration_help(self):
-        with self.assertRaisesRegex(ValueError, "不再接受赛季参数"):
-            parse_signature_args("S9.5")
+    def test_compatibility_parser_accepts_the_shared_scope_arguments(self):
+        self.assertEqual(parse_signature_args("S9.5").season, "S9.5")
         with self.assertRaisesRegex(ValueError, "已取消最低场次参数"):
             parse_signature_args("20")
 

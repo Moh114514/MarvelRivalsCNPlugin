@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from main import MarvelRivalsPlugin
+from marvel_rivals_bot.analytics.models import AnalysisScope
 from tests.test_player_meta_rendering import _profile
 
 
@@ -42,11 +43,37 @@ def plugin_with(profile=None, *, bound_uid="123", render_error=None):
             side_effect=[profile or _profile(), sickness_profile, profile or _profile(), sickness_profile]
         ),
     )
+    pool = SimpleNamespace(
+        uid="123",
+        player_name="玩家",
+        scope=AnalysisScope.career(),
+        total_matches=100,
+        active_heroes=1,
+        core_heroes=(),
+        top1_share=100.0,
+        top3_share=100.0,
+        effective_pool_width=1.0,
+        vanguard_share=0.0,
+        duelist_share=100.0,
+        strategist_share=0.0,
+        weighted_performance=0.0,
+        positive_usage_share=0.0,
+        negative_usage_share=0.0,
+        structure_tags=(),
+        meta_available=True,
+        meta_stale=False,
+    )
+    plugin.player_career_analysis_service = SimpleNamespace(
+        get_hero_pool_analysis=AsyncMock(return_value=pool),
+        get_player_signature=plugin.player_signature_service.get_player_signature,
+    )
+    plugin.player_signature_service = plugin.player_career_analysis_service
     plugin.bindings = SimpleNamespace(get=lambda _qq: bound_uid)
     plugin.qq_card_sender = SimpleNamespace(supports=lambda _event: False)
     plugin.image_renderer = SimpleNamespace(
         player_meta_environment=AsyncMock(side_effect=render_error, return_value="environment.png"),
         player_hero_pool=AsyncMock(side_effect=render_error, return_value="pool.png"),
+        player_hero_pool_analysis=AsyncMock(side_effect=render_error, return_value="pool.png"),
         player_signature=AsyncMock(side_effect=render_error, return_value="signature.png"),
         player_sickness=AsyncMock(side_effect=render_error, return_value="sickness.png"),
     )
@@ -66,6 +93,9 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(signature, [("image", "signature.png")])
         self.assertEqual(sickness, [("image", "sickness.png")])
         plugin.player_meta_service.get_player_environment.assert_awaited_once_with("123", season="S9.5")
+        plugin.player_career_analysis_service.get_hero_pool_analysis.assert_awaited_once_with(
+            "123", AnalysisScope.season("19")
+        )
         self.assertEqual(plugin.player_signature_service.get_player_signature.await_count, 2)
         self.assertEqual(
             plugin.player_signature_service.get_player_signature.await_args_list,
@@ -94,8 +124,8 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
         plugin.player_meta_service.get_player_environment.assert_awaited_once_with(
             "1287101468", season="S9.5"
         )
-        plugin.player_meta_service.get_player_hero_pool.assert_awaited_once_with(
-            "1287101468", season="S9.5"
+        plugin.player_career_analysis_service.get_hero_pool_analysis.assert_awaited_once_with(
+            "1287101468", AnalysisScope.season("19")
         )
         self.assertEqual(plugin.player_signature_service.get_player_signature.await_count, 2)
         self.assertEqual(
@@ -116,6 +146,42 @@ class TestPlayerMetaCommands(unittest.IsolatedAsyncioTestCase):
         result = [item async for item in plugin.my_hero_pool(FakeEvent())]
         self.assertEqual(result[0][0], "text")
         self.assertIn("我的英雄池", result[0][1])
+
+    async def test_hero_pool_uses_shared_analysis_instead_of_legacy_meta_service(self):
+        plugin = plugin_with()
+        pool = SimpleNamespace(
+            uid="1287101468",
+            player_name="玩家",
+            scope=AnalysisScope.season("19"),
+            total_matches=10,
+            active_heroes=1,
+            core_heroes=(),
+            top1_share=100.0,
+            top3_share=100.0,
+            effective_pool_width=1.0,
+            vanguard_share=0.0,
+            duelist_share=100.0,
+            strategist_share=0.0,
+            weighted_performance=None,
+            positive_usage_share=0.0,
+            negative_usage_share=0.0,
+            structure_tags=("单核专精",),
+            meta_available=False,
+            meta_stale=False,
+        )
+        shared = SimpleNamespace(
+            get_hero_pool_analysis=AsyncMock(return_value=pool),
+        )
+        plugin.player_career_analysis_service = shared
+        plugin.image_renderer.player_hero_pool_analysis = AsyncMock(return_value="shared-pool.png")
+
+        result = [item async for item in plugin.my_hero_pool(FakeEvent(), "S9.5", "uid=1287101468")]
+
+        self.assertEqual(result, [("image", "shared-pool.png")])
+        shared.get_hero_pool_analysis.assert_awaited_once_with(
+            "1287101468", AnalysisScope.season("19")
+        )
+        plugin.player_meta_service.get_player_hero_pool.assert_not_awaited()
 
 
 if __name__ == "__main__":

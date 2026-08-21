@@ -35,11 +35,10 @@ try:
     from .marvel_rivals_bot.analytics.commands import (
         parse_player_analysis_args,
         parse_player_meta_args,
-        parse_signature_args,
     )
     from .marvel_rivals_bot.analytics.formatters import (
         format_player_environment,
-        format_player_hero_pool,
+        format_player_hero_pool_analysis,
         format_player_hero_analysis,
         format_player_signature,
         format_player_sickness,
@@ -86,11 +85,10 @@ except ImportError:
     from marvel_rivals_bot.analytics.commands import (
         parse_player_analysis_args,
         parse_player_meta_args,
-        parse_signature_args,
     )
     from marvel_rivals_bot.analytics.formatters import (
         format_player_environment,
-        format_player_hero_pool,
+        format_player_hero_pool_analysis,
         format_player_hero_analysis,
         format_player_signature,
         format_player_sickness,
@@ -186,7 +184,7 @@ class MarvelRivalsPlugin(Star):
 查询指定北京时间日期的聚合战绩（兼容 /今日战绩）
 
 /我的英雄 <名称> [UID] [赛季]
-查询指定英雄的快速与竞技个人数据（兼容 /英雄数据、/英雄）
+查询指定英雄的生涯或单赛季综合分析（兼容 /英雄数据、/英雄）
 
 /对局详情 <matchUid>
 查询对局详情（兼容 /对局）
@@ -237,7 +235,7 @@ class MarvelRivalsPlugin(Star):
 根据已绑定账号的当前段位，查看同段位英雄环境
 
 /我的英雄池 [UID] [赛季]
-按快速与竞技总场次查看英雄池，并核对竞技表现
+查看生涯或单赛季英雄池结构、职责覆盖和核心英雄质量
 
 /我的绝活 [UID] [赛季]
 按生涯或指定赛季分析真正擅长的英雄，默认展示 Top 5
@@ -331,25 +329,21 @@ class MarvelRivalsPlugin(Star):
             if self.meta_service is not None
             else None
         )
-        self.player_career_analysis_service = (
-            PlayerCareerAnalysisService(
-                self.service,
-                self.meta_service,
-                cache_root=plugin_data_root,
-                hero_batch_size=signature_batch_size,
-                max_concurrency=signature_concurrency,
-                season_policy=(
-                    env_config.get("MRCN_SIGNATURE_SEASON_POLICY", "independent")
-                    if str(env_config.get("MRCN_SIGNATURE_SEASON_POLICY", "independent")).lower()
-                    in {"independent", "cumulative"}
-                    else "independent"
-                ),
-                result_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_RESULT_CACHE_SECONDS", 900),
-                historical_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_HISTORY_CACHE_SECONDS", 7 * 86400),
-                current_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_CURRENT_CACHE_SECONDS", 1800),
-            )
-            if self.meta_service is not None
-            else None
+        self.player_career_analysis_service = PlayerCareerAnalysisService(
+            self.service,
+            self.meta_service,
+            cache_root=plugin_data_root,
+            hero_batch_size=signature_batch_size,
+            max_concurrency=signature_concurrency,
+            season_policy=(
+                env_config.get("MRCN_SIGNATURE_SEASON_POLICY", "independent")
+                if str(env_config.get("MRCN_SIGNATURE_SEASON_POLICY", "independent")).lower()
+                in {"independent", "cumulative"}
+                else "independent"
+            ),
+            result_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_RESULT_CACHE_SECONDS", 900),
+            historical_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_HISTORY_CACHE_SECONDS", 7 * 86400),
+            current_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_CURRENT_CACHE_SECONDS", 1800),
         )
         # Keep the old attribute for integrations that still import the
         # specialty facade; all three commands share this analysis engine.
@@ -1147,20 +1141,24 @@ class MarvelRivalsPlugin(Star):
 
     @filter.command("我的英雄池")
     async def my_hero_pool(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
-        """对比 UID 或已绑定账号的常用英雄与同段位 Meta。"""
-        if self.player_meta_service is None:
-            yield event.plain_result(self._meta_unavailable())
+        """展示生涯或指定赛季的个人英雄池结构与核心质量。"""
+        service = self._analysis_service()
+        if service is None:
+            yield event.plain_result("当前个人英雄分析功能不可用")
             return
         try:
-            args = parse_player_meta_args(arg1, arg2, allow_uid=True)
+            args = parse_player_analysis_args(arg1, arg2)
             uid = args.uid or self._bound_uid(event)
             if not uid:
                 yield event.plain_result("请先使用 /绑定账号 <UID>，或直接提供 UID")
                 return
-            profile = await self.player_meta_service.get_player_hero_pool(uid, season=args.season)
-            fallback = format_player_hero_pool(profile)
+            scope = self._analysis_scope(args.season)
+            if not callable(getattr(service, "get_hero_pool_analysis", None)):
+                raise PlayerMetaQueryError("个人英雄池分析接口不可用")
+            pool = await service.get_hero_pool_analysis(uid, scope)
+            fallback = format_player_hero_pool_analysis(pool)
             try:
-                image_url = await self.image_renderer.player_hero_pool(profile)
+                image_url = await self.image_renderer.player_hero_pool_analysis(pool)
             except Exception as exc:
                 if logger:
                     logger.warning(f"我的英雄池图片渲染失败，回退普通文本：{exc}")

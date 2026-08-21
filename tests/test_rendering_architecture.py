@@ -10,6 +10,7 @@ from rendering.pages import (
     build_help_html,
     build_hero_query_html,
     build_match_detail_html,
+    build_player_hero_pool_analysis_html,
     build_player_stats_html,
     build_recent_matches_html,
 )
@@ -18,6 +19,9 @@ from rendering.pages.help import build_help_html as help_page
 from rendering.pages.match_detail import build_match_detail_html as match_page
 from rendering.pages.player import build_player_stats_html as player_page
 from rendering.pages.recent import build_recent_matches_html as recent_page
+from rendering.pages.player_hero_pool_analysis import (
+    build_player_hero_pool_analysis_html as player_hero_pool_analysis_page,
+)
 from rendering.renderer import PNG_OPTIONS
 from rendering.theme import STYLE
 
@@ -27,6 +31,7 @@ class TestRenderingArchitecture(unittest.TestCase):
         self.assertIs(build_help_html, help_page)
         self.assertIs(build_hero_query_html, hero_page)
         self.assertIs(build_match_detail_html, match_page)
+        self.assertIs(build_player_hero_pool_analysis_html, player_hero_pool_analysis_page)
         self.assertIs(build_player_stats_html, player_page)
         self.assertIs(build_recent_matches_html, recent_page)
 

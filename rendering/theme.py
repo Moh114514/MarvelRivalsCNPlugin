@@ -252,6 +252,15 @@ body{font-size:17px}
 .mr-sickness-glossary__item strong{color:var(--mr-red);font-size:20px;font-weight:950;line-height:1.2}
 .mr-sickness-glossary__item span{color:var(--mr-muted-strong);font-size:16px;line-height:1.55}
 .mr-sickness-footer{margin-top:24px}
+.mr-pool-core-list{display:grid;gap:12px}
+.mr-pool-core-card{display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:16px;align-items:center;padding:15px 18px;border-left:6px solid var(--mr-purple);border-bottom:2px solid var(--mr-line);background:var(--mr-paper-strong);color:var(--mr-ink-text)}
+.mr-pool-core-card:first-child{border-top:4px solid var(--mr-yellow);padding-top:12px}
+.mr-pool-core-card__index{color:var(--mr-purple);font-size:29px;font-weight:950;line-height:1}
+.mr-pool-core-card__main{min-width:0;display:grid;gap:5px}
+.mr-pool-core-card__name{color:var(--mr-ink-text);font-size:23px;font-weight:950;line-height:1.15;overflow-wrap:anywhere}
+.mr-pool-core-card__stats{color:var(--mr-muted-strong);font-size:15px;line-height:1.4;overflow-wrap:anywhere}
+.mr-pool-core-card__status{color:var(--mr-purple-deep);font-size:18px;font-weight:950;text-align:right;white-space:nowrap}
+.mr-pool-footer{margin-top:20px}
 
 @media (max-width:900px){
   .mr-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -282,6 +291,8 @@ body{font-size:17px}
   .mr-sickness-glossary{grid-template-columns:1fr}
   .mr-sickness-card{grid-template-columns:48px minmax(0,1fr);gap:12px}
   .mr-sickness-card__score{grid-column:2;border-left:0;border-top:2px solid var(--mr-line);padding:10px 0 0;text-align:left}
+  .mr-pool-core-card{grid-template-columns:48px minmax(0,1fr);gap:12px}
+  .mr-pool-core-card__status{grid-column:2;text-align:left;border-top:2px solid var(--mr-line);padding-top:8px}
   .mr-signature-card{grid-template-columns:48px minmax(0,1fr);gap:12px}
   .mr-signature-card__metrics{grid-column:2;border-left:0;border-top:2px solid var(--mr-line)}
   .mr-signature-card__quality{grid-column:2}
