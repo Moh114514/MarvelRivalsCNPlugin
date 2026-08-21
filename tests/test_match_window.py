@@ -67,6 +67,20 @@ class TestMatchWindow(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             parse_match_time_window(("2026-08-01", "00:00", "2026-08-09", "00:00"), now=now)
 
+    def test_date_only_range_accepts_common_separators_and_includes_end_date(self):
+        now = datetime(2026, 8, 22, 16, 0, tzinfo=GAME_TZ)
+        expected = parse_match_time_window(("2026-08-20",), now=now)
+        hyphen = parse_match_time_window(("8月20日-8月21日",), now=now)
+        separated = parse_match_time_window(("8月20日", "8月21日"), now=now)
+        chinese = parse_match_time_window(("8月20日", "到", "8月21日"), now=now)
+        self.assertEqual(hyphen.start_at.date().isoformat(), "2026-08-20")
+        self.assertEqual(hyphen.end_at.date().isoformat(), "2026-08-22")
+        self.assertEqual(hyphen.end_timestamp, separated.end_timestamp)
+        self.assertEqual(hyphen.end_timestamp, chinese.end_timestamp)
+        self.assertNotEqual(hyphen.end_timestamp, expected.end_timestamp)
+        with self.assertRaises(ValueError):
+            parse_match_time_window(("8月21日-8月20日",), now=now)
+
     def test_command_rejects_season_and_keeps_uid_independent(self):
         now = datetime(2026, 8, 20, 16, 0, tzinfo=GAME_TZ)
         args = parse_match_window_command_args("123", "今天", "14:00-18:00", now=now)

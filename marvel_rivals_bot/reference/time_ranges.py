@@ -15,6 +15,11 @@ _TIME_RE = re.compile(r"^(?P<hour>\d{1,2}):(?P<minute>\d{2})(?::(?P<second>\d{2}
 _TIME_RANGE_RE = re.compile(
     r"^(?P<start>\d{1,2}:\d{2}(?::\d{2})?)[-~至–—](?P<end>\d{1,2}:\d{2}(?::\d{2})?)$"
 )
+_DATE_TOKEN_RE = r"(?:今天|今日|昨天|昨日|\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日?)"
+_DATE_RANGE_RE = re.compile(
+    rf"^(?P<start>{_DATE_TOKEN_RE})\s*(?:-|~|至|到|–|—)\s*(?P<end>{_DATE_TOKEN_RE})$"
+)
+_DATE_RANGE_SEPARATORS = {"-", "~", "至", "到", "–", "—"}
 _RECENT_RE = re.compile(r"^最近(?P<hours>\d{1,2})小时$")
 _SEASON_RE = re.compile(r"^[sS]\d+(?:\.5|上半赛季|下半赛季)?$")
 
@@ -51,6 +56,27 @@ def _parse_range(value: str) -> tuple[time, time] | None:
     if not match:
         return None
     return _parse_clock(match.group("start")), _parse_clock(match.group("end"))
+
+
+def _parse_date_range(value: str, now: datetime) -> tuple[date, date] | None:
+    match = _DATE_RANGE_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    start = _date_or_none(match.group("start"), now)
+    end = _date_or_none(match.group("end"), now)
+    if start is None or end is None:
+        raise ValueError("日期范围格式错误，请使用 起始日期-结束日期")
+    return start, end
+
+
+def _date_window(start_date: date, end_date: date, *, now: datetime) -> MatchTimeWindow:
+    if start_date > end_date:
+        raise ValueError("日期范围的开始日期不能晚于结束日期")
+    start = datetime.combine(start_date, time.min, tzinfo=GAME_TZ)
+    # Date-only ranges include the end date, then become the normal half-open
+    # endpoint at the following midnight.
+    end = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=GAME_TZ)
+    return _make_window(start, end, now=now)
 
 
 def _label(start: datetime, end: datetime, *, rolling_hours: int | None = None) -> str:
@@ -97,7 +123,8 @@ def parse_match_time_window(
 ) -> MatchTimeWindow:
     """Parse the deliberately small public time-window grammar.
 
-    Supported forms include a calendar date, ``date HH:MM-HH:MM``, two
+    Supported forms include a calendar date, date-only ranges such as
+    ``8月20日-8月21日`` or ``8月20日 8月21日``, ``date HH:MM-HH:MM``, two
     explicit date/time endpoints, ``最近N小时`` and ``本周``.  All output is
     a Beijing-time half-open interval and the end is clamped to ``now``.
     """
@@ -128,6 +155,9 @@ def parse_match_time_window(
             start_date = current.date() - timedelta(days=current.weekday())
             start = datetime.combine(start_date, time.min, tzinfo=GAME_TZ)
             return _make_window(start, current, now=current, label="本周")
+        date_range = _parse_date_range(tokens[0], current)
+        if date_range is not None:
+            return _date_window(*date_range, now=current)
         target = _date_or_none(tokens[0], current)
         if target is None:
             raise ValueError("时间范围格式错误，请使用日期、日期时间段或最近N小时")
@@ -136,6 +166,10 @@ def parse_match_time_window(
         return _make_window(start, end, now=current, label=f"{target.year}年{target.month}月{target.day}日")
 
     if len(tokens) == 2:
+        start_date = _date_or_none(tokens[0], current)
+        end_date = _date_or_none(tokens[1], current)
+        if start_date is not None and end_date is not None:
+            return _date_window(start_date, end_date, now=current)
         target = _date_or_none(tokens[0], current)
         if target is None:
             raise ValueError("时间范围格式错误，请使用 日期 HH:MM-HH:MM")
@@ -146,6 +180,13 @@ def parse_match_time_window(
         start = datetime.combine(target, start_clock, tzinfo=GAME_TZ)
         end = datetime.combine(target, end_clock, tzinfo=GAME_TZ)
         return _make_window(start, end, now=current)
+
+    if len(tokens) == 3 and tokens[1] in _DATE_RANGE_SEPARATORS:
+        start_date = _date_or_none(tokens[0], current)
+        end_date = _date_or_none(tokens[2], current)
+        if start_date is None or end_date is None:
+            raise ValueError("日期范围格式错误，请使用 起始日期-结束日期")
+        return _date_window(start_date, end_date, now=current)
 
     if len(tokens) == 4:
         start_date = _date_or_none(tokens[0], current)

@@ -181,7 +181,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.3", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.4", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -202,6 +202,10 @@ class MarvelRivalsPlugin(Star):
 
 /战绩回顾 [时间范围] [UID]
 查询指定北京时间范围内的统计和全部对局（默认今天）
+日期范围格式：/战绩回顾 8月20日-8月21日
+也支持：/战绩回顾 8月20日 8月21日
+或：/战绩回顾 8月20日到8月21日
+跨日期带时间：/战绩回顾 2026-08-15 20:00 2026-08-16 02:00
 
 /每日战绩 [日期] [UID]
 查询指定日期全天战绩（兼容 /今日战绩）
