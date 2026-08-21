@@ -317,6 +317,21 @@ class WindowStats:
         return tuple(missing)
 
 
+ROLE_ORDER = ("vanguard", "duelist", "strategist")
+
+
+@dataclass(slots=True)
+class RoleWindowStats(WindowStats):
+    """Window statistics for one canonical hero role.
+
+    The metric totals and sample counters are deliberately kept together so
+    every role calculates its own averages instead of borrowing the overall
+    match count as a denominator.
+    """
+
+    role: str = ""
+
+
 @dataclass(slots=True)
 class MatchPlayer:
     """The selected player's normalized fields from one match detail."""
@@ -405,6 +420,7 @@ class WindowHeroStats:
     damage_samples: int = field(default=0, repr=False)
     healing_samples: int = field(default=0, repr=False)
     damage_taken_samples: int = field(default=0, repr=False)
+    role: str | None = None
 
     @property
     def win_rate(self) -> float | None:
@@ -426,6 +442,29 @@ class WindowHeroStats:
     def average_assists(self) -> float | None:
         return self.assists / self.matches if self.matches else None
 
+    @property
+    def average_hero_damage(self) -> float | None:
+        return self.hero_damage / self.damage_samples if self.hero_damage is not None and self.damage_samples else None
+
+    @property
+    def average_healing(self) -> float | None:
+        return self.healing / self.healing_samples if self.healing is not None and self.healing_samples else None
+
+    @property
+    def average_damage_taken(self) -> float | None:
+        return self.damage_taken / self.damage_taken_samples if self.damage_taken is not None and self.damage_taken_samples else None
+
+    @property
+    def incomplete_metrics(self) -> tuple[str, ...]:
+        missing: list[str] = []
+        if self.damage_samples < self.matches:
+            missing.append("伤害")
+        if self.healing_samples < self.matches:
+            missing.append("治疗")
+        if self.damage_taken_samples < self.matches:
+            missing.append("承伤")
+        return tuple(missing)
+
 
 @dataclass(slots=True)
 class MatchWindowReport:
@@ -441,6 +480,22 @@ class MatchWindowReport:
     heroes: list[WindowHeroStats] = field(default_factory=list)
     matches: list[MatchRecord] = field(default_factory=list)
     season: str = ""
+    roles: dict[str, RoleWindowStats] = field(
+        default_factory=lambda: {role: RoleWindowStats(role=role) for role in ROLE_ORDER}
+    )
+
+    @property
+    def heroes_by_role(self) -> dict[str, list[WindowHeroStats]]:
+        grouped: dict[str, list[WindowHeroStats]] = {role: [] for role in ROLE_ORDER}
+        unknown: list[WindowHeroStats] = []
+        for hero in self.heroes:
+            if hero.role in grouped:
+                grouped[hero.role].append(hero)
+            else:
+                unknown.append(hero)
+        if unknown:
+            grouped["unknown"] = unknown
+        return grouped
 
     @property
     def date(self) -> date:

@@ -7,14 +7,14 @@ from typing import Iterable
 
 try:
     from ...marvel_rivals_bot.game_metadata import format_match_map, format_queue
-    from ...marvel_rivals_bot.models import MatchRecord, MatchWindowReport, WindowStats
+    from ...marvel_rivals_bot.models import MatchRecord, MatchWindowReport, RoleWindowStats, WindowStats, ROLE_ORDER
     from ...marvel_rivals_bot.reference.dates import GAME_TZ
-    from ...marvel_rivals_bot.reference.heroes import get_hero_name
+    from ...marvel_rivals_bot.reference.heroes import HERO_ROLE_LABELS, get_hero_name
 except ImportError:
     from marvel_rivals_bot.game_metadata import format_match_map, format_queue
-    from marvel_rivals_bot.models import MatchRecord, MatchWindowReport, WindowStats
+    from marvel_rivals_bot.models import MatchRecord, MatchWindowReport, RoleWindowStats, WindowStats, ROLE_ORDER
     from marvel_rivals_bot.reference.dates import GAME_TZ
-    from marvel_rivals_bot.reference.heroes import get_hero_name
+    from marvel_rivals_bot.reference.heroes import HERO_ROLE_LABELS, get_hero_name
 
 from ..components import empty_state, match_row, metric_grid, page_header, page_shell, section_title
 from ..formatters import escape_text
@@ -66,6 +66,46 @@ def _mode_row(title: str, stats: WindowStats) -> str:
     )
 
 
+def _role_row(label: str, stats: RoleWindowStats) -> str:
+    if not stats.matches:
+        return (
+            '<article class="mr-window-role-row mr-window-role-row--empty">'
+            f'<div class="mr-window-role-row__title">{escape_text(label)}</div>'
+            '<div class="mr-window-role-row__empty">0 场 · 暂无该职责对局</div>'
+            '</article>'
+        )
+    incomplete = stats.incomplete_metrics
+    note = (
+        '<div class="mr-window-role-row__note">部分对局缺少'
+        + escape_text("、".join(incomplete))
+        + '，相关场均值按该职责已返回数据样本计算。</div>'
+        if incomplete else ""
+    )
+    metrics = (
+        ("K / D / A", stats.kda),
+        ("场均击败", _number(stats.average_kills)),
+        ("场均死亡", _number(stats.average_deaths)),
+        ("场均助攻", _number(stats.average_assists)),
+        ("场均伤害", _number(stats.average_hero_damage, "数据不完整")),
+        ("场均治疗", _number(stats.average_healing, "数据不完整")),
+        ("场均承伤", _number(stats.average_damage_taken, "数据不完整")),
+        ("游戏时间", _duration(stats.play_time_seconds)),
+    )
+    metric_rows = "".join(
+        f'<div class="mr-window-role-row__metric"><span>{escape_text(title)}</span><strong>{escape_text(value)}</strong></div>'
+        for title, value in metrics
+    )
+    return (
+        '<article class="mr-window-role-row">'
+        f'<div class="mr-window-role-row__heading"><div class="mr-window-role-row__title">{escape_text(label)}</div>'
+        f'<div class="mr-window-role-row__summary">{_number(stats.matches)} 场 · {_number(stats.wins)} 胜 '
+        f'{_number(stats.losses)} 负 · {_percent(stats.win_rate)}</div></div>'
+        f'<div class="mr-window-role-row__metrics">{metric_rows}</div>'
+        f'{note}'
+        '</article>'
+    )
+
+
 def _hero_name(hero_id: str | None) -> str:
     if not hero_id:
         return "未知英雄"
@@ -103,16 +143,10 @@ def _overview(report: MatchWindowReport) -> str:
         ("战绩", f"{total.wins} 胜 {total.losses} 负"),
         ("胜率", _percent(total.win_rate)),
         ("游戏时间", _duration(total.play_time_seconds)),
-        ("K / D / A", total.kda),
-        ("场均击败", _number(total.average_kills)),
-        ("场均死亡", _number(total.average_deaths)),
-        ("场均助攻", _number(total.average_assists)),
-        ("总伤害", _number(total.hero_damage, "数据不完整")),
-        ("总治疗", _number(total.healing, "数据不完整")),
-        ("总承伤", _number(total.damage_taken, "数据不完整")),
-        ("场均伤害", _number(total.average_hero_damage, "数据不完整")),
-        ("场均治疗", _number(total.average_healing, "数据不完整")),
-        ("场均承伤", _number(total.average_damage_taken, "数据不完整")),
+        ("总 K / D / A", total.kda),
+        ("总击败", _number(total.kills)),
+        ("总死亡", _number(total.deaths)),
+        ("总助攻", _number(total.assists)),
     ))
     modes = (
         '<section class="mr-section">'
@@ -127,30 +161,49 @@ def _overview(report: MatchWindowReport) -> str:
     note = (
         '<p class="mr-window-note">部分对局缺少'
         + escape_text("、".join(incomplete))
-        + '统计，相关场均值按已返回对局计算。</p>'
+        + '统计，职责场均值按各职责已返回数据样本计算。</p>'
         if incomplete else ""
     )
-    heroes = []
-    for index, hero in enumerate(report.heroes[:5], 1):
-        usage = hero.matches * 100 / report.total.matches if report.total.matches else None
-        heroes.append(
-            '<article class="mr-window-hero-row">'
-            f'<span class="mr-window-hero-row__index">{index:02d}</span>'
-            '<div class="mr-window-hero-row__body">'
-            f'<div class="mr-window-hero-row__title">{escape_text(hero.hero_name)}</div>'
-            f'<div class="mr-window-hero-row__meta">{_number(hero.matches)} 场 · '
-            f'{_number(hero.wins)} 胜 · 胜率 {_percent(hero.win_rate)} · 使用 {_percent(usage)}</div>'
-            f'<div class="mr-window-hero-row__meta">KDA {escape_text(hero.kda)} · '
-            f'游玩 {_duration(hero.play_time_seconds)}</div>'
-            '</div></article>'
+    role_rows = "".join(
+        _role_row(HERO_ROLE_LABELS.get(role, role), report.roles.get(role, RoleWindowStats(role=role)))
+        for role in ROLE_ORDER
+    )
+    role_section = (
+        '<section class="mr-section">'
+        + section_title("职责表现", "ROLE BREAKDOWN")
+        + f'<div class="mr-window-role-list">{role_rows}</div></section>'
+    )
+
+    hero_groups = []
+    for role in (*ROLE_ORDER, "unknown"):
+        heroes = report.heroes_by_role.get(role, [])
+        if not heroes:
+            continue
+        label = HERO_ROLE_LABELS.get(role, "未识别职责")
+        rows = []
+        for index, hero in enumerate(heroes, 1):
+            rows.append(
+                '<article class="mr-window-hero-row">'
+                f'<span class="mr-window-hero-row__index">{index:02d}</span>'
+                '<div class="mr-window-hero-row__body">'
+                f'<div class="mr-window-hero-row__title">{escape_text(hero.hero_name)}</div>'
+                f'<div class="mr-window-hero-row__meta">{_number(hero.matches)} 场 · '
+                f'{_number(hero.wins)} 胜 · 胜率 {_percent(hero.win_rate)} · 使用 {_percent(hero.usage_rate)}</div>'
+                f'<div class="mr-window-hero-row__meta">KDA {escape_text(hero.kda)} · '
+                f'游玩 {_duration(hero.play_time_seconds)}</div>'
+                '</div></article>'
+            )
+        hero_groups.append(
+            f'<div class="mr-window-hero-group"><h3 class="mr-window-hero-group__title">{escape_text(label)}</h3>'
+            f'<div class="mr-window-hero-list">{"".join(rows)}</div></div>'
         )
-    hero_body = "".join(heroes) if heroes else empty_state("暂无英雄记录")
+    hero_body = "".join(hero_groups) if hero_groups else empty_state("暂无英雄记录")
     hero_section = (
         '<section class="mr-section">'
-        + section_title("英雄表现", "HERO BREAKDOWN")
-        + f'<div class="mr-window-hero-list">{hero_body}</div></section>'
+        + section_title("英雄表现", "HERO PERFORMANCE")
+        + f'<div class="mr-window-hero-groups">{hero_body}</div></section>'
     )
-    return metrics + modes + note + hero_section
+    return metrics + modes + note + role_section + hero_section
 
 
 def build_match_window_html(

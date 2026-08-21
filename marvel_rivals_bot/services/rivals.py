@@ -23,8 +23,10 @@ from ..models import (
     PlayerHeroStats,
     PlayerProfile,
     PlayerStats,
+    ROLE_ORDER,
     WindowHeroStats,
     WindowStats,
+    RoleWindowStats,
 )
 from ..reference.seasons import format_season_name as _format_season_name
 from ..reference.seasons import parse_season_name as _parse_season_name
@@ -833,17 +835,22 @@ def _build_match_window_report(
     quick = WindowStats()
     competitive = WindowStats()
     other = WindowStats()
+    roles = {role: RoleWindowStats(role=role) for role in ROLE_ORDER}
     hero_map: dict[str, WindowHeroStats] = {}
     for match in matches:
         bucket = quick if match.game_mode_id == 1 else competitive if match.game_mode_id == 2 else other
         for stats in (total, bucket):
             _accumulate_mode(stats, match)
+        role = _match_role(match)
+        if role in roles:
+            _accumulate_mode(roles[role], match)
         if match.player.hero_id:
             hero = hero_map.setdefault(
                 match.player.hero_id,
                 WindowHeroStats(
                     hero_id=match.player.hero_id,
                     hero_name=_daily_hero_name(match.player.hero_id),
+                    role=role,
                 ),
             )
             _accumulate_hero(hero, match)
@@ -852,7 +859,8 @@ def _build_match_window_report(
         key=lambda item: (-item.matches, -item.play_time_seconds, item.hero_id),
     )
     for hero in heroes:
-        hero.usage_rate = hero.matches * 100 / total.matches if total.matches else None
+        denominator = roles.get(hero.role).matches if hero.role in roles else total.matches
+        hero.usage_rate = hero.matches * 100 / denominator if denominator else None
     return MatchWindowReport(
         uid=uid,
         player_name=player_name,
@@ -864,6 +872,7 @@ def _build_match_window_report(
         heroes=heroes,
         matches=matches,
         season=season,
+        roles=roles,
     )
 
 
@@ -894,6 +903,12 @@ def _build_daily_report(
 
 
 _daily_match = _match_record
+
+
+def _match_role(match: MatchRecord) -> str | None:
+    if not match.player.hero_id:
+        return None
+    return get_hero_identity(match.player.hero_id).role
 
 
 def _accumulate_mode(stats: WindowStats, match: MatchRecord) -> None:
@@ -1148,6 +1163,25 @@ def format_match_window(report: MatchWindowReport) -> str:
     if not report.matches:
         lines.append("暂无对局记录")
         return "\n".join(lines)
+    lines += ["", "职责表现"]
+    for role in ROLE_ORDER:
+        stats = report.roles.get(role, RoleWindowStats(role=role))
+        label = HERO_ROLE_LABELS.get(role, role)
+        if not stats.matches:
+            lines.append(f"{label}：0 场 · 暂无该职责对局")
+            continue
+        lines.append(
+            f"{label}：{stats.matches} 场 · {stats.wins} 胜 {stats.losses} 负 · 胜率 {_fmt(stats.win_rate)}%"
+        )
+        lines.append(
+            f"K/D/A {stats.kda} · 场均击败 {_fmt(stats.average_kills)} · "
+            f"场均死亡 {_fmt(stats.average_deaths)} · 场均助攻 {_fmt(stats.average_assists)}"
+        )
+        lines.append(
+            f"场均伤害 {_fmt(stats.average_hero_damage, '数据不完整')} · "
+            f"场均治疗 {_fmt(stats.average_healing, '数据不完整')} · "
+            f"场均承伤 {_fmt(stats.average_damage_taken, '数据不完整')}"
+        )
     lines += ["", "该时间段对局"]
     for index, match in enumerate(report.matches, 1):
         result = "胜" if match.player.is_win is True else "负" if match.player.is_win is False else "?"

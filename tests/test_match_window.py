@@ -12,12 +12,12 @@ from marvel_rivals_bot.commands.time_window import (
 from marvel_rivals_bot.models import MatchPlayer, MatchRecord, MatchTimeWindow, MatchWindowReport
 from marvel_rivals_bot.reference.dates import GAME_TZ
 from marvel_rivals_bot.reference.time_ranges import parse_match_time_window
-from marvel_rivals_bot.services.rivals import RivalsService
+from marvel_rivals_bot.services.rivals import RivalsService, _build_match_window_report, format_match_window
 from marvel_rivals_bot.storage.interaction_sessions import InteractionSessionStore
 from marvel_rivals_bot.datasource.cn import CNDataSource
 from main import CommandUsageError, MarvelRivalsPlugin
 from rendering import MatchImageRenderer
-from rendering.pages.match_window import build_match_window_pages
+from rendering.pages.match_window import build_match_window_html, build_match_window_pages
 
 
 class _WindowSource:
@@ -136,6 +136,46 @@ class TestMatchWindow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(pages), 2)
         self.assertIn("对局 1-25", pages[0])
         self.assertIn("对局 26-44", pages[1])
+
+    def test_role_stats_use_role_specific_denominators_and_group_heroes(self):
+        window = MatchTimeWindow(
+            1, 2, datetime(2026, 8, 15, tzinfo=GAME_TZ),
+            datetime(2026, 8, 15, 0, 0, 1, tzinfo=GAME_TZ), label="测试窗口",
+        )
+        matches = [
+            MatchRecord(
+                match_uid="v-1", timestamp=1, game_mode_id=1,
+                player=MatchPlayer("123", hero_id="1018", is_win=True, kills=2, deaths=1, assists=3,
+                                    hero_damage=100, healing=10, damage_taken=200),
+            ),
+            MatchRecord(
+                match_uid="v-2", timestamp=1, game_mode_id=1,
+                player=MatchPlayer("123", hero_id="1018", is_win=False, kills=4, deaths=2, assists=1,
+                                    hero_damage=300, healing=30, damage_taken=400),
+            ),
+            MatchRecord(
+                match_uid="s-1", timestamp=1, game_mode_id=2,
+                player=MatchPlayer("123", hero_id="1016", is_win=True, kills=1, deaths=0, assists=5,
+                                    hero_damage=500, healing=60000, damage_taken=700),
+            ),
+        ]
+        report = _build_match_window_report(
+            uid="123", player_name="Tester", window=window, season="", matches=matches,
+        )
+        self.assertEqual(set(report.roles), {"vanguard", "duelist", "strategist"})
+        self.assertEqual(report.roles["vanguard"].matches, 2)
+        self.assertEqual(report.roles["vanguard"].average_hero_damage, 200)
+        self.assertEqual(report.roles["strategist"].average_healing, 60000)
+        self.assertEqual(report.roles["duelist"].matches, 0)
+        self.assertEqual(report.heroes_by_role["vanguard"][0].hero_name, "奇异博士")
+        self.assertEqual(report.heroes_by_role["strategist"][0].hero_name, "洛基")
+        text = format_match_window(report)
+        self.assertIn("策略家：1 场", text)
+        self.assertIn("场均治疗 60000", text)
+        html = build_match_window_html(report)
+        self.assertIn("ROLE BREAKDOWN", html)
+        self.assertIn("策略家", html)
+        self.assertNotIn("总治疗", html)
 
     async def test_cn_time_query_omits_season_but_keeps_it_when_explicit(self):
         bodies = []

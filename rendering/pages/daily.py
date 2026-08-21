@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from ...marvel_rivals_bot.models import MatchWindowReport, WindowStats
+    from ...marvel_rivals_bot.models import MatchWindowReport, RoleWindowStats, WindowStats, ROLE_ORDER
     from ...marvel_rivals_bot.reference.seasons import format_season_name
+    from ...marvel_rivals_bot.reference.heroes import HERO_ROLE_LABELS
 except ImportError:
-    from marvel_rivals_bot.models import MatchWindowReport, WindowStats
+    from marvel_rivals_bot.models import MatchWindowReport, RoleWindowStats, WindowStats, ROLE_ORDER
     from marvel_rivals_bot.reference.seasons import format_season_name
+    from marvel_rivals_bot.reference.heroes import HERO_ROLE_LABELS
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
 from ..formatters import escape_text
@@ -44,6 +46,34 @@ def _mode_row(title: str, stats: WindowStats) -> str:
         f'<div class="mr-daily-mode-row__title">{escape_text(title)}</div>'
         f'<div class="mr-daily-mode-row__value">{_number(stats.matches)} 场</div>'
         f'<div class="mr-daily-mode-row__detail">{_number(stats.wins)} 胜 · {_number(stats.losses)} 负 · {_percent(stats.win_rate)}</div>'
+        '</article>'
+    )
+
+
+def _role_row(label: str, stats: RoleWindowStats) -> str:
+    if not stats.matches:
+        return (
+            '<article class="mr-window-role-row mr-window-role-row--empty">'
+            f'<div class="mr-window-role-row__title">{escape_text(label)}</div>'
+            '<div class="mr-window-role-row__empty">0 场 · 暂无该职责对局</div>'
+            '</article>'
+        )
+    metrics = metric_grid((
+        ("K / D / A", stats.kda),
+        ("场均击败", _number(stats.average_kills)),
+        ("场均死亡", _number(stats.average_deaths)),
+        ("场均助攻", _number(stats.average_assists)),
+        ("场均伤害", _number(stats.average_hero_damage, "数据不完整")),
+        ("场均治疗", _number(stats.average_healing, "数据不完整")),
+        ("场均承伤", _number(stats.average_damage_taken, "数据不完整")),
+        ("游戏时间", _duration(stats.play_time_seconds)),
+    ))
+    return (
+        '<article class="mr-window-role-row">'
+        f'<div class="mr-window-role-row__heading"><div class="mr-window-role-row__title">{escape_text(label)}</div>'
+        f'<div class="mr-window-role-row__summary">{_number(stats.matches)} 场 · {_number(stats.wins)} 胜 '
+        f'{_number(stats.losses)} 负 · {_percent(stats.win_rate)}</div></div>'
+        f'<div class="mr-window-role-row__metrics">{metrics}</div>'
         '</article>'
     )
 
@@ -97,41 +127,45 @@ def build_daily_report_html(report: MatchWindowReport) -> str:
     )
 
     total = report.total
-    combat = metric_grid((
-        ("K / D / A", total.kda),
-        ("场均击败", _number(total.average_kills)),
-        ("场均死亡", _number(total.average_deaths)),
-        ("场均助攻", _number(total.average_assists)),
-        ("场均英雄伤害", _number(total.average_hero_damage, "数据不完整")),
-        ("场均治疗", _number(total.average_healing, "数据不完整")),
-        ("场均承伤", _number(total.average_damage_taken, "数据不完整")),
-    ))
     incomplete = total.incomplete_metrics
     note = (
-        '<p class="mr-daily-note">部分对局缺少' + escape_text("、".join(incomplete)) + '统计，相关场均值按已返回对局计算。</p>'
+        '<p class="mr-daily-note">部分对局缺少' + escape_text("、".join(incomplete)) + '统计，职责场均值按各职责已返回数据样本计算。</p>'
         if incomplete else ""
     )
-    combat_section = (
+    role_section = (
         '<section class="mr-section">'
-        + section_title("战斗表现", "COMBAT")
-        + combat
+        + section_title("职责表现", "ROLE BREAKDOWN")
+        + '<div class="mr-window-role-list">'
+        + "".join(
+            _role_row(HERO_ROLE_LABELS.get(role, role), report.roles.get(role, RoleWindowStats(role=role)))
+            for role in ROLE_ORDER
+        )
+        + '</div>'
         + note
         + '</section>'
     )
 
-    hero_content = (
-        "".join(_hero_row(index, hero, total.matches) for index, hero in enumerate(report.heroes[:5], 1))
-        if report.heroes else empty_state("当日暂无英雄记录")
-    )
+    hero_groups = []
+    for role in (*ROLE_ORDER, "unknown"):
+        heroes = report.heroes_by_role.get(role, [])
+        if not heroes:
+            continue
+        label = HERO_ROLE_LABELS.get(role, "未识别职责")
+        hero_groups.append(
+            f'<div class="mr-window-hero-group"><h3 class="mr-window-hero-group__title">{escape_text(label)}</h3>'
+            + "".join(_hero_row(index, hero, report.roles.get(role, total).matches) for index, hero in enumerate(heroes, 1))
+            + '</div>'
+        )
+    hero_content = "".join(hero_groups) if hero_groups else empty_state("当日暂无英雄记录")
     hero_section = (
         '<section class="mr-section">'
-        + section_title("今日英雄", "TOP 5 HEROES")
-        + '<div class="mr-daily-hero-list">'
+        + section_title("英雄表现（今日英雄）", "HERO PERFORMANCE")
+        + '<div class="mr-window-hero-groups">'
         + hero_content
         + '</div></section>'
     )
     empty = empty_state("当日暂无对局") if not report.matches else ""
-    return page_shell(header + metrics + empty + modes + combat_section + hero_section, watermark="DAILY REPORT")
+    return page_shell(header + metrics + empty + modes + role_section + hero_section, watermark="DAILY REPORT")
 
 
 __all__ = ["build_daily_report_html"]
