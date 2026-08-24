@@ -60,6 +60,13 @@ def build_player_hero_pool_analysis_html(pool: HeroPoolAnalysis) -> str:
     else:
         content += empty_state("当前没有足够结构信号")
     content += '</section>'
+    if pool.style_shares:
+        content += '<section class="mr-section mr-rating-v2">' + section_title("战术体系", "TACTICAL STYLES")
+        style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+        content += metric_grid(tuple((style_labels.get(key, key), _percent(value)) for key, value in sorted(pool.style_shares.items(), key=lambda pair: -pair[1])))
+        if pool.tactical_tags:
+            content += '<div class="mr-meta-source">' + escape_text(" · ".join(pool.tactical_tags)) + '</div>'
+        content += '</section>'
     content += '<section class="mr-section mr-pool-core-section">' + section_title("核心英雄 Top 10", "CORE HEROES")
     if pool.core_heroes:
         content += '<div class="mr-pool-core-list">'

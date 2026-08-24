@@ -105,6 +105,28 @@ def build_player_hero_analysis_html(
     if is_career:
         usage_metrics.append(("活跃赛季", _value(hero.active_seasons)))
     content += metric_grid(tuple(usage_metrics)) + '</section>'
+    rating = getattr(hero, "rating", None)
+    if rating is not None:
+        dimensions = " / ".join(
+            f"{key.upper()} {value:.1f}" if value is not None else f"{key.upper()} —"
+            for key, value in rating.dimensions.items()
+        )
+        content += (
+            '<section class="mr-section mr-rating-v2">'
+            + section_title("评分 V2", "RATING V2")
+            + metric_grid((
+                ("Mastery", f"{rating.mastery:.1f}"),
+                ("Performance", f"{rating.performance:.1f}"),
+                ("Specialization", "—" if rating.specialization is None else f"{rating.specialization:+.1f}"),
+                ("Confidence", f"{rating.confidence:.2f}"),
+                ("Outcome", _value(rating.outcome)),
+                ("Combat", _value(rating.combat)),
+                ("Consistency", _value(rating.consistency)),
+                ("Experience", f"{rating.experience:.1f}"),
+            ))
+            + f'<div class="mr-meta-source">战术原型：{escape_text({"dive": "突袭", "brawl": "近战", "poke": "远程压制"}.get(rating.archetype.primary_style.value, rating.archetype.primary_style.value))} / {escape_text(rating.archetype.function.value)} · {escape_text(dimensions)}</div>'
+            + '</section>'
+        )
     content += '<section class="mr-section">' + section_title("竞技环境比较", "ENVIRONMENT")
     content += metric_grid((
         ("可比较竞技胜率", _percent(hero.comparable_competitive_win_rate)),

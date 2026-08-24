@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from ..reference.heroes import HERO_ROLE_MAP
+from .archetypes import get_archetype
 from .models import CareerHeroSignature, HeroPoolAnalysis, PlayerCareerAnalysis
 
 
@@ -79,6 +80,29 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
         if role in role_matches:
             role_matches[role] += int(item.total_matches or 0)
     role_shares = {role: _share(matches, total_matches) for role, matches in role_matches.items()}
+    style_matches: dict[str, int] = {}
+    profile_matches: dict[str, int] = {}
+    for item in heroes:
+        archetype = get_archetype(item.hero_id)
+        if archetype is None:
+            continue
+        style = archetype.primary_style.value
+        profile_id = archetype.metric_profile.value
+        matches = int(item.total_matches or 0)
+        style_matches[style] = style_matches.get(style, 0) + matches
+        profile_matches[profile_id] = profile_matches.get(profile_id, 0) + matches
+    style_shares = {key: _share(value, total_matches) for key, value in style_matches.items()}
+    profile_shares = {key: _share(value, total_matches) for key, value in profile_matches.items()}
+    tactical_tags: list[str] = []
+    if style_shares:
+        dominant_style, dominant_share = max(style_shares.items(), key=lambda pair: pair[1])
+        style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+        if dominant_share >= 55:
+            tactical_tags.append(f"{style_labels.get(dominant_style, dominant_style)}体系偏重")
+    if len([value for value in profile_shares.values() if value >= 15]) == 1:
+        tactical_tags.append("单一战术体系")
+    elif len([value for value in profile_shares.values() if value >= 15]) >= 4:
+        tactical_tags.append("多战术体系")
 
     weighted_numerator = 0.0
     weighted_denominator = 0.0
@@ -127,6 +151,9 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
         structure_tags=tags,
         meta_available=profile.meta_available,
         meta_stale=profile.meta_stale,
+        style_shares=style_shares,
+        profile_shares=profile_shares,
+        tactical_tags=tuple(tactical_tags),
     )
 
 

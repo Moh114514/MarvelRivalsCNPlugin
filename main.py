@@ -383,6 +383,11 @@ class MarvelRivalsPlugin(Star):
             result_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_RESULT_CACHE_SECONDS", 900),
             historical_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_HISTORY_CACHE_SECONDS", 7 * 86400),
             current_cache_seconds=_safe_float_config(env_config, "MRCN_SIGNATURE_CURRENT_CACHE_SECONDS", 1800),
+            rating_version=(
+                str(env_config.get("MRCN_RATING_VERSION", "shadow")).lower()
+                if str(env_config.get("MRCN_RATING_VERSION", "shadow")).lower() in {"v1", "shadow", "v2"}
+                else "shadow"
+            ),
         )
         # Keep the old attribute for integrations that still import the
         # specialty facade; all three commands share this analysis engine.

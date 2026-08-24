@@ -22,6 +22,7 @@ from .archetypes import (
     TacticalFunction,
 )
 from .player_meta import PlayerMetaQueryError, PlayerMetaService
+from .rating import HeroRatingEngine, HeroRatingResult, RatingContext, RatingHeroSnapshot
 from .signature import (
     CareerAnalysisCache,
     PlayerCareerAnalysisService,
@@ -55,4 +56,8 @@ __all__ = [
     "CareerAnalysisCache",
     "PlayerCareerAnalysisService",
     "SeasonAggregationPolicy",
+    "HeroRatingEngine",
+    "HeroRatingResult",
+    "RatingContext",
+    "RatingHeroSnapshot",
 ]

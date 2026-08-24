@@ -71,6 +71,8 @@ def _mode_analysis_lines(title: str, mode) -> list[str]:
 def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHeroSignature) -> str:
     """Render one hero from the same ViewModel consumed by list commands."""
 
+    v2_rating = getattr(hero, "rating", None)
+
     scope = profile.scope
     scope_label = analysis_scope_label(scope)
     is_career = scope.kind == "career"
@@ -105,6 +107,8 @@ def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHer
         f"Meta 覆盖：{hero.meta_coverage:.1f}%｜证据修正：{hero.evidence_factor:.2f}",
         "",
     ]
+    if v2_rating is not None:
+        lines.extend(_rating_lines(v2_rating))
     if not getattr(profile, "meta_available", True):
         lines.insert(7, "提示：当前缺少同期 Meta，综合表现仅基于个人竞技/快速基准，可信度已降级。")
     lines.extend(_mode_analysis_lines("竞技详细数据", hero.competitive_stats))
@@ -196,6 +200,13 @@ def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
         "英雄池质量",
         f"核心英雄综合表现：{weighted_performance}｜正向使用占比：{pool.positive_usage_share:.1f}%｜负向使用占比：{pool.negative_usage_share:.1f}%",
     ]
+    style_shares = getattr(pool, "style_shares", {}) or {}
+    tactical_tags = getattr(pool, "tactical_tags", ()) or ()
+    if style_shares:
+        style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+        lines.extend(("", "战术体系", "｜".join(f"{style_labels.get(key, key)} {value:.1f}%" for key, value in sorted(style_shares.items(), key=lambda pair: -pair[1]))))
+    if tactical_tags:
+        lines.append("战术标签：" + "｜".join(tactical_tags))
     if not pool.meta_available:
         lines.append("提示：当前缺少同期 Meta，综合表现仅基于个人竞技/快速基准，可信度已降级。")
     if pool.structure_tags:
@@ -284,6 +295,11 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
             "快速模式参与使用量、个人快速基准和综合表现，但不直接与 Meta 比较",
         )
     )
+    rated = [item for item in profile.signature_heroes if getattr(item, "rating", None) is not None]
+    if rated:
+        lines.extend(("", "V2 评分摘要"))
+        for item in rated:
+            lines.extend(_rating_lines(item.rating))
     return "\n".join(lines)
 
 
@@ -335,6 +351,34 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
         )
     )
     return "\n".join(lines)
+
+
+def _rating_lines(rating) -> list[str]:
+    """Compact V2 block shared by text fallbacks."""
+    dimensions = ("FIN", "PRS", "SUR", "TEAM", "HEAL", "FRONT", "UTIL")
+    values = "｜".join(
+        f"{key} {rating.dimensions.get(key.lower()):.1f}"
+        if rating.dimensions.get(key.lower()) is not None else f"{key} —"
+        for key in dimensions
+    )
+    specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+    archetype = rating.archetype
+    style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+    function_labels = {
+        "assassin": "刺杀", "skirmisher": "游击", "pick": "抓单", "pressure": "压制",
+        "bruiser": "斗士", "tank_buster": "坦克克星", "anchor": "锚点", "zone": "区域",
+        "initiator": "开团", "utility": "功能", "support": "支援",
+    }
+    return [
+        f"V2评级：{rating.classification}｜战术：{style_labels.get(archetype.primary_style.value, archetype.primary_style.value)}/{function_labels.get(archetype.function.value, archetype.function.value)}",
+        f"Mastery {rating.mastery:.1f}｜Performance {rating.performance:.1f}｜Specialization {specialization}",
+        f"Outcome {_format_rating_value(rating.outcome)}｜Combat {_format_rating_value(rating.combat)}｜Consistency {_format_rating_value(rating.consistency)}｜Experience {rating.experience:.1f}",
+        f"Combat dimensions：{values}｜Observable {rating.observable_coverage:.0f}%｜Confidence {rating.confidence:.2f}",
+    ]
+
+
+def _format_rating_value(value) -> str:
+    return "—" if value is None else f"{value:.1f}"
 
 
 __all__ = [

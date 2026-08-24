@@ -56,6 +56,17 @@ def _hero_card(index: int, item: Any, *, career: bool) -> str:
         else '<span>本赛季样本 · 不使用跨赛季稳定性</span>'
     )
     meta_delta = _first(item, "adjusted_meta_delta", "adjusted_delta", "win_rate_delta")
+    rating = getattr(item, "rating", None)
+    v2_markup = ""
+    if rating is not None:
+        specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+        v2_markup = (
+            '<div class="mr-signature-card__v2">'
+            f'V2 {escape_text(rating.classification)} · Mastery {rating.mastery:.1f} · '
+            f'Performance {rating.performance:.1f} · Specialization {specialization} · '
+            f'Confidence {rating.confidence:.2f}'
+            '</div>'
+        )
     competitive_matches = _first(item, "competitive_matches", "ranked_matches")
     actual_win_rate = _first(item, "actual_win_rate", "ranked_win_rate")
     expected_meta_win_rate = _first(item, "expected_meta_win_rate", "meta_win_rate")
@@ -85,7 +96,9 @@ def _hero_card(index: int, item: Any, *, career: bool) -> str:
         f'{quality}'
         f'<span>可信度 {escape_text(getattr(item, "confidence", "数据不足"))} · '
         f'Meta 覆盖 {_score(getattr(item, "meta_coverage", None), decimals=0)}%</span>'
-        '</div></article>'
+        '</div>'
+        + v2_markup
+        + '</article>'
     )
 
 

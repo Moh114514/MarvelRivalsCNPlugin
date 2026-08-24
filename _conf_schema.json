@@ -111,6 +111,11 @@
     "type": "int",
     "default": 1800
   },
+  "MRCN_RATING_VERSION": {
+    "description": "Player rating mode: v1 keeps the legacy score, shadow computes V2 without changing output, v2 switches user-facing rating fields",
+    "type": "string",
+    "default": "shadow"
+  },
   "MRCN_META_ENABLED": {
     "description": "Enable third-party global hero Meta queries",
     "type": "bool",

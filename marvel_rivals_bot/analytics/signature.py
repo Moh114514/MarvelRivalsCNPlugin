@@ -32,6 +32,9 @@ from .models import (
     PlayerSignatureProfile,
 )
 from .hero_pool import build_hero_pool_analysis
+from .archetypes import get_archetype
+from .rating import HeroRatingEngine
+from .rating.models import RatingContext, RatingHeroSnapshot, HeroRatingResult
 from .performance import (
     PERSONAL_COMPETITIVE_PRIOR_MATCHES,
     PERSONAL_QUICK_PRIOR_MATCHES,
@@ -58,7 +61,7 @@ from .signature_rules import (
 
 
 logger = logging.getLogger(__name__)
-SIGNATURE_CACHE_SCHEMA_VERSION = 7
+SIGNATURE_CACHE_SCHEMA_VERSION = 8
 SICKNESS_TOP_N = 10
 
 
@@ -306,6 +309,7 @@ class SignatureCache:
                 ),
                 scope=scope,
                 heroes=heroes,
+                rating_version=str(payload.get("rating_version", "shadow")),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -342,6 +346,7 @@ class PlayerCareerAnalysisService:
         result_cache_seconds: float = 15 * 60,
         historical_cache_seconds: float = 7 * 86400,
         current_cache_seconds: float = 30 * 60,
+        rating_version: str = "shadow",
     ) -> None:
         self.rivals_service = rivals_service
         self.meta_service = meta_service
@@ -352,6 +357,11 @@ class PlayerCareerAnalysisService:
             if isinstance(season_policy, SeasonAggregationPolicy)
             else SeasonAggregationPolicy.parse(str(season_policy))
         )
+        normalized_rating_version = str(rating_version or "shadow").strip().lower()
+        if normalized_rating_version not in {"v1", "shadow", "v2"}:
+            raise ValueError("MRCN_RATING_VERSION 只支持 v1、shadow 或 v2")
+        self.rating_version = normalized_rating_version
+        self.rating_engine = HeroRatingEngine()
         self.cache = SignatureCache(
             cache_root,
             historical_seconds=historical_cache_seconds,
@@ -612,19 +622,23 @@ class PlayerCareerAnalysisService:
                 for item in signatures
             ]
             favorite = next((item for item in signatures if item.hero_id == favorite.hero_id), favorite)
+        sickness_filter = (
+            (lambda item: item.is_sickness_candidate)
+            if self.rating_version == "v2"
+            else is_performance_sickness_candidate
+        )
+        signature_filter = (
+            (lambda item: item.is_signature_candidate)
+            if self.rating_version == "v2"
+            else is_signature_candidate
+        )
         sick_heroes = tuple(
-            sorted(
-                (
-                    item for item in signatures
-                    if is_performance_sickness_candidate(item)
-                ),
-                key=_sickness_score_sort_key,
-        )[:SICKNESS_TOP_N]
+            sorted((item for item in signatures if sickness_filter(item)), key=_sickness_score_sort_key)[:SICKNESS_TOP_N]
         )
         all_heroes = tuple(signatures)
         signature_heroes = tuple(
             sorted(
-                (item for item in signatures if is_signature_candidate(item)),
+                (item for item in signatures if signature_filter(item)),
                 key=_signature_score_sort_key,
             )[:5]
         )
@@ -659,13 +673,14 @@ class PlayerCareerAnalysisService:
             sick_heroes=sick_heroes,
             scope=scope,
             heroes=all_heroes,
+            rating_version=self.rating_version,
         )
         self._memory_profiles[f"{uid}:{scope.key}"] = (time.monotonic(), result)
         self.cache.save_profile(result)
         return result
 
-    @staticmethod
     def _add_sickness_scores(
+        self,
         signatures: list[CareerHeroSignature],
         seasons: list[_NormalizedSeason] | None = None,
         *,
@@ -773,7 +788,64 @@ class PlayerCareerAnalysisService:
                     is_sickness_candidate=is_performance_sickness_candidate(candidate),
                 )
             )
-        return enriched
+        # V2 is evaluated for every hero in one pass so leave-one-out
+        # specialization never compares a hero against itself or a truncated
+        # Top-N list.  Shadow keeps all legacy display and candidate fields.
+        if self.rating_version == "v1":
+            return enriched
+        snapshots = tuple(
+            RatingHeroSnapshot(
+                hero_id=item.hero_id,
+                hero_name=item.hero_name,
+                archetype=get_archetype(item.hero_id),
+                competitive_stats=item.competitive_stats or NormalizedModeStats(),
+                quick_stats=item.quick_stats or NormalizedModeStats(),
+                competitive_matches=int(item.competitive_matches or 0),
+                outcome_delta=item.adjusted_delta,
+                meta_coverage=float(item.meta_coverage or 0.0),
+                seasons=tuple(item.seasons),
+                comparable_seasons=int(item.comparable_seasons or 0),
+                active_seasons=int(item.active_seasons or 0),
+            )
+            for item in enriched
+            if get_archetype(item.hero_id) is not None
+        )
+        ratings = self.rating_engine.rate_many(
+            RatingContext(
+                heroes=snapshots,
+                latest_season_code=(
+                    max((season.season_code for season in seasons), key=lambda value: int(value))
+                    if seasons else None
+                ),
+            )
+        )
+        output: list[CareerHeroSignature] = []
+        for item in enriched:
+            rating = ratings.get(item.hero_id)
+            if rating is None:
+                output.append(item)
+                continue
+            updated = replace(item, rating=rating)
+            if self.rating_version == "v2":
+                signed_performance = (rating.performance - 50.0) * 2.0
+                sick = max(0.0, 50.0 - rating.performance)
+                updated = replace(
+                    updated,
+                    play_index=rating.experience,
+                    performance_index=signed_performance,
+                    weakness_index=max(0.0, -signed_performance),
+                    signature_score=max(0.0, rating.mastery - 50.0),
+                    sickness_score=sick,
+                    sick_score=sick,
+                    evidence_factor=rating.confidence,
+                    status=rating.classification,
+                    classification=rating.classification,
+                    is_signature_candidate=rating.classification in {"招牌绝活", "强势绝活", "潜力绝活"},
+                    is_sickness_candidate=rating.classification == "绝症候选",
+                    is_analysis_eligible=item.is_analysis_eligible,
+                )
+            output.append(updated)
+        return output
 
     async def _get_profile_history(self, uid: str) -> PlayerProfile:
         loader = getattr(self.rivals_service, "get_player_profile_history", None)
@@ -1219,7 +1291,18 @@ def _signature_from_dict(value: dict[str, Any]) -> CareerHeroSignature:
     for field_name in ("quick_stats", "competitive_stats"):
         if isinstance(data.get(field_name), dict):
             data[field_name] = NormalizedModeStats.from_dict(data[field_name])
+    if isinstance(data.get("rating"), dict):
+        data["rating"] = HeroRatingResult.from_dict(data["rating"])
+    else:
+        data["rating"] = None
     return HeroPerformanceAnalysis(**data)
+
+
+def _signature_to_dict(item: CareerHeroSignature) -> dict[str, Any]:
+    data = asdict(item)
+    if item.rating is not None:
+        data["rating"] = item.rating.to_dict()
+    return data
 
 
 def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
@@ -1232,17 +1315,18 @@ def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
         "total_matches": profile.total_matches,
         "competitive_matches": profile.competitive_matches,
         "meta_coverage": profile.meta_coverage,
-        "signature_heroes": [asdict(item) for item in profile.signature_heroes],
-        "favorite_hero": asdict(profile.favorite_hero) if profile.favorite_hero else None,
+        "signature_heroes": [_signature_to_dict(item) for item in profile.signature_heroes],
+        "favorite_hero": _signature_to_dict(profile.favorite_hero) if profile.favorite_hero else None,
         "partial": profile.partial,
         "failed_seasons": list(profile.failed_seasons),
         "meta_source": profile.meta_source,
         "meta_source_timestamp": profile.meta_source_timestamp,
         "meta_stale": profile.meta_stale,
         "meta_available": profile.meta_available,
-        "sick_heroes": [asdict(item) for item in profile.sick_heroes],
+        "sick_heroes": [_signature_to_dict(item) for item in profile.sick_heroes],
         "scope": asdict(profile.scope or AnalysisScope.career()),
-        "heroes": [asdict(item) for item in (profile.heroes or profile.signature_heroes)],
+        "heroes": [_signature_to_dict(item) for item in (profile.heroes or profile.signature_heroes)],
+        "rating_version": getattr(profile, "rating_version", "shadow"),
     }
 
 

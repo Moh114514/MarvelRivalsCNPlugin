@@ -4,6 +4,10 @@
 
 ## [1.3.7] - 2026-08-24
 
+- 接入 Player Rating V2 纯计算引擎：加入稳健 Combat、Outcome、Consistency、Experience、Confidence、Mastery 与留一法 Specialization，并为 55 个官方英雄建立独立战术原型。
+- 新增 `MRCN_RATING_VERSION`（默认 `shadow`）；shadow 计算并缓存 V2 但保持旧输出，v2 才切换绝活、绝症和英雄池的用户可见评分字段。
+- 文本与 PNG 英雄详情、绝症、英雄池页面增加 V2 指标、战术体系和置信度展示；旧字段、命令、缓存链和渲染接口保持兼容。
+
 - 统一 `/对局详情` 与 `/对局` 的 alias 路由，并补充命令入口、会话解析、数据请求和图片渲染阶段日志。
 - 单局详情改为纵向双队 scoreboard，实际 K/D/A 为主指标，归一化数据降为辅助指标。
 - 重构 `/我的绝活` 卡片的信息层级和中等宽度响应式布局。

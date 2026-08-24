@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from ..meta.models import HeroMetaOverview
 from ..reference.seasons import season_identity_from_cn_code
+
+if TYPE_CHECKING:
+    from .rating.models import HeroRatingResult
 
 
 @dataclass(slots=True)
@@ -400,6 +403,8 @@ class CareerHeroSignature:
     comparable_competitive_matches: int = 0
     comparable_competitive_wins: int = 0
     comparable_competitive_win_rate: float | None = None
+    # V2 is additive: old fields remain populated for v1/shadow consumers.
+    rating: "HeroRatingResult | None" = None
 
 
 @dataclass(slots=True)
@@ -425,6 +430,7 @@ class PlayerSignatureProfile:
     sick_heroes: tuple[CareerHeroSignature, ...] = ()
     scope: AnalysisScope = field(default_factory=AnalysisScope.career)
     heroes: tuple[CareerHeroSignature, ...] = ()
+    rating_version: str = "shadow"
 
 
 class HeroPerformanceAnalysis(CareerHeroSignature):
@@ -457,6 +463,9 @@ class HeroPoolAnalysis:
     structure_tags: tuple[str, ...]
     meta_available: bool = True
     meta_stale: bool = False
+    style_shares: dict[str, float] = field(default_factory=dict)
+    profile_shares: dict[str, float] = field(default_factory=dict)
+    tactical_tags: tuple[str, ...] = ()
 
 
 def _optional_int(value: Any) -> int | None:

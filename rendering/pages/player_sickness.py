@@ -31,6 +31,14 @@ def _meta_disadvantage(item) -> float | None:
 
 def _sick_card(index: int, item) -> str:
     sickness_score = float(getattr(item, "sickness_score", getattr(item, "sick_score", 0.0)) or 0.0)
+    rating = getattr(item, "rating", None)
+    rating_detail = ""
+    if rating is not None:
+        specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+        rating_detail = (
+            f'<small>V2 Performance {rating.performance:.1f} · Mastery {rating.mastery:.1f} · '
+            f'Specialization {specialization} · Confidence {rating.confidence:.2f}</small>'
+        )
     return (
         '<article class="mr-sickness-card">'
         f'<div class="mr-sickness-card__index">{index:02d}</div>'
@@ -61,7 +69,8 @@ def _sick_card(index: int, item) -> str:
         f'<small>综合表现 {item.performance_index:+.1f}</small>'
         f'<small>状态 {escape_text(getattr(item, "status", "绝症候选"))}</small>'
         '</div>'
-        '</article>'
+        + rating_detail
+        + '</article>'
     )
 
 
