@@ -18,18 +18,32 @@ class HeroRatingEngine:
     version = "v2"
 
     def rate(self, context: RatingContext, hero: RatingHeroSnapshot) -> HeroRatingResult:
+        competitive_matches = (
+            hero.competitive_effective_matches
+            if hero.competitive_effective_matches is not None
+            else hero.competitive_matches
+        )
+        quick_matches = (
+            hero.quick_effective_matches
+            if hero.quick_effective_matches is not None
+            else (
+                hero.quick_stats.effective_matches
+                if hero.quick_stats.effective_matches is not None
+                else hero.quick_stats.matches
+            )
+        )
         outcome = calculate_outcome(hero.outcome_delta)
         combat_result = calculate_combat(context, hero)
         consistency = calculate_consistency(hero.seasons, latest_season_code=context.latest_season_code)
         experience = calculate_experience(
-            hero.competitive_effective_matches or hero.competitive_matches,
+            competitive_matches,
             hero.competitive_stats.play_time / 60 if hero.competitive_stats.play_time else None,
-            hero.quick_effective_matches or hero.quick_stats.effective_matches or hero.quick_stats.matches,
+            quick_matches,
             hero.quick_stats.play_time / 60 if hero.quick_stats.play_time else None,
             hero.active_seasons,
         )
         confidence, components = calculate_confidence(
-            hero.competitive_effective_matches or hero.competitive_matches,
+            competitive_matches,
             hero.meta_coverage,
             combat_result.observable_coverage,
             hero.comparable_seasons,

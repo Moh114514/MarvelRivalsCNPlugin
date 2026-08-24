@@ -70,12 +70,13 @@ def build_player_hero_pool_analysis_html(pool: HeroPoolAnalysis) -> str:
     content += '</section>'
     if getattr(pool, "rating_version", "shadow") == "v2" and pool.style_shares:
         content += '<section class="mr-section mr-rating-v2">' + section_title("战术体系", "TACTICAL STYLES")
-        style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+        style_labels = {"dive": "切入", "brawl": "缠斗", "poke": "消耗"}
         content += metric_grid(tuple((style_labels.get(key, key), _percent(value)) for key, value in sorted(pool.style_shares.items(), key=lambda pair: -pair[1])))
         if pool.tactical_tags:
             content += '<div class="mr-meta-source">' + escape_text(" · ".join(pool.tactical_tags)) + '</div>'
         content += '</section>'
-    content += '<section class="mr-section mr-pool-core-section">' + section_title("核心英雄 Top 10", "CORE HEROES")
+    core_section_class = "mr-pool-core-section mr-v2-legacy-core" if getattr(pool, "rating_version", "shadow") == "v2" else "mr-pool-core-section"
+    content += f'<section class="mr-section {core_section_class}">' + section_title("核心英雄 Top 10", "CORE HEROES")
     if pool.core_heroes:
         content += '<div class="mr-pool-core-list">'
         for index, item in enumerate(pool.core_heroes, 1):
@@ -94,7 +95,26 @@ def build_player_hero_pool_analysis_html(pool: HeroPoolAnalysis) -> str:
     else:
         content += empty_state("暂无达到核心英雄使用门槛的英雄")
     content += '</section>'
-    content += '<div class="mr-meta-source mr-pool-footer">核心英雄按使用占比、使用指数和总场次排序；本页不重新抓取远程数据。</div>'
+    if getattr(pool, "rating_version", "shadow") == "v2" and pool.core_heroes:
+        content += '<section class="mr-section mr-rating-v2">' + section_title("V2 核心英雄评分", "CORE RATING")
+        content += metric_grid(tuple(
+            (
+                item.hero_name,
+                (
+                    f"Mastery {item.rating.mastery:.1f} · Performance {item.rating.performance:.1f} · "
+                    f"Specialization {'—' if item.rating.specialization is None else f'{item.rating.specialization:+.1f}'} · "
+                    f"Confidence {item.rating.confidence:.2f}"
+                ),
+            )
+            for item in pool.core_heroes
+            if getattr(item, "rating", None) is not None
+        )) + '</section>'
+    footer = (
+        "核心英雄按使用占比、V2 Performance 和 Confidence 排序；本页不重新抓取远程数据。"
+        if getattr(pool, "rating_version", "shadow") == "v2"
+        else "核心英雄按使用占比、使用指数和总场次排序；本页不重新抓取远程数据。"
+    )
+    content += f'<div class="mr-meta-source mr-pool-footer">{footer}</div>'
     return page_shell(content, watermark="MY HERO POOL")
 
 

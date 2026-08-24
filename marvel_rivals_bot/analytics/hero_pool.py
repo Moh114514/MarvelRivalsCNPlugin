@@ -63,7 +63,21 @@ def _structure_tags(
 
 
 def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
-    heroes = [item for item in profile.heroes if int(item.total_matches or 0) > 0]
+    heroes = [
+        item for item in profile.heroes
+        if (
+            float(
+                getattr(item, "quick_effective_matches", None)
+                if getattr(item, "quick_effective_matches", None) is not None
+                else (getattr(item, "quick_matches", 0) or 0)
+            )
+            + float(
+                getattr(item, "competitive_effective_matches", None)
+                if getattr(item, "competitive_effective_matches", None) is not None
+                else (getattr(item, "competitive_matches", 0) or 0)
+            )
+        ) > 0
+    ]
     ordered = _usage_sorted(heroes)
     total_matches = sum(max(0, int(item.total_matches or 0)) for item in heroes)
     top1_share = ordered[0].usage_share if ordered else 0.0
@@ -96,7 +110,7 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
     tactical_tags: list[str] = []
     if style_shares:
         dominant_style, dominant_share = max(style_shares.items(), key=lambda pair: pair[1])
-        style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+        style_labels = {"dive": "切入", "brawl": "缠斗", "poke": "消耗"}
         if dominant_share >= 55:
             tactical_tags.append(f"{style_labels.get(dominant_style, dominant_style)}体系偏重")
     if len([value for value in profile_shares.values() if value >= 15]) == 1:

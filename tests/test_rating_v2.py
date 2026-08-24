@@ -13,11 +13,14 @@ from marvel_rivals_bot.analytics.rating.models import RatingContext, RatingHeroS
 from marvel_rivals_bot.analytics.rating.outcome import calculate_outcome
 from marvel_rivals_bot.analytics.rating.transforms import robust_score, robust_z
 from marvel_rivals_bot.analytics.rating.specialization import classify_rating
+from marvel_rivals_bot.analytics.rating.specialization import apply_specialization
 from marvel_rivals_bot.analytics.rating.models import HeroRatingResult
 from marvel_rivals_bot.analytics.signature import (
     AnalysisScope,
     PlayerCareerAnalysisService,
     SignatureCache,
+    _NormalizedHero,
+    _hero_effective_total,
     _profile_to_dict,
     _signature_from_dict,
 )
@@ -75,6 +78,22 @@ class TestRatingV2(unittest.TestCase):
         season = type("Season", (), {"raw_delta": 4.0, "competitive_matches": 10, "season_code": "19"})()
         self.assertEqual(calculate_consistency((season,)), 50.0)
 
+    def test_effective_matches_keep_subunit_evidence_in_internal_totals(self):
+        hero = _NormalizedHero(
+            "1011", "Hero", 0, 0, 0, 0,
+            quick_effective_matches=0.4,
+            competitive_effective_matches=0.0,
+        )
+        self.assertAlmostEqual(_hero_effective_total(hero), 0.4)
+
+    def test_consistency_uses_effective_competitive_matches(self):
+        season = type(
+            "Season",
+            (),
+            {"raw_delta": 4.0, "competitive_matches": 0, "competitive_effective_matches": 0.4, "season_code": "19"},
+        )()
+        self.assertEqual(calculate_consistency((season,)), 50.0)
+
     def test_combat_uses_peer_group_and_missing_dimensions(self):
         heroes = tuple(snapshot(hero_id, seed) for hero_id, seed in zip((1011, 1039, 1051, 1062), (1, 2, 3, 4)))
         result = calculate_combat(RatingContext(heroes, "19"), heroes[0])
@@ -112,6 +131,40 @@ class TestRatingV2(unittest.TestCase):
             mastery=82,
         )
         self.assertEqual(classify_rating(result, scope="season"), "赛季表现优秀")
+
+    def test_season_neutral_band_is_not_a_sickness_classification(self):
+        base = dict(
+            hero_id="1011",
+            hero_name="Hero",
+            archetype=get_archetype(1011),
+            outcome=50,
+            combat=50,
+            consistency=50,
+            experience=50,
+            performance_raw=50,
+            confidence=.8,
+            mastery=50,
+        )
+        self.assertEqual(classify_rating(HeroRatingResult(performance=50, **base), scope="season"), "赛季中性")
+        self.assertEqual(classify_rating(HeroRatingResult(performance=47, **base), scope="season"), "赛季中性")
+
+    def test_specialization_stays_missing_without_weighted_peer_evidence(self):
+        def result(hero_id):
+            return HeroRatingResult(
+                hero_id=str(hero_id), hero_name="Hero", archetype=get_archetype(1011),
+                outcome=50, combat=50, consistency=50, experience=30,
+                performance_raw=60, performance=60, confidence=0, mastery=60,
+            )
+        results = {str(hero_id): result(hero_id) for hero_id in (1011, 1039, 1051, 1062)}
+        rated = apply_specialization(results)
+        self.assertTrue(all(item.specialization is None for item in rated.values()))
+
+    def test_v2_signature_tier_precedes_specialization(self):
+        from types import SimpleNamespace
+        from marvel_rivals_bot.analytics.signature import _v2_signature_sort_key
+        potential = SimpleNamespace(hero_id="1011", rating=SimpleNamespace(classification="潜力绝活", specialization=20, mastery=72, performance=70, confidence=.8, experience=60))
+        signature = SimpleNamespace(hero_id="1039", rating=SimpleNamespace(classification="招牌绝活", specialization=16, mastery=91, performance=90, confidence=.9, experience=80))
+        self.assertLess(_v2_signature_sort_key(signature), _v2_signature_sort_key(potential))
 
     def test_rating_cache_path_isolated_by_version_and_schema(self):
         cache = SignatureCache(None)

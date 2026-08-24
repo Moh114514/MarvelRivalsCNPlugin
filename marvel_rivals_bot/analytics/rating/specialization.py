@@ -16,7 +16,10 @@ def apply_specialization(results: dict[str, HeroRatingResult]) -> dict[str, Hero
             continue
         weighted = [(item.performance, item.confidence * max(0.01, item.experience / 100.0)) for item in peers]
         denominator = sum(weight for _value, weight in weighted)
-        baseline = sum(value * weight for value, weight in weighted) / denominator if denominator else 50.0
+        if denominator <= 1e-9:
+            output[hero_id] = replace(result, specialization=None)
+            continue
+        baseline = sum(value * weight for value, weight in weighted) / denominator
         output[hero_id] = replace(result, specialization=result.performance - baseline)
     return output
 
@@ -27,11 +30,13 @@ def classify_rating(result: HeroRatingResult, *, scope: str = "career") -> str:
             return "赛季强势"
         if result.performance >= 78 and result.confidence >= 0.70:
             return "赛季表现优秀"
+        if 45 <= result.performance <= 55:
+            return "赛季中性"
         if result.performance >= 65 and result.confidence < 0.55:
             return "赛季待验证"
-        if result.performance <= 35 and result.confidence >= 0.70:
+        if result.performance < 45:
             return "赛季偏弱"
-        if result.performance >= 55:
+        if result.performance > 55:
             return "赛季中性"
         return "赛季偏弱"
     spec = result.specialization

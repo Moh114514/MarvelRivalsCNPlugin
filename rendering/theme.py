@@ -87,6 +87,8 @@ body{font-size:17px}
 
 .mr-section{margin-top:32px}
 .mr-rating-v2{border-top:4px solid var(--mr-purple);padding-top:16px}
+.mr-v2-legacy-environment{display:none}
+.mr-v2-legacy-core{display:none}
 .mr-rating-v2 .mr-meta-source{margin-top:12px;padding:10px 14px;border-left:5px solid var(--mr-yellow);background:var(--mr-paper-strong);color:var(--mr-muted-strong);font-size:15px;line-height:1.5}
 .mr-rating-v2 .mr-metric__value{font-variant-numeric:tabular-nums}
 .mr-signature-card__v2{margin-top:10px;padding:8px 10px;border-left:4px solid var(--mr-yellow);background:var(--mr-paper);color:var(--mr-purple-deep);font-size:15px;font-weight:800;line-height:1.45}

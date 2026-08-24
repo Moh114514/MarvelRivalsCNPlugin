@@ -593,13 +593,14 @@ class PlayerCareerAnalysisService:
                 ]
         active_seasons = [
             season for season in normalized_seasons if any(
-                (hero.quick_matches or 0) > 0 or (hero.competitive_matches or 0) > 0
+                _hero_effective_total(hero) > 0
                 for hero in season.heroes.values()
             )
         ]
         meta_seasons = [
             season for season in active_seasons if any(
-                (hero.competitive_matches or 0) > 0 for hero in season.heroes.values()
+                _mode_effective_matches(hero.competitive, hero.competitive_matches) > 0
+                for hero in season.heroes.values()
             )
         ]
 
@@ -879,7 +880,11 @@ class PlayerCareerAnalysisService:
                     if scope.kind == "career"
                     else {"赛季强势", "赛季表现优秀"}
                 )
-                sickness_classes = {"绝症候选"} if scope.kind == "career" else {"赛季偏弱"}
+                sickness_classes = (
+                    {"绝症候选"}
+                    if scope.kind == "career"
+                    else set()
+                )
                 signed_performance = (rating.performance - 50.0) * 2.0
                 sick = max(0.0, 50.0 - rating.performance)
                 updated = replace(
@@ -894,7 +899,14 @@ class PlayerCareerAnalysisService:
                     status=rating.classification,
                     classification=rating.classification,
                     is_signature_candidate=rating.classification in signature_classes,
-                    is_sickness_candidate=rating.classification in sickness_classes,
+                    is_sickness_candidate=(
+                        rating.classification in sickness_classes
+                        or (
+                            scope.kind == "season"
+                            and rating.performance <= 35
+                            and rating.confidence >= 0.70
+                        )
+                    ),
                     is_analysis_eligible=item.is_analysis_eligible,
                 )
             output.append(updated)
@@ -988,8 +1000,7 @@ class PlayerCareerAnalysisService:
     ) -> list[CareerHeroSignature]:
         hero_ids = sorted({hero_id for season in seasons for hero_id in season.heroes})
         all_matches = sum(
-            max(0.0, float((hero.quick or NormalizedModeStats()).effective_matches or hero.quick_matches or 0))
-            + max(0.0, float((hero.competitive or NormalizedModeStats()).effective_matches or hero.competitive_matches or 0))
+            _hero_effective_total(hero)
             for season in seasons for hero in season.heroes.values()
         )
         result: list[CareerHeroSignature] = []
@@ -1022,8 +1033,8 @@ class PlayerCareerAnalysisService:
                 competitive_stats = competitive_stats.add(c_stats)
                 q = max(0, int(q_stats.matches or 0))
                 c = max(0, int(c_stats.matches or 0))
-                q_effective = max(0.0, float(q_stats.effective_matches or q))
-                c_effective = max(0.0, float(c_stats.effective_matches or c))
+                q_effective = _mode_effective_matches(q_stats, q)
+                c_effective = _mode_effective_matches(c_stats, c)
                 q_effective_wins = q_stats.effective_wins if q_stats.effective_wins is not None else q_stats.wins
                 c_effective_wins = c_stats.effective_wins if c_stats.effective_wins is not None else c_stats.wins
                 total_matches += q + c
@@ -1031,9 +1042,9 @@ class PlayerCareerAnalysisService:
                 competitive_matches += c
                 quick_effective_total += q_effective
                 competitive_effective_total += c_effective
-                if q + c > 0:
+                if q_effective + c_effective > 0:
                     active += 1
-                if c > 0:
+                if c_effective > 0:
                     competitive += 1
                 if q_effective_wins is None and q_effective > 0:
                     quick_wins_known = False
@@ -1086,7 +1097,8 @@ class PlayerCareerAnalysisService:
                         float(c_effective_wins) if c_effective_wins is not None else None
                     ),
                 ))
-            if total_matches <= 0:
+            hero_effective_total = quick_effective_total + competitive_effective_total
+            if hero_effective_total <= 0:
                 continue
             comparable_actual = comparable_wins * 100 / comparable_matches if comparable_matches else None
             actual = (
@@ -1122,7 +1134,7 @@ class PlayerCareerAnalysisService:
                 quick_matches=quick_matches,
                 competitive_matches=competitive_matches,
                 competitive_wins=(round(competitive_wins_total) if wins_known else None),
-                usage_share=total_matches * 100 / max(1, all_matches),
+                usage_share=(hero_effective_total * 100 / all_matches) if all_matches > 0 else 0.0,
                 actual_win_rate=actual,
                 expected_meta_win_rate=expected,
                 raw_delta=raw_delta,
@@ -1219,6 +1231,20 @@ def _meta_result(board: Any, hero_id: str) -> Any | None:
 
 def _coverage(numerator: int, denominator: int) -> float:
     return numerator * 100 / denominator if denominator else 0.0
+
+
+def _mode_effective_matches(mode: NormalizedModeStats | None, fallback: int | None = None) -> float:
+    value = getattr(mode, "effective_matches", None) if mode is not None else None
+    if value is None:
+        value = fallback or 0
+    return max(0.0, float(value))
+
+
+def _hero_effective_total(hero: _NormalizedHero) -> float:
+    return (
+        _mode_effective_matches(hero.quick, hero.quick_matches)
+        + _mode_effective_matches(hero.competitive, hero.competitive_matches)
+    )
 
 
 def _effective_matches(stats: NormalizedModeStats) -> float:
@@ -1450,10 +1476,23 @@ def _sickness_score_sort_key(item: Any) -> tuple[float, float, float, float, int
     )
 
 
-def _v2_signature_sort_key(item: Any) -> tuple[float, float, float, float, float, int]:
+def _v2_signature_sort_key(item: Any) -> tuple[int, float, float, float, float, float, int]:
     rating = getattr(item, "rating", None)
     specialization = getattr(rating, "specialization", None) if rating is not None else None
+    classification = str(getattr(rating, "classification", "") if rating is not None else "")
+    tier = {
+        "招牌绝活": 0,
+        "赛季强势": 0,
+        "强势绝活": 1,
+        "赛季表现优秀": 1,
+        "潜力绝活": 2,
+        "赛季待验证": 3,
+        "常用英雄": 4,
+        "赛季中性": 4,
+        "待验证": 4,
+    }.get(classification, 5)
     return (
+        tier,
         -float(specialization) if specialization is not None else float("inf"),
         -float(getattr(rating, "mastery", 0.0) if rating is not None else 0.0),
         -float(getattr(rating, "performance", 0.0) if rating is not None else 0.0),

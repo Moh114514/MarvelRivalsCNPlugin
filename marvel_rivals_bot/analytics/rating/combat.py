@@ -60,7 +60,11 @@ def _group(context: RatingContext, current: RatingHeroSnapshot) -> tuple[list[Ra
     eligible = [
         item for item in context.heroes
         if item.hero_id != current.hero_id
-        and (item.competitive_effective_matches or item.competitive_matches or 0) >= 5
+        and (
+            item.competitive_effective_matches
+            if item.competitive_effective_matches is not None
+            else item.competitive_matches
+        ) >= 5
     ]
     checks = (
         (lambda item: item.archetype.metric_profile == current.archetype.metric_profile, "同 MetricProfile"),
@@ -68,7 +72,7 @@ def _group(context: RatingContext, current: RatingHeroSnapshot) -> tuple[list[Ra
             lambda item: current_role is not None
             and official_role(item) == current_role
             and item.archetype.function == current.archetype.function,
-            "同 TacticalFunction",
+            "同职责 + 同 TacticalFunction",
         ),
     )
     for predicate, label in checks:

@@ -83,16 +83,18 @@ def build_player_hero_analysis_html(
         description = "当前使用量和证据显示相对表现偏弱。"
     else:
         description = "当前处于中性区或证据不足。"
+    header_rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
+    header_metrics = (
+        (("Mastery", f"{header_rating.mastery:.1f}"), ("Performance", f"{header_rating.performance:.1f}"), ("Confidence", f"{header_rating.confidence:.2f}"))
+        if header_rating is not None
+        else (("综合表现", f"{hero.performance_index:+.1f}"), ("使用指数", f"{hero.play_index:.1f}"), ("可信度", hero.confidence))
+    )
     content = page_header(
         "MY HERO ANALYSIS",
         description,
         title,
         title_cn=title,
-        meta_items=(
-            ("综合表现", f"{hero.performance_index:+.1f}"),
-            ("使用指数", f"{hero.play_index:.1f}"),
-            ("可信度", hero.confidence),
-        ),
+        meta_items=header_metrics,
     )
     content += '<section class="mr-section">' + section_title(conclusion, "CONCLUSION")
     rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
@@ -133,10 +135,10 @@ def build_player_hero_analysis_html(
                 ("Consistency", _value(rating.consistency)),
                 ("Experience", f"{rating.experience:.1f}"),
             ))
-            + f'<div class="mr-meta-source">战术原型：{escape_text({"dive": "突袭", "brawl": "近战", "poke": "远程压制"}.get(rating.archetype.primary_style.value, rating.archetype.primary_style.value))} / {escape_text(rating.archetype.function.value)} · {escape_text(dimensions)}</div>'
+            + f'<div class="mr-meta-source">战术原型：{escape_text({"dive": "切入", "brawl": "缠斗", "poke": "消耗"}.get(rating.archetype.primary_style.value, rating.archetype.primary_style.value))} / {escape_text(rating.archetype.function.value)} · {escape_text(dimensions)}</div>'
             + '</section>'
         )
-    content += '<section class="mr-section">' + section_title("竞技环境比较", "ENVIRONMENT")
+    content += f'<section class="mr-section{" mr-v2-legacy-environment" if profile.rating_version == "v2" else ""}">' + section_title("竞技环境比较", "ENVIRONMENT")
     content += metric_grid((
         ("可比较竞技胜率", _percent(hero.comparable_competitive_win_rate)),
         ("同期同段位 Meta", _percent(hero.expected_meta_win_rate)),

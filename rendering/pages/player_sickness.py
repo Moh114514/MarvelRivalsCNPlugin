@@ -39,6 +39,22 @@ def _sick_card(index: int, item, *, show_v2: bool = False) -> str:
             f'<small>V2 Performance {rating.performance:.1f} · Mastery {rating.mastery:.1f} · '
             f'Specialization {specialization} · Confidence {rating.confidence:.2f}</small>'
         )
+    if show_v2 and rating is not None:
+        specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+        return (
+            '<article class="mr-sickness-card mr-sickness-card--v2">'
+            f'<div class="mr-sickness-card__index">{index:02d}</div>'
+            '<div class="mr-sickness-card__main">'
+            f'<div class="mr-sickness-card__name">{escape_text(item.hero_name)}</div>'
+            f'<div class="mr-sickness-card__stats"><span>分类 {escape_text(rating.classification)}</span>'
+            f'<span>使用占比 {item.usage_share:.1f}%</span><span>竞技 {item.competitive_matches:,} 场</span></div>'
+            '</div>'
+            '<div class="mr-sickness-card__score mr-sickness-card__score--v2">'
+            f'<span>Specialization</span><strong>{specialization}</strong>'
+            f'<small>Performance {rating.performance:.1f} · Mastery {rating.mastery:.1f}</small>'
+            f'<small>Confidence {rating.confidence:.2f} · Experience {rating.experience:.1f}</small>'
+            '</div></article>'
+        )
     return (
         '<article class="mr-sickness-card">'
         f'<div class="mr-sickness-card__index">{index:02d}</div>'

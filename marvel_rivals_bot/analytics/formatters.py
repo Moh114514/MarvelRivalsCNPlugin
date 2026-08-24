@@ -90,6 +90,26 @@ def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHer
         explanation = "当前使用量和证据显示，它相对个人同模式基准及可用环境表现偏弱。"
     else:
         explanation = "当前数据处于中性区或证据不足，暂不归入正向或负向榜单。"
+    if v2_rating is not None:
+        lines = [
+            f"{hero.hero_name} · {scope_label}分析",
+            f"玩家：{profile.player_name}（UID：{profile.uid}）",
+            "",
+            str(v2_rating.classification),
+            explanation,
+            "V2 评分",
+            *_rating_lines(v2_rating),
+            "",
+            "生涯使用" if is_career else "本赛季使用",
+            f"总场次：{_count(hero.total_matches)}｜竞技：{_count(hero.competitive_matches)}｜快速：{_count(hero.quick_matches)}",
+            *( [f"活跃赛季：{hero.active_seasons}"] if is_career else [] ),
+        ]
+        if not getattr(profile, "meta_available", True):
+            lines.append("提示：当前缺少同期 Meta，可信度已降级。")
+        lines.extend(_mode_analysis_lines("竞技详细数据", hero.competitive_stats))
+        lines.append("")
+        lines.extend(_mode_analysis_lines("快速详细数据", hero.quick_stats))
+        return "\n".join(lines)
     lines = [
         f"{hero.hero_name} · {scope_label}分析",
         f"玩家：{profile.player_name}（UID：{profile.uid}）",
@@ -186,6 +206,7 @@ def format_player_hero_pool(profile: PlayerMetaProfile) -> str:
 
 def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
     scope = analysis_scope_label(pool.scope)
+    show_v2 = getattr(pool, "rating_version", "shadow") == "v2"
     weighted_performance = (
         "—"
         if pool.weighted_performance is None
@@ -202,13 +223,16 @@ def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
         f"捍卫者：{pool.vanguard_share:.1f}%｜决斗家：{pool.duelist_share:.1f}%｜策略家：{pool.strategist_share:.1f}%",
         "",
         "英雄池质量",
-        f"核心英雄综合表现：{weighted_performance}｜正向使用占比：{pool.positive_usage_share:.1f}%｜负向使用占比：{pool.negative_usage_share:.1f}%",
+        (
+            f"V2 高掌握英雄：{pool.high_mastery_count}｜高专精英雄：{pool.high_specialization_count}｜高可信英雄：{pool.high_confidence_count}"
+            if show_v2
+            else f"核心英雄综合表现：{weighted_performance}｜正向使用占比：{pool.positive_usage_share:.1f}%｜负向使用占比：{pool.negative_usage_share:.1f}%"
+        ),
     ]
-    show_v2 = getattr(pool, "rating_version", "shadow") == "v2"
     style_shares = getattr(pool, "style_shares", {}) or {} if show_v2 else {}
     tactical_tags = getattr(pool, "tactical_tags", ()) or () if show_v2 else ()
     if style_shares:
-        style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+        style_labels = {"dive": "切入", "brawl": "缠斗", "poke": "消耗"}
         lines.extend(("", "战术体系", "｜".join(f"{style_labels.get(key, key)} {value:.1f}%" for key, value in sorted(style_shares.items(), key=lambda pair: -pair[1]))))
     if tactical_tags:
         lines.append("战术标签：" + "｜".join(tactical_tags))
@@ -219,6 +243,18 @@ def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
     lines.extend(("", f"核心英雄 Top {len(pool.core_heroes)}"))
     if not pool.core_heroes:
         lines.append("暂无达到核心英雄使用门槛的英雄。")
+    if show_v2:
+        for index, item in enumerate(pool.core_heroes, 1):
+            rating = getattr(item, "rating", None)
+            if rating is None:
+                continue
+            specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+            lines.extend((
+                f"{index}. {item.hero_name}｜使用占比 {item.usage_share:.1f}%｜竞技 {_count(item.competitive_matches)} 场｜快速 {_count(item.quick_matches)} 场",
+                f"Mastery {rating.mastery:.1f}｜Performance {rating.performance:.1f}｜Specialization {specialization}｜Confidence {rating.confidence:.2f}",
+                f"Outcome {_format_rating_value(rating.outcome)}｜Combat {_format_rating_value(rating.combat)}｜Consistency {_format_rating_value(rating.consistency)}｜Experience {rating.experience:.1f}",
+            ))
+        return "\n".join(lines)
     for index, item in enumerate(pool.core_heroes, 1):
         lines.extend((
             f"{index}. {item.hero_name}｜使用占比 {item.usage_share:.1f}%｜竞技 {item.competitive_matches} 场｜快速 {item.quick_matches} 场",
@@ -274,6 +310,19 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 "暂未形成数据上明确的长期绝活，以下为最接近的英雄。"
                 if scope == "生涯"
                 else "本赛季暂无达到正向候选门槛的英雄。",
+            ))
+        return "\n".join(lines)
+    if show_v2:
+        lines.extend(("", f"{scope}绝活 Top 5"))
+        for index, item in enumerate(profile.signature_heroes, 1):
+            rating = getattr(item, "rating", None)
+            if rating is None:
+                lines.extend((f"{index}. {item.hero_name}", "V2 评分暂不可用"))
+                continue
+            lines.extend((
+                f"{index}. {item.hero_name}",
+                f"{rating.classification}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
+                *_rating_lines(rating),
             ))
         return "\n".join(lines)
     lines.extend(("", f"{scope}绝活 Top 5"))
@@ -341,6 +390,19 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
     if not profile.sick_heroes:
         lines.append("目前没有可用于相对排名的候选英雄。")
         return "\n".join(lines)
+    if show_v2:
+        lines.extend(("", "V2 绝症英雄排名 Top 10"))
+        for index, item in enumerate(profile.sick_heroes, 1):
+            rating = getattr(item, "rating", None)
+            if rating is None:
+                lines.extend((f"{index}. {item.hero_name}", "V2 评分暂不可用"))
+                continue
+            lines.extend((
+                f"{index}. {item.hero_name}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
+                f"{rating.classification}",
+                *_rating_lines(rating),
+            ))
+        return "\n".join(lines)
     for index, item in enumerate(profile.sick_heroes, 1):
         lines.extend(
             (
@@ -379,7 +441,7 @@ def _rating_lines(rating) -> list[str]:
     )
     specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
     archetype = rating.archetype
-    style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
+    style_labels = {"dive": "切入", "brawl": "缠斗", "poke": "消耗"}
     function_labels = {
         "assassin": "刺杀", "skirmisher": "游击", "pick": "抓单", "pressure": "压制",
         "bruiser": "斗士", "tank_buster": "坦克克星", "anchor": "锚点", "zone": "区域",

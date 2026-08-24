@@ -7,10 +7,63 @@ from marvel_rivals_bot.analytics.models import (
     PlayerSignatureProfile,
 )
 from rendering.pages.player_signature import build_player_signature_html
+from rendering.pages.player_signature import _hero_card
 from rendering.pages.player_sickness import build_player_sickness_html
+from rendering.pages.player_sickness import _sick_card
 
 
 class TestSignatureRendering(unittest.TestCase):
+    def test_shadow_cards_do_not_render_v2_metrics_and_v2_cards_replace_legacy_metrics(self):
+        from types import SimpleNamespace
+
+        rating = SimpleNamespace(
+            classification="招牌绝活",
+            mastery=91.0,
+            performance=88.0,
+            specialization=12.0,
+            confidence=0.85,
+            outcome=86.0,
+            combat=84.0,
+            consistency=80.0,
+            experience=78.0,
+        )
+        item = SimpleNamespace(
+            hero_name="Test Hero",
+            rating=rating,
+            total_matches=40,
+            competitive_matches=30,
+            quick_matches=10,
+            usage_share=50.0,
+            performance_index=18.0,
+            signature_score=20.0,
+            sickness_score=2.0,
+            play_index=80.0,
+            actual_win_rate=60.0,
+            quick_win_rate=50.0,
+            expected_meta_win_rate=52.0,
+            adjusted_delta=8.0,
+            personal_competitive_delta=4.0,
+            personal_quick_delta=2.0,
+            meta_coverage=100.0,
+            confidence="高",
+            status="招牌绝活",
+            weakness_index=0.0,
+        )
+
+        shadow_signature = _hero_card(1, item, career=True, show_v2=False)
+        v2_signature = _hero_card(1, item, career=True, show_v2=True)
+        shadow_sickness = _sick_card(1, item, show_v2=False)
+        v2_sickness = _sick_card(1, item, show_v2=True)
+
+        self.assertNotIn("Mastery", shadow_signature)
+        self.assertNotIn("Mastery", shadow_sickness)
+        self.assertIn("Mastery", v2_signature)
+        self.assertIn("Mastery", v2_sickness)
+        self.assertIn("mr-signature-card__metrics--v2", v2_signature)
+        self.assertNotIn('class="mr-signature-card__metrics">', v2_signature)
+        self.assertIn("mr-sickness-card__score--v2", v2_sickness)
+        self.assertNotIn("mr-sickness-card__detail", v2_sickness)
+
     def test_career_page_escapes_dynamic_text_and_uses_career_semantics(self):
         hero = CareerHeroSignature(
             hero_id="1026",

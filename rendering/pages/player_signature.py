@@ -67,6 +67,31 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
             f'Confidence {rating.confidence:.2f}'
             '</div>'
         )
+    if rating is not None:
+        specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+        return (
+            f'<article class="mr-signature-card mr-signature-card--{escape_text(delta_class)} mr-signature-card--v2">'
+            f'<div class="mr-signature-card__index">{index:02d}</div>'
+            '<div class="mr-signature-card__main">'
+            '<div class="mr-signature-card__identity">'
+            f'<div class="mr-signature-card__name">{escape_text(item.hero_name)}</div>'
+            f'<span class="mr-signature-card__badge">{escape_text(rating.classification)}</span>'
+            '</div>'
+            f'<div class="mr-signature-card__stats"><span>总计 {_count(_first(item, "total_matches"))} 场</span>'
+            f'<span>竞技 {_count(_first(item, "competitive_matches", "ranked_matches"))} 场</span>'
+            f'<span>使用占比 {_percent(_first(item, "usage_share"))}</span></div>'
+            '</div>'
+            '<div class="mr-signature-card__metrics mr-signature-card__metrics--v2">'
+            f'<div><span>Mastery</span><strong>{rating.mastery:.1f}</strong></div>'
+            f'<div><span>Performance</span><strong>{rating.performance:.1f}</strong></div>'
+            f'<div><span>Specialization</span><strong>{specialization}</strong></div>'
+            f'<div><span>Confidence</span><strong>{rating.confidence:.2f}</strong></div>'
+            '</div>'
+            f'<div class="mr-signature-card__quality"><span>Outcome {_score(rating.outcome)}</span>'
+            f'<span>Combat {_score(rating.combat)}</span><span>Consistency {_score(rating.consistency)}</span>'
+            f'<span>Experience {_score(rating.experience)}</span></div>'
+            '</article>'
+        )
     competitive_matches = _first(item, "competitive_matches", "ranked_matches")
     actual_win_rate = _first(item, "actual_win_rate", "ranked_win_rate")
     expected_meta_win_rate = _first(item, "expected_meta_win_rate", "meta_win_rate")

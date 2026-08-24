@@ -8,7 +8,11 @@ from .transforms import clamp
 
 
 def calculate_consistency(seasons, *, latest_season_code: str | None = None) -> float | None:
-    rows = [item for item in seasons if getattr(item, "raw_delta", None) is not None and int(getattr(item, "competitive_matches", 0) or 0) > 0]
+    def effective_matches(item) -> float:
+        value = getattr(item, "competitive_effective_matches", None)
+        return max(0.0, float(value if value is not None else (getattr(item, "competitive_matches", 0) or 0)))
+
+    rows = [item for item in seasons if getattr(item, "raw_delta", None) is not None and effective_matches(item) > 0]
     if not rows:
         return None
     if len(rows) == 1:
@@ -18,7 +22,7 @@ def calculate_consistency(seasons, *, latest_season_code: str | None = None) -> 
     for item in rows:
         code = int(getattr(item, "season_code", latest) or latest)
         age = max(0, latest - code)
-        weight = min(int(getattr(item, "competitive_matches", 0) or 0), 20) * (2 ** (-age / 2))
+        weight = min(effective_matches(item), 20.0) * (2 ** (-age / 2))
         weighted.append((float(item.raw_delta), weight))
     denominator = sum(weight for _value, weight in weighted)
     if denominator <= 0:
