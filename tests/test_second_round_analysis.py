@@ -159,6 +159,26 @@ class TestHeroPoolAnalysis(unittest.TestCase):
         self.assertAlmostEqual(pool.positive_usage_share, 90.0)
         self.assertAlmostEqual(pool.negative_usage_share, 0.0)
 
+    def test_pool_role_shares_use_effective_matches(self):
+        first = self._hero(1026, 20, 1, 0)
+        second = self._hero(1011, 80, 1, 0)
+        first.quick_effective_matches = 0.4
+        first.competitive_effective_matches = 0.0
+        second.quick_effective_matches = 0.0
+        second.competitive_effective_matches = 1.6
+        profile = SimpleNamespace(
+            uid="123",
+            player_name="Tester",
+            scope=AnalysisScope.season("19"),
+            meta_available=True,
+            meta_stale=False,
+            heroes=(first, second),
+        )
+        pool = build_hero_pool_analysis(profile)
+        self.assertEqual(pool.total_matches, 2)
+        self.assertAlmostEqual(pool.duelist_share, 20.0)
+        self.assertAlmostEqual(pool.vanguard_share, 80.0)
+
     def test_scope_label_uses_canonical_season_name(self):
         self.assertEqual(analysis_scope_label(AnalysisScope.career()), "生涯")
         self.assertEqual(analysis_scope_label(AnalysisScope.season("19")), "S9.5")

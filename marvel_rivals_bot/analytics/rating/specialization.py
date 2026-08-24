@@ -34,6 +34,8 @@ def classify_rating(result: HeroRatingResult, *, scope: str = "career") -> str:
             return "赛季中性"
         if result.performance >= 65 and result.confidence < 0.55:
             return "赛季待验证"
+        if result.performance < 45 and result.confidence < 0.55:
+            return "赛季待验证"
         if result.performance < 45:
             return "赛季偏弱"
         if result.performance > 55:

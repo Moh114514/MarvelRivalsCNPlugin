@@ -9,16 +9,24 @@ from __future__ import annotations
 from .models import FeatureDefinition
 
 
+_UNKNOWN_1031_KEYS = (
+    "Feature_103102:ally_hit",
+    "Feature_103102:chaos_hit",
+    "Feature_103102:summoner_hit",
+    "Feature_103101:hero_hit",
+    "Feature_103102:hero_hit",
+    "Feature_103101:hero_crit_hit",
+    "Feature_103102:real_hit_hero_cnt",
+    "Feature_103102:enemy_hit",
+    "Feature_103102:shield_hit",
+    "Feature_103101",
+    "Feature_103103",
+    "Feature_103102",
+    "Feature_103102:use_cnt",
+)
+
 DYNAMIC_FEATURE_DEFINITIONS: tuple[FeatureDefinition, ...] = (
-    FeatureDefinition(1031, "Feature_103102:hero_hit", None, "utility"),
-    FeatureDefinition(1031, "Feature_103101:hero_crit_hit", None, "utility"),
-    FeatureDefinition(1031, "Feature_103102:real_hit_hero_cnt", None, "utility"),
-    FeatureDefinition(1031, "Feature_103102:enemy_hit", None, "utility"),
-    FeatureDefinition(1031, "Feature_103102:shield_hit", None, "utility"),
-    FeatureDefinition(1031, "Feature_103101", None, "utility"),
-    FeatureDefinition(1031, "Feature_103103", None, "utility"),
-    FeatureDefinition(1031, "Feature_103102", None, "utility"),
-    FeatureDefinition(1031, "Feature_103102:use_cnt", None, "utility"),
+    *(FeatureDefinition(1031, key, None, "unknown") for key in _UNKNOWN_1031_KEYS),
     FeatureDefinition(1058, "Feature_105801", None, "utility"),
     FeatureDefinition(1058, "Feature_105802", None, "utility"),
     FeatureDefinition(1058, "Feature_105803", None, "utility"),

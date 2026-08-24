@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from marvel_rivals_bot.analytics.archetypes import get_archetype
+from marvel_rivals_bot.analytics.dynamic_features.definitions import FEATURE_DEFINITIONS
 from marvel_rivals_bot.analytics.models import NormalizedModeStats
 from marvel_rivals_bot.analytics.rating.combat import calculate_combat
 from marvel_rivals_bot.analytics.rating.confidence import calculate_confidence, shrink_performance
@@ -147,6 +148,26 @@ class TestRatingV2(unittest.TestCase):
         )
         self.assertEqual(classify_rating(HeroRatingResult(performance=50, **base), scope="season"), "赛季中性")
         self.assertEqual(classify_rating(HeroRatingResult(performance=47, **base), scope="season"), "赛季中性")
+
+    def test_low_confidence_negative_season_waits_for_evidence(self):
+        base = dict(
+            hero_id="1011", hero_name="Hero", archetype=get_archetype(1011),
+            outcome=40, combat=40, consistency=40, experience=30,
+            performance_raw=40, confidence=.20, mastery=40,
+        )
+        self.assertEqual(classify_rating(HeroRatingResult(performance=40, **base), scope="season"), "赛季待验证")
+
+    def test_observed_1031_dynamic_fields_are_inventory_only(self):
+        keys = {
+            "Feature_103102:ally_hit",
+            "Feature_103102:chaos_hit",
+            "Feature_103102:summoner_hit",
+            "Feature_103101:hero_hit",
+        }
+        definitions = [FEATURE_DEFINITIONS[(1031, key)] for key in keys]
+        self.assertTrue(all(item.label is None for item in definitions))
+        self.assertTrue(all(item.dimension == "unknown" for item in definitions))
+        self.assertTrue(all(not item.rating_enabled for item in definitions))
 
     def test_specialization_stays_missing_without_weighted_peer_evidence(self):
         def result(hero_id):

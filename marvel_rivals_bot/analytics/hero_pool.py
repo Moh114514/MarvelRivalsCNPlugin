@@ -21,8 +21,25 @@ def _usage_sorted(heroes: Iterable[CareerHeroSignature]) -> list[CareerHeroSigna
     )
 
 
-def _share(value: int, total: int) -> float:
+def _share(value: float, total: float) -> float:
     return value * 100 / total if total else 0.0
+
+
+def _effective_matches(item: CareerHeroSignature) -> float:
+    """Use fractional effective matches internally, with legacy fallback."""
+    total = 0.0
+    for effective_name, matches_name in (
+        ("quick_effective_matches", "quick_matches"),
+        ("competitive_effective_matches", "competitive_matches"),
+    ):
+        value = getattr(item, effective_name, None)
+        if value is None:
+            value = getattr(item, matches_name, 0) or 0
+        try:
+            total += max(0.0, float(value))
+        except (TypeError, ValueError):
+            continue
+    return total
 
 
 def _structure_tags(
@@ -65,48 +82,38 @@ def _structure_tags(
 def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
     heroes = [
         item for item in profile.heroes
-        if (
-            float(
-                getattr(item, "quick_effective_matches", None)
-                if getattr(item, "quick_effective_matches", None) is not None
-                else (getattr(item, "quick_matches", 0) or 0)
-            )
-            + float(
-                getattr(item, "competitive_effective_matches", None)
-                if getattr(item, "competitive_effective_matches", None) is not None
-                else (getattr(item, "competitive_matches", 0) or 0)
-            )
-        ) > 0
+        if _effective_matches(item) > 0
     ]
     ordered = _usage_sorted(heroes)
-    total_matches = sum(max(0, int(item.total_matches or 0)) for item in heroes)
+    effective_total = sum(_effective_matches(item) for item in heroes)
+    total_matches = max(0, int(round(effective_total)))
     top1_share = ordered[0].usage_share if ordered else 0.0
     top3_share = sum(item.usage_share for item in ordered[:3])
     proportions = [item.usage_share / 100 for item in heroes if item.usage_share > 0]
     effective_width = 1 / sum(value * value for value in proportions) if proportions else 0.0
 
-    role_matches = {role: 0 for role in ("vanguard", "duelist", "strategist")}
+    role_matches = {role: 0.0 for role in ("vanguard", "duelist", "strategist")}
     for item in heroes:
         try:
             role = HERO_ROLE_MAP.get(int(item.hero_id))
         except (TypeError, ValueError):
             role = None
         if role in role_matches:
-            role_matches[role] += int(item.total_matches or 0)
-    role_shares = {role: _share(matches, total_matches) for role, matches in role_matches.items()}
-    style_matches: dict[str, int] = {}
-    profile_matches: dict[str, int] = {}
+            role_matches[role] += _effective_matches(item)
+    role_shares = {role: _share(matches, effective_total) for role, matches in role_matches.items()}
+    style_matches: dict[str, float] = {}
+    profile_matches: dict[str, float] = {}
     for item in heroes:
         archetype = get_archetype(item.hero_id)
         if archetype is None:
             continue
         style = archetype.primary_style.value
         profile_id = archetype.metric_profile.value
-        matches = int(item.total_matches or 0)
+        matches = _effective_matches(item)
         style_matches[style] = style_matches.get(style, 0) + matches
         profile_matches[profile_id] = profile_matches.get(profile_id, 0) + matches
-    style_shares = {key: _share(value, total_matches) for key, value in style_matches.items()}
-    profile_shares = {key: _share(value, total_matches) for key, value in profile_matches.items()}
+    style_shares = {key: _share(value, effective_total) for key, value in style_matches.items()}
+    profile_shares = {key: _share(value, effective_total) for key, value in profile_matches.items()}
     tactical_tags: list[str] = []
     if style_shares:
         dominant_style, dominant_share = max(style_shares.items(), key=lambda pair: pair[1])
