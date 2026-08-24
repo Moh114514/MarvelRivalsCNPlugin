@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from time import perf_counter
 from dataclasses import replace
 from collections.abc import Mapping
 from pathlib import Path
@@ -181,7 +182,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.6", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.7", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -306,6 +307,7 @@ class MarvelRivalsPlugin(Star):
             queue_timeout_seconds=_safe_float_config(
                 env_config, "MRCN_RENDER_QUEUE_TIMEOUT_SECONDS", 15, minimum=0.1
             ),
+            logger=logger,
         )
         data_root = Path(get_astrbot_data_path()) if get_astrbot_data_path else Path("data")
         plugin_data_root = data_root / "plugin_data" / "astrbot_plugin_marvel_rivals"
@@ -826,17 +828,43 @@ class MarvelRivalsPlugin(Star):
                 return str(match_uid)
         return ""
 
-    @filter.command("对局详情")
+    @filter.command("对局详情", alias={"对局"})
     async def match_detail(self, event: AstrMessageEvent, match_uid: str):
         """使用 matchUid 查询详情，支持纯 ID 或 matchUid=... 格式。"""
         try:
+            sender_id = self._qq_id(event)
+        except Exception:
+            sender_id = "unknown"
+        group_id = self._group_id(event)
+        input_value = str(match_uid).strip()
+        if logger:
+            logger.info(
+                f"对局详情命令进入 sender_id={sender_id} group_id={group_id} input={input_value}"
+            )
+        try:
+            resolve_started = perf_counter()
             match_uid = self._resolve_match_selection(event, match_uid)
+            if logger:
+                logger.info(
+                    f"对局详情选择解析完成 sender_id={sender_id} group_id={group_id} "
+                    f"input={input_value} resolved_match_uid={match_uid} "
+                    f"resolve_ms={(perf_counter() - resolve_started) * 1000:.1f}"
+                )
+            request_started = perf_counter()
             payload = await self.service.get_match_detail(match_uid)
+            if logger:
+                logger.info(
+                    f"对局详情数据请求完成 sender_id={sender_id} group_id={group_id} "
+                    f"resolved_match_uid={match_uid} request_ms={(perf_counter() - request_started) * 1000:.1f}"
+                )
             try:
                 image_url = await self.image_renderer.detail(payload)
             except Exception as exc:
                 if logger:
-                    logger.warning(f"对局详情图片渲染失败 command=对局详情 render_type=detail error={exc}")
+                    logger.warning(
+                        f"对局详情图片渲染失败 sender_id={sender_id} group_id={group_id} "
+                        f"resolved_match_uid={match_uid} error={type(exc).__name__}:{exc}"
+                    )
                 yield event.plain_result(self._render_failure("对局详情", f"matchUid：{match_uid}"))
                 return
             if self.qq_card_sender.supports(event):
@@ -848,12 +876,6 @@ class MarvelRivalsPlugin(Star):
             yield event.plain_result(self._usage_error(str(exc), "/对局 <matchUid|N>"))
         except (DataSourceError, BindingStoreError) as exc:
             yield event.plain_result(f"查询失败：{exc}")
-
-    @filter.command("对局")
-    async def match_detail_legacy(self, event: AstrMessageEvent, match_uid: str):
-        """兼容旧版 /对局 指令。"""
-        async for result in self.match_detail(event, match_uid):
-            yield result
 
     def _meta_unavailable(self) -> str:
         return "当前未启用英雄环境功能"

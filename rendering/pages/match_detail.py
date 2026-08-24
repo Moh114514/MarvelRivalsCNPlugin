@@ -9,8 +9,8 @@ except ImportError:
     from marvel_rivals_bot.game_metadata import format_match_map, format_play_mode, format_queue, get_map_mode
     from marvel_rivals_bot.reference.heroes import format_hero_name
 
-from ..components import empty_state, metric_grid, page_header, page_shell, player_row, section_title, team_panel
-from ..formatters import extract_first_match, format_duration, format_number, format_timestamp
+from ..components import empty_state, metric_grid, page_header, page_shell, section_title, team_panel
+from ..formatters import escape_text, extract_first_match, format_duration, format_number, format_timestamp
 
 
 def _number_value(value):
@@ -32,7 +32,7 @@ def _per10_stat(player: dict, key: str) -> str:
     value = _number_value(player.get(key))
     play_time = _number_value(player.get("playTime", player.get("playerPlayTime")))
     if value is None or play_time is None or play_time <= 0:
-        return format_number(player, key)
+        return "数据不足"
     return f"{value * 600 / play_time:,.1f}"
 
 
@@ -52,6 +52,47 @@ def _main_hero(player: dict) -> tuple[object, int]:
         for row in valid
     }
     return main.get("heroId", main.get("curHeroId")), max(0, len(ids) - 1)
+
+
+def _scoreboard_metric(label: str, value: str, per10: str) -> str:
+    return (
+        '<div class="mr-scoreboard-player__metric">'
+        f'<span>{label}</span>'
+        f'<strong>{value}</strong>'
+        f'<small>/10分钟 {per10}</small>'
+        '</div>'
+    )
+
+
+def _scoreboard_player(player: dict) -> str:
+    hero_id, switch_count = _main_hero(player)
+    hero_name = format_hero_name(hero_id) if hero_id is not None else "未知英雄"
+    play_time = _number_value(player.get("playTime", player.get("playerPlayTime")))
+    total_kda = "/".join(format_number(player, key) for key in ("k", "d", "a"))
+    per10_kda = "/".join(_per10_stat(player, key) for key in ("k", "d", "a"))
+    name = player.get("nickName", player.get("playerUid", "-"))
+    switch_note = f"切换 {switch_count} 名英雄" if switch_count else ""
+    switch_html = (
+        f'<small class="mr-scoreboard-player__switch">{escape_text(switch_note)}</small>'
+        if switch_note else ""
+    )
+    return (
+        '<div class="mr-scoreboard-player">'
+        '<div class="mr-scoreboard-player__identity">'
+        f'<strong class="mr-scoreboard-player__name">{escape_text(name)}</strong>'
+        f'<span class="mr-scoreboard-player__hero">{escape_text(hero_name)}</span>'
+        f'{switch_html}'
+        '</div>'
+        '<div class="mr-scoreboard-player__metric mr-scoreboard-player__kda">'
+        '<span>K / D / A</span>'
+        f'<strong>{escape_text(total_kda)}</strong>'
+        f'<small>/10分钟 {escape_text(per10_kda if play_time and play_time > 0 else "数据不足")}</small>'
+        '</div>'
+        + _scoreboard_metric("伤害", format_number(player, "totalHeroDamage"), _per10(player, "totalHeroDamage", "heroDamage"))
+        + _scoreboard_metric("治疗", format_number(player, "totalHeroHeal"), _per10(player, "totalHeroHeal", "totalHeal", "heal"))
+        + _scoreboard_metric("承伤", format_number(player, "totalDamageTaken"), _per10(player, "totalDamageTaken", "damageTaken"))
+        + '</div>'
+    )
 
 
 def build_match_detail_html(payload: dict) -> str:
@@ -75,28 +116,15 @@ def build_match_detail_html(payload: dict) -> str:
         winner_side = match.get("matchWinnerSide")
         teams = []
         for camp in camps:
-            members = []
+            members = [
+                '<div class="mr-scoreboard-head">'
+                '<span>玩家 / 英雄</span><span>K / D / A</span><span>伤害</span><span>治疗</span><span>承伤</span>'
+                '</div>'
+            ]
             for player in players:
                 if not isinstance(player, dict) or player.get("camp") != camp:
                     continue
-                hero_id, switch_count = _main_hero(player)
-                hero_name = format_hero_name(hero_id) if hero_id is not None else "未知英雄"
-                if switch_count:
-                    hero_name += f"（另使用 {switch_count} 名英雄）"
-                members.append(player_row(
-                    name=player.get("nickName", player.get("playerUid", "-")),
-                    hero=hero_name,
-                    stats=(
-                        "每10分钟 " + "/".join(_per10_stat(player, key) for key in ("k", "d", "a"))
-                        if _number_value(player.get("playTime", player.get("playerPlayTime"))) else
-                        "/".join(format_number(player, key) for key in ("k", "d", "a"))
-                    ),
-                    extra=(
-                        f"伤害 {format_number(player, 'totalHeroDamage')}（每10分钟 {_per10(player, 'totalHeroDamage', 'heroDamage')}） · "
-                        f"治疗 {format_number(player, 'totalHeroHeal')}（每10分钟 {_per10(player, 'totalHeroHeal', 'totalHeal', 'heal')}） · "
-                        f"承伤 {format_number(player, 'totalDamageTaken')}（每10分钟 {_per10(player, 'totalDamageTaken', 'damageTaken')}）"
-                    ),
-                ))
+                members.append(_scoreboard_player(player))
             teams.append(team_panel(camp, "".join(members), winner_side=winner_side))
         body = (
             '<section class="mr-section">'

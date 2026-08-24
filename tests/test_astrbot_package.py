@@ -54,8 +54,8 @@ class TestAstrBotPackage(unittest.TestCase):
         metadata = (PLUGIN_DIR / "metadata.yaml").read_text(encoding="utf-8")
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         self.assertIn("name: astrbot_plugin_marvel_rivals", metadata)
-        self.assertIn("version: 1.3.6", metadata)
-        self.assertIn('"1.3.6"', main)
+        self.assertIn("version: 1.3.7", metadata)
+        self.assertIn('"1.3.7"', main)
         self.assertIn('astrbot_version: ">=4.19.6"', metadata)
         self.assertIn("qq_official", metadata)
         self.assertIn("qq_official_webhook", metadata)
@@ -98,13 +98,36 @@ class TestAstrBotPackage(unittest.TestCase):
         main = (PLUGIN_DIR / "main.py").read_text(encoding="utf-8")
         for command in (
             "帮助", "漫威帮助", "绑定账号", "绑定漫威", "解绑账号", "解绑漫威",
-            "最近对局", "最近", "战绩回顾", "对局详情", "对局", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
+            "最近对局", "最近", "战绩回顾", "英雄环境", "英雄排行", "英雄统计", "英雄分段", "英雄对比",
             "英雄趋势", "版本变化", "版本黑马", "冷门强者", "分段怪物",
         ):
             self.assertIn(f'@filter.command("{command}")', main)
         self.assertIn('@filter.command("热门低胜率", alias={"热门陷阱"})', main)
         self.assertIn('@filter.command("每日战绩", alias={"今日战绩"})', main)
+        self.assertIn('@filter.command("对局详情", alias={"对局"})', main)
         self.assertNotIn('@filter.command("help")', main)
+
+    def test_match_detail_uses_one_handler_with_runtime_alias(self):
+        tree = ast.parse((PLUGIN_DIR / "main.py").read_text(encoding="utf-8"))
+        handlers = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "match_detail"
+        ]
+        self.assertEqual(len(handlers), 1)
+        decorators = [
+            decorator for decorator in handlers[0].decorator_list
+            if isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and decorator.func.attr == "command"
+        ]
+        self.assertEqual(len(decorators), 1)
+        self.assertEqual(decorators[0].args[0].value, "对局详情")
+        alias = next(keyword for keyword in decorators[0].keywords if keyword.arg == "alias")
+        self.assertEqual({item.value for item in alias.value.elts}, {"对局"})
+        self.assertFalse(any(
+            isinstance(node, ast.AsyncFunctionDef) and node.name == "match_detail_legacy"
+            for node in ast.walk(tree)
+        ))
 
     def test_hero_commands_use_one_filter_with_runtime_aliases(self):
         tree = ast.parse((PLUGIN_DIR / "main.py").read_text(encoding="utf-8"))
@@ -157,7 +180,7 @@ class TestAstrBotPackage(unittest.TestCase):
         self.assertNotIn("astrbot_plugin_marvel_rivals/", metadata)
 
     def test_release_validator_accepts_current_source(self):
-        self.assertEqual(validate_source(PLUGIN_DIR), "1.3.6")
+        self.assertEqual(validate_source(PLUGIN_DIR), "1.3.7")
 
     def test_release_zip_imports_as_installed_plugin_package(self):
         temp_dir = PLUGIN_DIR / ".test-release-package"

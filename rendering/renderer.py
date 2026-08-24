@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable
+from time import perf_counter
+from typing import Any, Awaitable, Callable
 
 try:
     from ..marvel_rivals_bot.models import HeroQueryResult, MatchWindowReport, PlayerStats
@@ -70,6 +71,7 @@ class RivalsImageRenderer:
         max_retries: int = 1,
         render_retries: int | None = None,
         queue_timeout_seconds: float | None = 15,
+        logger: Any | None = None,
     ):
         self._html_render = html_render
         self.max_concurrent_renders = max(1, int(max_concurrent_renders))
@@ -78,19 +80,37 @@ class RivalsImageRenderer:
             None if queue_timeout_seconds is None else max(0.1, float(queue_timeout_seconds))
         )
         self._render_semaphore = asyncio.Semaphore(self.max_concurrent_renders)
+        self._logger = logger
 
-    async def _render(self, html: str) -> str:
+    async def _render(self, html: str, *, render_type: str = "unknown") -> str:
+        queue_started = perf_counter()
         if self.queue_timeout_seconds is None:
             await self._render_semaphore.acquire()
         else:
-            await asyncio.wait_for(
-                self._render_semaphore.acquire(),
-                timeout=self.queue_timeout_seconds,
-            )
+            try:
+                await asyncio.wait_for(
+                    self._render_semaphore.acquire(),
+                    timeout=self.queue_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                if self._logger:
+                    self._logger.warning(
+                        f"图片渲染排队超时 render_type={render_type} "
+                        f"queue_ms={(perf_counter() - queue_started) * 1000:.1f}"
+                    )
+                raise
+        queue_ms = (perf_counter() - queue_started) * 1000
+        execution_started = perf_counter()
         try:
             for attempt in range(self.max_retries + 1):
                 try:
-                    return await self._html_render(html, {}, options=PNG_OPTIONS)
+                    result = await self._html_render(html, {}, options=PNG_OPTIONS)
+                    if self._logger:
+                        self._logger.info(
+                            f"图片渲染完成 render_type={render_type} queue_ms={queue_ms:.1f} "
+                            f"execution_ms={(perf_counter() - execution_started) * 1000:.1f}"
+                        )
+                    return result
                 except Exception:
                     if attempt >= self.max_retries:
                         raise
@@ -108,7 +128,7 @@ class RivalsImageRenderer:
         return [await self._render(html) for html in build_match_window_pages(report)]
 
     async def detail(self, payload: dict) -> str:
-        return await self._render(build_match_detail_html(payload))
+        return await self._render(build_match_detail_html(payload), render_type="detail")
 
     async def player(self, stats: PlayerStats) -> str:
         return await self._render(build_player_stats_html(stats))

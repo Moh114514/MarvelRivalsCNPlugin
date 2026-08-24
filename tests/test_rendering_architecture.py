@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from rendering import MatchImageRenderer, RivalsImageRenderer
 from rendering.cards import _PNG_OPTIONS, _STYLE
@@ -132,6 +132,23 @@ class TestRenderingAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entered, 2)
         release.set()
         self.assertEqual(await asyncio.gather(*tasks), ["rendered.png"] * 4)
+
+    async def test_detail_render_logs_queue_and_execution_timings(self):
+        logger = Mock()
+        renderer = RivalsImageRenderer(
+            AsyncMock(return_value="rendered.png"),
+            max_retries=0,
+            logger=logger,
+        )
+
+        self.assertEqual(
+            await renderer.detail({"data": {"matches": [{"matchPlayers": []}]}}),
+            "rendered.png",
+        )
+        messages = " ".join(call.args[0] for call in logger.info.call_args_list)
+        self.assertIn("render_type=detail", messages)
+        self.assertIn("queue_ms=", messages)
+        self.assertIn("execution_ms=", messages)
 
 
 if __name__ == "__main__":

@@ -25,37 +25,66 @@ def _delta(value: float | None) -> str:
     return "—" if value is None else f"{value:+.1f}pp"
 
 
+def _score(value: Any, *, signed: bool = False, decimals: int = 1) -> str:
+    if value is None:
+        return "—"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{number:+.{decimals}f}" if signed else f"{number:.{decimals}f}"
+
+
+def _first(item: Any, *names: str, default: Any = None) -> Any:
+    for name in names:
+        value = getattr(item, name, None)
+        if value is not None:
+            return value
+    return default
+
+
 def _hero_card(index: int, item: Any, *, career: bool) -> str:
-    tags = " · ".join((item.classification, *item.tags))
-    delta_class = "positive" if (item.performance_index or 0) >= 0 else "negative"
+    classification = _first(item, "classification", "status", default="绝活候选")
+    tags = tuple(getattr(item, "tags", ()) or ())
+    tag_text = " · ".join(str(tag) for tag in tags)
+    performance_index = _first(item, "performance_index", "win_rate_delta", default=None)
+    delta_class = "positive" if (performance_index or 0) >= 0 else "negative"
     quality = (
-        f'<span>有效赛季 {item.effective_seasons} · 高于环境 {item.positive_seasons}</span>'
+        f'<span>有效赛季 {_first(item, "effective_seasons", default="—")} · '
+        f'高于环境 {_first(item, "positive_seasons", default="—")}</span>'
         if career
         else '<span>本赛季样本 · 不使用跨赛季稳定性</span>'
     )
+    meta_delta = _first(item, "adjusted_meta_delta", "adjusted_delta", "win_rate_delta")
+    competitive_matches = _first(item, "competitive_matches", "ranked_matches")
+    actual_win_rate = _first(item, "actual_win_rate", "ranked_win_rate")
+    expected_meta_win_rate = _first(item, "expected_meta_win_rate", "meta_win_rate")
     return (
         f'<article class="mr-signature-card mr-signature-card--{escape_text(delta_class)}">'
         f'<div class="mr-signature-card__index">{index:02d}</div>'
         '<div class="mr-signature-card__main">'
+        '<div class="mr-signature-card__identity">'
         f'<div class="mr-signature-card__name">{escape_text(item.hero_name)}</div>'
-        f'<div class="mr-signature-card__tags">{escape_text(tags)}</div>'
+        f'<span class="mr-signature-card__badge">{escape_text(classification)}</span>'
+        '</div>'
+        f'<div class="mr-signature-card__tags">{escape_text(tag_text)}</div>'
         '<div class="mr-signature-card__stats">'
-        f'<span>总计 {_count(item.total_matches)} 场</span>'
-        f'<span>竞技 {_count(item.competitive_matches)} 场</span>'
-        f'<span>使用占比 {_percent(item.usage_share)}</span>'
+        f'<span>总计 {_count(_first(item, "total_matches"))} 场</span>'
+        f'<span>竞技 {_count(competitive_matches)} 场</span>'
+        f'<span>使用占比 {_percent(_first(item, "usage_share"))}</span>'
         '</div></div>'
         '<div class="mr-signature-card__metrics">'
-        f'<div><span>状态</span><strong>{escape_text(item.status)}</strong></div>'
-        f'<div><span>绝活指数</span><strong>{item.signature_score:.1f}</strong></div>'
-        f'<div><span>综合表现</span><strong>{item.performance_index:+.1f}</strong></div>'
-        f'<div><span>竞技胜率</span><strong>{escape_text(_percent(item.actual_win_rate))}</strong></div>'
-        f'<div><span>同期 Meta</span><strong>{escape_text(_percent(item.expected_meta_win_rate))}</strong></div>'
-        f'<div><span>稳健环境差值</span><strong>{escape_text(_delta(item.adjusted_meta_delta if item.adjusted_meta_delta is not None else item.adjusted_delta))}</strong></div>'
-        f'<div><span>证据修正</span><strong>{item.evidence_factor:.2f}</strong></div>'
+        f'<div><span>绝活指数</span><strong>{_score(getattr(item, "signature_score", None))}</strong></div>'
+        f'<div><span>综合表现</span><strong>{_score(performance_index, signed=True)}</strong></div>'
+        f'<div><span>竞技胜率</span><strong>{escape_text(_percent(actual_win_rate))}</strong></div>'
+        f'<div><span>同期 Meta</span><strong>{escape_text(_percent(expected_meta_win_rate))}</strong></div>'
+        f'<div><span>稳健领先</span><strong>{escape_text(_delta(meta_delta))}</strong></div>'
+        f'<div><span>证据系数</span><strong>{_score(getattr(item, "evidence_factor", None), decimals=2)}</strong></div>'
         '</div>'
         '<div class="mr-signature-card__quality">'
         f'{quality}'
-        f'<span>可信度 {escape_text(item.confidence)} · Meta 覆盖 {item.meta_coverage:.0f}%</span>'
+        f'<span>可信度 {escape_text(getattr(item, "confidence", "数据不足"))} · '
+        f'Meta 覆盖 {_score(getattr(item, "meta_coverage", None), decimals=0)}%</span>'
         '</div></article>'
     )
 

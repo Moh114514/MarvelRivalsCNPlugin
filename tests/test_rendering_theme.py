@@ -122,8 +122,26 @@ class TestRenderingTheme(unittest.TestCase):
             "DEFEAT",
             "阵营 1",
             'class="mr-team-list"',
+            'class="mr-scoreboard-head"',
+            'mr-scoreboard-player__kda',
         ):
             self.assertIn(marker, html)
+
+    def test_match_scoreboard_keeps_raw_kda_primary_and_normalized_values_secondary(self):
+        html = build_match_detail_html({"data": {"matches": [{
+            "matchUid": "m-2",
+            "matchWinnerSide": 1,
+            "matchPlayers": [{
+                "camp": 1, "nickName": "Moh233", "curHeroId": 1036,
+                "playTime": 900, "k": 18, "d": 6, "a": 3,
+                "totalHeroDamage": 5600, "totalHeroHeal": 19900, "totalDamageTaken": 6700,
+            }],
+        }]}})
+        self.assertIn("18/6/3", html)
+        self.assertIn("/10分钟 12.0/4.0/2.0", html)
+        self.assertNotIn("伤害 5,600.0", html)
+        self.assertIn("5.6K", html)
+        self.assertIn("/10分钟 3,733.3", html)
 
     def test_hero_page_and_empty_fallback_use_semantic_structure(self):
         hero = build_hero_query_html(HeroQueryResult(

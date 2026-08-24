@@ -1,4 +1,5 @@
 import json
+import asyncio
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
@@ -124,6 +125,24 @@ class TestMatchWindow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plugin._resolve_match_selection(event, "17"), "window-16")
         with self.assertRaises(CommandUsageError):
             plugin._resolve_match_selection(event, "24")
+
+    async def test_parallel_same_group_users_resolve_their_own_match_selection(self):
+        plugin = object.__new__(MarvelRivalsPlugin)
+        store = InteractionSessionStore()
+        store.set_recent("user-a", "group-1", ["match-a-1", "match-a-2"])
+        store.set_recent("user-b", "group-1", ["match-b-1", "match-b-2"])
+        plugin.interaction_sessions = store
+        plugin._qq_id = lambda event: event.sender_id
+        plugin._group_id = lambda _event: "group-1"
+
+        async def resolve(sender_id):
+            await asyncio.sleep(0)
+            return plugin._resolve_match_selection(SimpleNamespace(sender_id=sender_id), "1")
+
+        self.assertEqual(
+            await asyncio.gather(resolve("user-a"), resolve("user-b")),
+            ["match-a-1", "match-b-1"],
+        )
 
     def test_recent_session_accepts_typed_match_records(self):
         plugin = object.__new__(MarvelRivalsPlugin)
