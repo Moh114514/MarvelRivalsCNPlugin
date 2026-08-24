@@ -22,14 +22,14 @@ class HeroRatingEngine:
         combat_result = calculate_combat(context, hero)
         consistency = calculate_consistency(hero.seasons, latest_season_code=context.latest_season_code)
         experience = calculate_experience(
-            hero.competitive_matches,
+            hero.competitive_effective_matches or hero.competitive_matches,
             hero.competitive_stats.play_time / 60 if hero.competitive_stats.play_time else None,
-            hero.quick_stats.matches,
+            hero.quick_effective_matches or hero.quick_stats.effective_matches or hero.quick_stats.matches,
             hero.quick_stats.play_time / 60 if hero.quick_stats.play_time else None,
             hero.active_seasons,
         )
         confidence, components = calculate_confidence(
-            hero.competitive_matches,
+            hero.competitive_effective_matches or hero.competitive_matches,
             hero.meta_coverage,
             combat_result.observable_coverage,
             hero.comparable_seasons,
@@ -59,7 +59,10 @@ class HeroRatingEngine:
     def rate_many(self, context: RatingContext) -> dict[str, HeroRatingResult]:
         results = {hero.hero_id: self.rate(context, hero) for hero in context.heroes}
         results = apply_specialization(results)
-        return {hero_id: replace(result, classification=classify_rating(result)) for hero_id, result in results.items()}
+        return {
+            hero_id: replace(result, classification=classify_rating(result, scope=context.scope))
+            for hero_id, result in results.items()
+        }
 
 
 __all__ = ["HeroRatingEngine"]

@@ -29,9 +29,9 @@ def _meta_disadvantage(item) -> float | None:
     return max(-float(raw_delta), 0.0) if raw_delta is not None else None
 
 
-def _sick_card(index: int, item) -> str:
+def _sick_card(index: int, item, *, show_v2: bool = False) -> str:
     sickness_score = float(getattr(item, "sickness_score", getattr(item, "sick_score", 0.0)) or 0.0)
-    rating = getattr(item, "rating", None)
+    rating = getattr(item, "rating", None) if show_v2 else None
     rating_detail = ""
     if rating is not None:
         specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
@@ -74,7 +74,7 @@ def _sick_card(index: int, item) -> str:
     )
 
 
-def _sickness_glossary() -> str:
+def _sickness_glossary(*, v2: bool = False) -> str:
     entries = (
         ("使用指数", "把竞技场次、快速场次和使用占比分别换算成 0—100 分，再按 40%、20%、40% 加权；分数越高，说明你越常回到这个英雄。"),
         ("弱势表现", "统一取 max(-Performance Index, 0)，把 Meta、个人竞技和个人快速的可用相对表现合成为一个负向轴。"),
@@ -83,6 +83,13 @@ def _sickness_glossary() -> str:
         ("候选范围", "总场次至少 10，或竞技至少 5，或快速至少 20；Performance ≤ -10 且绝症指数 > 0 才进入绝症榜，-10 到 +10 是中性区。"),
         ("为什么没有凑满 Top 10", "这是最多 10 名的相对排名；没有足够使用量或胜率证据的英雄不会被硬塞进来，低分也不等于确诊。"),
     )
+    if v2:
+        entries = (
+            ("V2 绝症候选", "按 Specialization 升序、Performance 升序排序；Confidence 与 Experience 用于证据优先级。"),
+            ("Specialization", "相对同一玩家其他英雄的表现差值；没有足够同玩家样本时不强行给出结论。"),
+            ("Performance", "Outcome、Combat、Consistency 的综合表现，低置信度结果会向 50 收缩。"),
+            ("Confidence", "有效竞技场次、Meta 覆盖、可观测指标和可比赛季的综合证据分。"),
+        )
     cards = "".join(
         f'<article class="mr-sickness-glossary__item">'
         f'<strong>{escape_text(term)}</strong>'
@@ -139,14 +146,14 @@ def build_player_sickness_html(profile: PlayerSignatureProfile) -> str:
     if profile.sick_heroes:
         content += '<div class="mr-sickness-list">'
         content += "".join(
-            _sick_card(index, item)
+            _sick_card(index, item, show_v2=profile.rating_version == "v2")
             for index, item in enumerate(profile.sick_heroes, 1)
         )
         content += '</div>'
     else:
         content += empty_state("目前没有可用于相对排名的候选英雄。")
     content += '</section>'
-    content += _sickness_glossary()
+    content += _sickness_glossary(v2=profile.rating_version == "v2")
     content += (
         '<div class="mr-meta-source mr-sickness-footer">'
         '<span>本页最多展示 Top 10；绝症指数只表示相对排序，不代表实际损失或医学意义上的确诊。</span>'

@@ -54,13 +54,21 @@ def build_player_hero_pool_analysis_html(pool: HeroPoolAnalysis) -> str:
         ("正向使用占比", _percent(pool.positive_usage_share)),
         ("负向使用占比", _percent(pool.negative_usage_share)),
     )) + '</section>'
+    if getattr(pool, "rating_version", "shadow") == "v2":
+        content += '<section class="mr-section mr-rating-v2">' + section_title("V2 画像质量", "RATING QUALITY")
+        content += metric_grid((
+            ("高掌握度英雄", str(pool.high_mastery_count)),
+            ("高专精度英雄", str(pool.high_specialization_count)),
+            ("高置信度英雄", str(pool.high_confidence_count)),
+            ("负专精使用占比", _percent(pool.negative_specialization_usage_share)),
+        )) + '</section>'
     content += '<section class="mr-section">' + section_title("结构结论", "STRUCTURE TAGS")
     if pool.structure_tags:
         content += '<div class="mr-meta-source">' + escape_text(" · ".join(pool.structure_tags)) + '</div>'
     else:
         content += empty_state("当前没有足够结构信号")
     content += '</section>'
-    if pool.style_shares:
+    if getattr(pool, "rating_version", "shadow") == "v2" and pool.style_shares:
         content += '<section class="mr-section mr-rating-v2">' + section_title("战术体系", "TACTICAL STYLES")
         style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
         content += metric_grid(tuple((style_labels.get(key, key), _percent(value)) for key, value in sorted(pool.style_shares.items(), key=lambda pair: -pair[1])))

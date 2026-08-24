@@ -26,6 +26,7 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
     def test_mode_stats_preserves_v2_fields_and_dynamic_fields(self):
         stats = _mode_stats({
             "totalMatchCount": 3.159391452199304,
+            "totalMatchWinCount": 2.922,
             "soloKill": 3,
             "headKill": "2",
             "mainAttackCnt": 8022,
@@ -36,6 +37,9 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(stats.matches, 3)
         self.assertAlmostEqual(stats.effective_matches, 3.159391452199304)
+        self.assertEqual(stats.wins, 3)
+        self.assertAlmostEqual(stats.effective_wins, 2.922)
+        self.assertAlmostEqual(stats.effective_win_rate, 2.922 * 100 / 3.159391452199304)
         self.assertEqual(stats.solo_eliminations, 3)
         self.assertEqual(stats.critical_eliminations, 2)
         self.assertEqual(stats.main_attack_count, 8022)

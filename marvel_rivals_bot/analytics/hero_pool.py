@@ -123,6 +123,16 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
     )[:10]
     positive_share = positive_usage
     negative_share = negative_usage
+    rated = [item.rating for item in heroes if getattr(item, "rating", None) is not None]
+    high_mastery = sum(1 for rating in rated if rating.mastery >= 70)
+    high_specialization = sum(1 for rating in rated if (rating.specialization or 0.0) >= 8)
+    high_confidence = sum(1 for rating in rated if rating.confidence >= 0.70)
+    negative_specialization_usage = sum(
+        float(item.usage_share or 0.0)
+        for item in heroes
+        if getattr(item, "rating", None) is not None
+        and (item.rating.specialization or 0.0) < 0
+    )
     tags = _structure_tags(
         ordered=ordered,
         top1=top1_share,
@@ -154,6 +164,11 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
         style_shares=style_shares,
         profile_shares=profile_shares,
         tactical_tags=tuple(tactical_tags),
+        rating_version=getattr(profile, "rating_version", "shadow"),
+        high_mastery_count=high_mastery,
+        high_specialization_count=high_specialization,
+        high_confidence_count=high_confidence,
+        negative_specialization_usage_share=negative_specialization_usage,
     )
 
 

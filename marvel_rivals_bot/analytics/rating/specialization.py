@@ -21,7 +21,19 @@ def apply_specialization(results: dict[str, HeroRatingResult]) -> dict[str, Hero
     return output
 
 
-def classify_rating(result: HeroRatingResult) -> str:
+def classify_rating(result: HeroRatingResult, *, scope: str = "career") -> str:
+    if scope == "season":
+        if result.performance >= 85 and result.confidence >= 0.85:
+            return "赛季强势"
+        if result.performance >= 78 and result.confidence >= 0.70:
+            return "赛季表现优秀"
+        if result.performance >= 65 and result.confidence < 0.55:
+            return "赛季待验证"
+        if result.performance <= 35 and result.confidence >= 0.70:
+            return "赛季偏弱"
+        if result.performance >= 55:
+            return "赛季中性"
+        return "赛季偏弱"
     spec = result.specialization
     if result.performance <= 35 and spec is not None and spec <= -10 and result.experience >= 20 and result.confidence >= 0.70:
         return "绝症候选"

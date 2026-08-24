@@ -1,5 +1,6 @@
 import math
 import unittest
+from pathlib import Path
 
 from marvel_rivals_bot.analytics.archetypes import get_archetype
 from marvel_rivals_bot.analytics.models import NormalizedModeStats
@@ -11,7 +12,15 @@ from marvel_rivals_bot.analytics.rating.experience import calculate_experience
 from marvel_rivals_bot.analytics.rating.models import RatingContext, RatingHeroSnapshot
 from marvel_rivals_bot.analytics.rating.outcome import calculate_outcome
 from marvel_rivals_bot.analytics.rating.transforms import robust_score, robust_z
-from marvel_rivals_bot.analytics.signature import PlayerCareerAnalysisService, _profile_to_dict, _signature_from_dict
+from marvel_rivals_bot.analytics.rating.specialization import classify_rating
+from marvel_rivals_bot.analytics.rating.models import HeroRatingResult
+from marvel_rivals_bot.analytics.signature import (
+    AnalysisScope,
+    PlayerCareerAnalysisService,
+    SignatureCache,
+    _profile_to_dict,
+    _signature_from_dict,
+)
 from tests.test_player_signature import FakeMeta, FakeRivals
 
 
@@ -51,6 +60,8 @@ class TestRatingV2(unittest.TestCase):
         self.assertEqual(calculate_outcome(None), None)
         self.assertAlmostEqual(robust_z(4, [1, 2, 3, 4, 5]), (4 - 3) / 1.4826)
         self.assertEqual(robust_z(3, [3, 3, 3]), 0.0)
+        self.assertEqual(robust_z(3.01, [3, 3, 3]), 0.0)
+        self.assertEqual(robust_score(3.01, [3, 3, 3]), 50.0)
         self.assertGreater(robust_score(5, [1, 2, 3, 4, 5]), 50)
 
     def test_experience_and_confidence_are_bounded(self):
@@ -80,6 +91,36 @@ class TestRatingV2(unittest.TestCase):
         self.assertTrue(all(0 <= item.mastery <= 100 for item in results.values()))
         self.assertIsNotNone(results["1011"].specialization)
         self.assertIn(results["1011"].classification, {"招牌绝活", "强势绝活", "潜力绝活", "待验证", "常用英雄"})
+
+    def test_tactical_baseline_does_not_cross_official_roles(self):
+        heroes = tuple(snapshot(hero_id, seed) for hero_id, seed in zip((1014, 1028, 10571, 1066), (1, 2, 3, 4)))
+        result = calculate_combat(RatingContext(heroes, "19"), heroes[0])
+        self.assertIsNone(result.baseline_group)
+
+    def test_season_classification_is_not_a_career_label(self):
+        result = HeroRatingResult(
+            hero_id="1011",
+            hero_name="Hero",
+            archetype=get_archetype(1011),
+            outcome=80,
+            combat=80,
+            consistency=80,
+            experience=80,
+            performance_raw=82,
+            performance=82,
+            confidence=.8,
+            mastery=82,
+        )
+        self.assertEqual(classify_rating(result, scope="season"), "赛季表现优秀")
+
+    def test_rating_cache_path_isolated_by_version_and_schema(self):
+        cache = SignatureCache(None)
+        cache.root = Path("analysis")
+        career = AnalysisScope.career()
+        shadow = cache._analysis_path("123", career, rating_version="shadow")
+        v2 = cache._analysis_path("123", career, rating_version="v2")
+        self.assertNotEqual(shadow, v2)
+        self.assertIn("_r2", str(v2))
 
 
 class TestRatingIntegration(unittest.IsolatedAsyncioTestCase):

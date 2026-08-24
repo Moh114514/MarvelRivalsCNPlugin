@@ -24,12 +24,16 @@ class RatingHeroSnapshot:
     seasons: tuple["HeroSeasonPerformance", ...] = ()
     comparable_seasons: int = 0
     active_seasons: int = 0
+    competitive_effective_matches: float | None = None
+    competitive_effective_wins: float | None = None
+    quick_effective_matches: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RatingContext:
     heroes: tuple[RatingHeroSnapshot, ...]
     latest_season_code: str | None = None
+    scope: str = "career"
 
 
 @dataclass(frozen=True, slots=True)

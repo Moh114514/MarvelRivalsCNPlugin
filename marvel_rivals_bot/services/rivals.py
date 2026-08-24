@@ -1217,16 +1217,20 @@ def _parse_generic_hero_career(
         wins = _generic_number(
             row, "totalMatchWinCount", "totalWinCount", "winCount", "wins"
         )
-        win_rate = _generic_number(row, "winRate")
-        if win_rate is None and matches and wins is not None:
-            win_rate = wins * 100 / matches
         effective_matches = _generic_number(row, "effectiveMatches", "effectiveMatchCount")
         if effective_matches is None:
             effective_matches = matches
+        effective_wins = _generic_number(row, "effectiveWins", "effectiveWinCount")
+        if effective_wins is None:
+            effective_wins = wins
+        win_rate = _generic_number(row, "winRate")
+        if win_rate is None and effective_matches and effective_wins is not None:
+            win_rate = effective_wins * 100 / effective_matches
         scope = ModeStats(
             matches=round(matches) if matches is not None else None,
             effective_matches=float(effective_matches) if effective_matches is not None else None,
             wins=round(wins) if wins is not None else None,
+            effective_wins=float(effective_wins) if effective_wins is not None else None,
             win_rate=win_rate,
             kills=_generic_number(row, "k", "kills"),
             deaths=_generic_number(row, "d", "deaths"),

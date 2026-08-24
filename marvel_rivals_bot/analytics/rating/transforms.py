@@ -25,7 +25,7 @@ def robust_z(value: float, population: Iterable[float], *, epsilon: float = 1e-9
     mad = median([abs(item - center) for item in values])
     scale = 1.4826 * mad
     if scale <= epsilon:
-        return 0.0 if abs(float(value) - center) <= epsilon else math.copysign(3.0, float(value) - center)
+        return 0.0
     return max(-3.0, min(3.0, (float(value) - center) / (scale + epsilon)))
 
 

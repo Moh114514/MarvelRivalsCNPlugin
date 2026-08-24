@@ -71,7 +71,11 @@ def _mode_analysis_lines(title: str, mode) -> list[str]:
 def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHeroSignature) -> str:
     """Render one hero from the same ViewModel consumed by list commands."""
 
-    v2_rating = getattr(hero, "rating", None)
+    v2_rating = (
+        getattr(hero, "rating", None)
+        if getattr(profile, "rating_version", "shadow") == "v2"
+        else None
+    )
 
     scope = profile.scope
     scope_label = analysis_scope_label(scope)
@@ -200,8 +204,9 @@ def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
         "英雄池质量",
         f"核心英雄综合表现：{weighted_performance}｜正向使用占比：{pool.positive_usage_share:.1f}%｜负向使用占比：{pool.negative_usage_share:.1f}%",
     ]
-    style_shares = getattr(pool, "style_shares", {}) or {}
-    tactical_tags = getattr(pool, "tactical_tags", ()) or ()
+    show_v2 = getattr(pool, "rating_version", "shadow") == "v2"
+    style_shares = getattr(pool, "style_shares", {}) or {} if show_v2 else {}
+    tactical_tags = getattr(pool, "tactical_tags", ()) or () if show_v2 else ()
     if style_shares:
         style_labels = {"dive": "突袭", "brawl": "近战", "poke": "远程压制"}
         lines.extend(("", "战术体系", "｜".join(f"{style_labels.get(key, key)} {value:.1f}%" for key, value in sorted(style_shares.items(), key=lambda pair: -pair[1]))))
@@ -241,6 +246,7 @@ def format_player_signature(profile: PlayerMetaProfile) -> str:
 def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
     analysis_scope = getattr(profile, "scope", None)
     scope = analysis_scope_label(analysis_scope)
+    show_v2 = getattr(profile, "rating_version", "shadow") == "v2"
     lines = [
         f"我的绝活｜{scope}分析",
         f"玩家：{profile.player_name}（UID：{profile.uid}）",
@@ -296,7 +302,7 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
         )
     )
     rated = [item for item in profile.signature_heroes if getattr(item, "rating", None) is not None]
-    if rated:
+    if rated and getattr(profile, "rating_version", "shadow") == "v2":
         lines.extend(("", "V2 评分摘要"))
         for item in rated:
             lines.extend(_rating_lines(item.rating))
@@ -306,6 +312,7 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
 def format_player_sickness(profile: PlayerSignatureProfile) -> str:
     analysis_scope = getattr(profile, "scope", None)
     scope = analysis_scope_label(analysis_scope)
+    show_v2 = getattr(profile, "rating_version", "shadow") == "v2"
     competitive_total = int(getattr(profile, "competitive_matches", 0) or 0)
     total_matches = int(getattr(profile, "total_matches", competitive_total) or competitive_total)
     quick_total = max(0, total_matches - competitive_total)
@@ -318,6 +325,9 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
         "这是“玩得多但表现相对差”的娱乐型相对排名，不是医学意义上的确诊。",
         "候选范围：总场次≥10，或竞技≥5，或快速≥20；Performance ≤ -10 才进入绝症榜。",
     ]
+    if show_v2:
+        lines[4] = "V2 评分：Mastery / Performance / Specialization / Confidence"
+        lines[6] = "候选与排序由 V2 评分分类、专精度和有效证据决定"
     if profile.partial:
         lines.append("提示：部分历史赛季或 Meta 数据不可用，以下仅展示可确认结果。")
     if not getattr(profile, "meta_available", True):
@@ -350,6 +360,12 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
             "缺少某类数据时会按剩余信号重新分配权重；指数只用于相对排序，不代表实际损失。",
         )
     )
+    if show_v2:
+        rated = [item for item in profile.sick_heroes if getattr(item, "rating", None) is not None]
+        if rated:
+            lines.extend(("", "V2 评分明细"))
+            for item in rated:
+                lines.extend(_rating_lines(item.rating))
     return "\n".join(lines)
 
 

@@ -43,7 +43,7 @@ def _first(item: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
-def _hero_card(index: int, item: Any, *, career: bool) -> str:
+def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) -> str:
     classification = _first(item, "classification", "status", default="绝活候选")
     tags = tuple(getattr(item, "tags", ()) or ())
     tag_text = " · ".join(str(tag) for tag in tags)
@@ -56,7 +56,7 @@ def _hero_card(index: int, item: Any, *, career: bool) -> str:
         else '<span>本赛季样本 · 不使用跨赛季稳定性</span>'
     )
     meta_delta = _first(item, "adjusted_meta_delta", "adjusted_delta", "win_rate_delta")
-    rating = getattr(item, "rating", None)
+    rating = getattr(item, "rating", None) if show_v2 else None
     v2_markup = ""
     if rating is not None:
         specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
@@ -102,7 +102,7 @@ def _hero_card(index: int, item: Any, *, career: bool) -> str:
     )
 
 
-def _glossary(*, career: bool) -> str:
+def _glossary(*, career: bool, v2: bool = False) -> str:
     entries = [
         ("有效环境（有效赛季）", "该英雄在某赛季竞技模式只要出过场就计入。它表示玩家确实在这个赛季使用过该英雄，不等于一定有足够样本比较 Meta。"),
         ("同期 Meta", "RivalsMeta 的第三方统计：尽量使用玩家该赛季、该历史段位对应的英雄胜率；没有对应段位数据时才回退全段位。它不是官方数据。"),
@@ -114,7 +114,15 @@ def _glossary(*, career: bool) -> str:
         ("Meta 覆盖", "这个英雄的竞技场次里，有多少场能找到同期 Meta 数据并完成比较；覆盖越高，结论越完整。"),
         ("快速 / 竞技", "快速模式参与使用量、个人快速基准和综合表现，但不直接与 Meta 比较；竞技模式提供 Meta 对比和主要分类证据。"),
     ]
-    if not career:
+    if v2:
+        entries = [
+            ("Mastery", "综合掌握度：Performance 与 Experience 的加权结果。"),
+            ("Performance", "Outcome、Combat、Consistency 的评分结果，并按 Confidence 向 50 收缩。"),
+            ("Specialization", "相对同一玩家其他英雄的表现差值；留一法计算，未达到证据门槛时保持不可用。"),
+            ("Confidence", "由有效竞技样本、Meta 覆盖、可观测指标与可比赛季共同决定。"),
+            ("战术原型", "按官方职责隔离后，再在同一战术功能中建立 Combat 基线。"),
+        ]
+    elif not career:
         entries = [
             ("赛季分类", "单赛季只使用赛季强势、赛季表现优秀、赛季待验证、赛季中性和赛季偏弱，不解释跨赛季稳定性。"),
             *(entry for entry in entries if entry[0] not in {"有效环境（有效赛季）", "长期稳定性", "标签：常青绝活 / 长期专精 / 新晋绝活 / 逆版本绝活 / 本命英雄"}),
@@ -184,7 +192,12 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
     if profile.signature_heroes:
         content += '<div class="mr-signature-list">'
         content += "".join(
-            _hero_card(index, item, career=profile.scope.kind == "career")
+            _hero_card(
+                index,
+                item,
+                career=profile.scope.kind == "career",
+                show_v2=profile.rating_version == "v2",
+            )
             for index, item in enumerate(profile.signature_heroes, 1)
         )
         content += "</div>"
@@ -197,7 +210,10 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
             else "本赛季暂无可比较的正向候选英雄"
         )
     content += '</section>'
-    content += _glossary(career=profile.scope.kind == "career")
+    content += _glossary(
+        career=profile.scope.kind == "career",
+        v2=profile.rating_version == "v2",
+    )
     content += (
         '<div class="mr-meta-source mr-signature-footer">'
         f'<span>{"竞技表现按各赛季玩家历史段位与同期 Meta 进行校正" if career else "竞技表现按本赛季玩家历史段位与同期 Meta 进行校正"}</span>'

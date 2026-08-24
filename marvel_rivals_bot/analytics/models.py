@@ -107,6 +107,7 @@ class NormalizedModeStats:
     matches: int | None = None
     effective_matches: float | None = None
     wins: int | None = None
+    effective_wins: float | None = None
     kills: int | None = None
     final_hits: int | None = None
     solo_eliminations: int | None = None
@@ -160,6 +161,12 @@ class NormalizedModeStats:
         return None
 
     @property
+    def effective_win_rate(self) -> float | None:
+        if self.effective_matches and self.effective_wins is not None:
+            return self.effective_wins * 100 / self.effective_matches
+        return None
+
+    @property
     def per10_hero_damage(self) -> float | None:
         return self._per10(self.hero_damage)
 
@@ -185,6 +192,7 @@ class NormalizedModeStats:
             matches=_optional_int(getattr(mode, "matches", None)),
             effective_matches=_optional_float(getattr(mode, "effective_matches", None)),
             wins=_optional_int(getattr(mode, "wins", None)),
+            effective_wins=_optional_float(getattr(mode, "effective_wins", None)),
             kills=_optional_int(getattr(mode, "kills", None)),
             final_hits=_optional_int(getattr(mode, "final_hits", None)),
             solo_eliminations=_optional_int(getattr(mode, "solo_eliminations", None)),
@@ -211,6 +219,7 @@ class NormalizedModeStats:
             matches=_optional_int(value.get("matches")),
             effective_matches=_optional_float(value.get("effective_matches")),
             wins=_optional_int(value.get("wins")),
+            effective_wins=_optional_float(value.get("effective_wins")),
             kills=_optional_int(value.get("kills")),
             final_hits=_optional_int(value.get("final_hits")),
             solo_eliminations=_optional_int(value.get("solo_eliminations")),
@@ -342,6 +351,8 @@ class HeroSeasonPerformance:
     raw_delta: float | None
     rank_fallback: bool
     meta_available: bool
+    competitive_effective_matches: float | None = None
+    competitive_effective_wins: float | None = None
 
 
 @dataclass(slots=True)
@@ -403,6 +414,9 @@ class CareerHeroSignature:
     comparable_competitive_matches: int = 0
     comparable_competitive_wins: int = 0
     comparable_competitive_win_rate: float | None = None
+    quick_effective_matches: float | None = None
+    competitive_effective_matches: float | None = None
+    competitive_effective_wins: float | None = None
     # V2 is additive: old fields remain populated for v1/shadow consumers.
     rating: "HeroRatingResult | None" = None
 
@@ -466,6 +480,11 @@ class HeroPoolAnalysis:
     style_shares: dict[str, float] = field(default_factory=dict)
     profile_shares: dict[str, float] = field(default_factory=dict)
     tactical_tags: tuple[str, ...] = ()
+    rating_version: str = "shadow"
+    high_mastery_count: int = 0
+    high_specialization_count: int = 0
+    high_confidence_count: int = 0
+    negative_specialization_usage_share: float = 0.0
 
 
 def _optional_int(value: Any) -> int | None:

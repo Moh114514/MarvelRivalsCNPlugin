@@ -95,6 +95,7 @@ def build_player_hero_analysis_html(
         ),
     )
     content += '<section class="mr-section">' + section_title(conclusion, "CONCLUSION")
+    rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
     usage_metrics = [
         ("绝活指数", f"{hero.signature_score:.1f}"),
         ("绝症指数", f"{hero.sickness_score:.1f}"),
@@ -104,8 +105,16 @@ def build_player_hero_analysis_html(
     ]
     if is_career:
         usage_metrics.append(("活跃赛季", _value(hero.active_seasons)))
+    if rating is not None:
+        usage_metrics = [
+            ("Mastery", f"{rating.mastery:.1f}"),
+            ("Performance", f"{rating.performance:.1f}"),
+            ("Specialization", "—" if rating.specialization is None else f"{rating.specialization:+.1f}"),
+            ("Confidence", f"{rating.confidence:.2f}"),
+            *usage_metrics[2:],
+        ]
     content += metric_grid(tuple(usage_metrics)) + '</section>'
-    rating = getattr(hero, "rating", None)
+    rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
     if rating is not None:
         dimensions = " / ".join(
             f"{key.upper()} {value:.1f}" if value is not None else f"{key.upper()} —"

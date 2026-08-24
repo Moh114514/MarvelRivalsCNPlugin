@@ -111,18 +111,23 @@ def _mode_stats(value: Any) -> ModeStats:
     effective_matches = _number(data, "effectiveMatches", "effectiveMatchCount")
     if effective_matches is None:
         effective_matches = raw_matches
-    wins = _number(
+    raw_wins = _number(
         data,
         "totalMatchWinCount", "totalWinCount", "winCount", "wins",
         "totalWinNum", "winNum", "gameWinCount", "totalGameWinCount",
     )
+    wins = raw_wins
+    effective_wins = _number(data, "effectiveWins", "effectiveWinCount")
+    if effective_wins is None:
+        effective_wins = raw_wins
     win_rate = _number(data, "winRate")
-    if win_rate is None and matches and wins is not None:
-        win_rate = wins * 100 / matches
+    if win_rate is None and effective_matches and effective_wins is not None:
+        win_rate = effective_wins * 100 / effective_matches
     return ModeStats(
         matches=round(matches) if matches is not None else None,
         effective_matches=float(effective_matches) if effective_matches is not None else None,
         wins=round(wins) if wins is not None else None,
+        effective_wins=float(effective_wins) if effective_wins is not None else None,
         kills=_count(data, "k", "kills", "totalKill"),
         deaths=_count(data, "d", "deaths", "totalDeath"),
         assists=_count(data, "a", "assists", "totalAssist"),
@@ -696,10 +701,13 @@ class CNDataSource(RivalsDataSource):
 
         matches = add("matches")
         wins = add("wins")
+        effective_matches = add("effective_matches")
+        effective_wins = add("effective_wins")
         return ModeStats(
             matches=matches,
-            effective_matches=add("effective_matches"),
+            effective_matches=effective_matches,
             wins=wins,
+            effective_wins=effective_wins,
             kills=add("kills"),
             deaths=add("deaths"),
             assists=add("assists"),
@@ -711,7 +719,9 @@ class CNDataSource(RivalsDataSource):
             max_kills=maximum("max_kills"),
             max_assists=maximum("max_assists"),
             max_final_hits=maximum("max_final_hits"),
-            win_rate=(wins * 100 / matches) if matches and wins is not None else None,
+            win_rate=(effective_wins * 100 / effective_matches)
+            if effective_matches and effective_wins is not None
+            else ((wins * 100 / matches) if matches and wins is not None else None),
             damage=add("damage"),
             hero_damage=add("hero_damage"),
             heal=add("heal"),

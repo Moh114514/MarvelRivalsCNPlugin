@@ -20,6 +20,7 @@ class ModeStats:
     # source value separately for the V2 analytics layer.
     effective_matches: float | None = None
     wins: int | None = None
+    effective_wins: float | None = None
     kills: int | None = None
     deaths: int | None = None
     assists: int | None = None
@@ -80,6 +81,17 @@ class ModeStats:
         if self.main_attack_count and self.main_attack_count > 0 and self.main_attack_hits is not None:
             return self.main_attack_hits * 100 / self.main_attack_count
         return None
+
+    @property
+    def effective_win_rate(self) -> float | None:
+        if self.effective_matches and self.effective_wins is not None:
+            return self.effective_wins * 100 / self.effective_matches
+        return None
+
+    @property
+    def max_hit_rate(self) -> float | None:
+        """Explicit name for the session maximum retained by ``hit_rate``."""
+        return self.hit_rate
 
     @property
     def per10_hero_damage(self) -> float | None:
@@ -150,8 +162,19 @@ class CareerSummary:
             self.matches = _sum_optional(self.quick.matches, self.competitive.matches)
         if self.wins is None:
             self.wins = _sum_optional(self.quick.wins, self.competitive.wins)
-        if self.win_rate is None and self.matches and self.wins is not None:
-            self.win_rate = self.wins * 100 / self.matches
+        if self.win_rate is None:
+            effective_matches = _sum_optional(
+                self.quick.effective_matches,
+                self.competitive.effective_matches,
+            )
+            effective_wins = _sum_optional(
+                self.quick.effective_wins,
+                self.competitive.effective_wins,
+            )
+            if effective_matches and effective_wins is not None:
+                self.win_rate = effective_wins * 100 / effective_matches
+            elif self.matches and self.wins is not None:
+                self.win_rate = self.wins * 100 / self.matches
 
 
 @dataclass(slots=True)
@@ -201,7 +224,9 @@ class PlayerHeroStats:
             and self.competitive.wins is not None
         ) or (self.total.wins is None and (self.quick.wins is not None or self.competitive.wins is not None)):
             self.total.wins = _sum_optional(self.quick.wins, self.competitive.wins)
-        if self.total.matches and self.total.wins is not None:
+        if self.total.effective_matches and self.total.effective_wins is not None:
+            self.total.win_rate = self.total.effective_wins * 100 / self.total.effective_matches
+        elif self.total.matches and self.total.wins is not None:
             self.total.win_rate = self.total.wins * 100 / self.total.matches
         if (
             self.quick.play_time_seconds is not None
@@ -215,6 +240,7 @@ class PlayerHeroStats:
             )
         for field_name in (
             "effective_matches",
+            "effective_wins",
             "kills", "deaths", "assists", "final_hits",
             "solo_eliminations", "critical_eliminations",
             "main_attack_count", "main_attack_hits",
@@ -229,6 +255,8 @@ class PlayerHeroStats:
                         getattr(self.competitive, field_name),
                     ),
                 )
+        if self.total.effective_matches and self.total.effective_wins is not None:
+            self.total.win_rate = self.total.effective_wins * 100 / self.total.effective_matches
         for field_name in ("max_kills", "max_assists", "max_final_hits"):
             if getattr(self.total, field_name) is None:
                 values = [

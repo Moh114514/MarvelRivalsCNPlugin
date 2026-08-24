@@ -50,10 +50,26 @@ def _mean_nonempty(*pairs):
 
 
 def _group(context: RatingContext, current: RatingHeroSnapshot) -> tuple[list[RatingHeroSnapshot], str | None]:
-    eligible = [item for item in context.heroes if item.hero_id != current.hero_id and item.competitive_matches >= 5]
+    def official_role(item: RatingHeroSnapshot):
+        try:
+            return HERO_ROLE_MAP.get(int(item.hero_id))
+        except (TypeError, ValueError):
+            return None
+
+    current_role = official_role(current)
+    eligible = [
+        item for item in context.heroes
+        if item.hero_id != current.hero_id
+        and (item.competitive_effective_matches or item.competitive_matches or 0) >= 5
+    ]
     checks = (
         (lambda item: item.archetype.metric_profile == current.archetype.metric_profile, "同 MetricProfile"),
-        (lambda item: item.archetype.function == current.archetype.function, "同 TacticalFunction"),
+        (
+            lambda item: current_role is not None
+            and official_role(item) == current_role
+            and item.archetype.function == current.archetype.function,
+            "同 TacticalFunction",
+        ),
     )
     for predicate, label in checks:
         candidates = [item for item in eligible if predicate(item)]
@@ -62,13 +78,9 @@ def _group(context: RatingContext, current: RatingHeroSnapshot) -> tuple[list[Ra
     # Official role is deliberately read from the archetype's tactical data;
     # the archetype validation guarantees it was authored against the official
     # role map.  This fallback remains deterministic when no role peer exists.
-    try:
-        current_role = HERO_ROLE_MAP.get(int(current.hero_id))
-    except (TypeError, ValueError):
-        current_role = None
     candidates = [
         item for item in eligible
-        if current_role is not None and HERO_ROLE_MAP.get(int(item.hero_id)) == current_role
+        if current_role is not None and official_role(item) == current_role
     ]
     if len(candidates) >= 3:
         return candidates, "同 OfficialRole"
