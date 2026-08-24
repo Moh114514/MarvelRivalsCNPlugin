@@ -102,9 +102,14 @@ class NormalizedModeStats:
     """Additive per-mode HeroCareer statistics used by career analysis."""
 
     matches: int | None = None
+    effective_matches: float | None = None
     wins: int | None = None
     kills: int | None = None
     final_hits: int | None = None
+    solo_eliminations: int | None = None
+    critical_eliminations: int | None = None
+    main_attack_count: int | None = None
+    main_attack_hits: int | None = None
     deaths: int | None = None
     assists: int | None = None
     hero_damage: int | None = None
@@ -113,6 +118,8 @@ class NormalizedModeStats:
     play_time: float | None = None
     mvp: int | None = None
     svp: int | None = None
+    dynamic_sum: dict[str, float] = field(default_factory=dict)
+    dynamic_max: dict[str, float] = field(default_factory=dict)
 
     def _per10(self, value: int | float | None) -> float | None:
         if value is None or self.play_time is None or self.play_time <= 0:
@@ -134,6 +141,20 @@ class NormalizedModeStats:
     @property
     def per10_final_hits(self) -> float | None:
         return self._per10(self.final_hits)
+
+    @property
+    def per10_solo_eliminations(self) -> float | None:
+        return self._per10(self.solo_eliminations)
+
+    @property
+    def per10_critical_eliminations(self) -> float | None:
+        return self._per10(self.critical_eliminations)
+
+    @property
+    def main_attack_accuracy(self) -> float | None:
+        if self.main_attack_count and self.main_attack_count > 0 and self.main_attack_hits is not None:
+            return self.main_attack_hits * 100 / self.main_attack_count
+        return None
 
     @property
     def per10_hero_damage(self) -> float | None:
@@ -159,9 +180,14 @@ class NormalizedModeStats:
             play_time = getattr(mode, "play_time_seconds", None)
         return cls(
             matches=_optional_int(getattr(mode, "matches", None)),
+            effective_matches=_optional_float(getattr(mode, "effective_matches", None)),
             wins=_optional_int(getattr(mode, "wins", None)),
             kills=_optional_int(getattr(mode, "kills", None)),
             final_hits=_optional_int(getattr(mode, "final_hits", None)),
+            solo_eliminations=_optional_int(getattr(mode, "solo_eliminations", None)),
+            critical_eliminations=_optional_int(getattr(mode, "critical_eliminations", None)),
+            main_attack_count=_optional_int(getattr(mode, "main_attack_count", None)),
+            main_attack_hits=_optional_int(getattr(mode, "main_attack_hits", None)),
             deaths=_optional_int(getattr(mode, "deaths", None)),
             assists=_optional_int(getattr(mode, "assists", None)),
             hero_damage=_optional_int(hero_damage),
@@ -170,6 +196,8 @@ class NormalizedModeStats:
             play_time=_optional_float(play_time),
             mvp=_optional_int(getattr(mode, "mvp", None)),
             svp=_optional_int(getattr(mode, "svp", None)),
+            dynamic_sum=_dynamic_dict(getattr(mode, "dynamic_sum", None)),
+            dynamic_max=_dynamic_dict(getattr(mode, "dynamic_max", None)),
         )
 
     @classmethod
@@ -178,9 +206,14 @@ class NormalizedModeStats:
             return cls()
         return cls(
             matches=_optional_int(value.get("matches")),
+            effective_matches=_optional_float(value.get("effective_matches")),
             wins=_optional_int(value.get("wins")),
             kills=_optional_int(value.get("kills")),
             final_hits=_optional_int(value.get("final_hits")),
+            solo_eliminations=_optional_int(value.get("solo_eliminations")),
+            critical_eliminations=_optional_int(value.get("critical_eliminations")),
+            main_attack_count=_optional_int(value.get("main_attack_count")),
+            main_attack_hits=_optional_int(value.get("main_attack_hits")),
             deaths=_optional_int(value.get("deaths")),
             assists=_optional_int(value.get("assists")),
             hero_damage=_optional_int(value.get("hero_damage")),
@@ -189,6 +222,8 @@ class NormalizedModeStats:
             play_time=_optional_float(value.get("play_time")),
             mvp=_optional_int(value.get("mvp")),
             svp=_optional_int(value.get("svp")),
+            dynamic_sum=_dynamic_dict(value.get("dynamic_sum")),
+            dynamic_max=_dynamic_dict(value.get("dynamic_max")),
         )
 
     def difference(self, previous: "NormalizedModeStats | None") -> "NormalizedModeStats":
@@ -197,6 +232,12 @@ class NormalizedModeStats:
         for field_name in self.__dataclass_fields__:
             current = getattr(self, field_name)
             old = getattr(previous, field_name)
+            if field_name == "dynamic_sum":
+                values[field_name] = _difference_dynamic(current, old)
+                continue
+            if field_name == "dynamic_max":
+                values[field_name] = _dynamic_dict(current)
+                continue
             if current is None:
                 values[field_name] = None
             elif field_name != "matches" and previous.matches and old is None:
@@ -214,6 +255,12 @@ class NormalizedModeStats:
         for field_name in self.__dataclass_fields__:
             current = getattr(self, field_name)
             other_value = getattr(other, field_name)
+            if field_name == "dynamic_sum":
+                values[field_name] = _add_dynamic(current, other_value)
+                continue
+            if field_name == "dynamic_max":
+                values[field_name] = _max_dynamic(current, other_value)
+                continue
             if field_name != "matches" and (
                 (self.matches and current is None)
                 or (other.matches and other_value is None)
@@ -419,6 +466,41 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _dynamic_dict(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key, item in value.items():
+        try:
+            result[str(key)] = float(item)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _difference_dynamic(current: Any, previous: Any) -> dict[str, float]:
+    current_values = _dynamic_dict(current)
+    previous_values = _dynamic_dict(previous)
+    return {
+        key: max(0.0, value - previous_values.get(key, 0.0))
+        for key, value in current_values.items()
+    }
+
+
+def _add_dynamic(first: Any, second: Any) -> dict[str, float]:
+    result = _dynamic_dict(first)
+    for key, value in _dynamic_dict(second).items():
+        result[key] = result.get(key, 0.0) + value
+    return result
+
+
+def _max_dynamic(first: Any, second: Any) -> dict[str, float]:
+    result = _dynamic_dict(first)
+    for key, value in _dynamic_dict(second).items():
+        result[key] = max(result.get(key, value), value)
+    return result
 
 
 def _optional_float(value: Any) -> float | None:

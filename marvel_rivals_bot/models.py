@@ -15,11 +15,19 @@ class ModeStats:
     """
 
     matches: int | None = None
+    # CN may return an effective (non-integral) match count.  Keep the
+    # rounded ``matches`` field for existing presenters and preserve the
+    # source value separately for the V2 analytics layer.
+    effective_matches: float | None = None
     wins: int | None = None
     kills: int | None = None
     deaths: int | None = None
     assists: int | None = None
     final_hits: int | None = None
+    solo_eliminations: int | None = None
+    critical_eliminations: int | None = None
+    main_attack_count: int | None = None
+    main_attack_hits: int | None = None
     max_kills: int | None = None
     max_assists: int | None = None
     max_final_hits: int | None = None
@@ -32,6 +40,8 @@ class ModeStats:
     play_time_seconds: float | None = None
     mvp: int | None = None
     svp: int | None = None
+    dynamic_sum: dict[str, float] = field(default_factory=dict)
+    dynamic_max: dict[str, float] = field(default_factory=dict)
 
     @property
     def _per10_factor(self) -> float | None:
@@ -58,6 +68,20 @@ class ModeStats:
         return self._per10(self.final_hits)
 
     @property
+    def per10_solo_eliminations(self) -> float | None:
+        return self._per10(self.solo_eliminations)
+
+    @property
+    def per10_critical_eliminations(self) -> float | None:
+        return self._per10(self.critical_eliminations)
+
+    @property
+    def main_attack_accuracy(self) -> float | None:
+        if self.main_attack_count and self.main_attack_count > 0 and self.main_attack_hits is not None:
+            return self.main_attack_hits * 100 / self.main_attack_count
+        return None
+
+    @property
     def per10_hero_damage(self) -> float | None:
         return self._per10(self.hero_damage if self.hero_damage is not None else self.damage)
 
@@ -80,6 +104,8 @@ class PlayerProfile:
     rank_game_season: str = ""
     rank_level: int | None = None
     rank_history: dict[str, int] = field(default_factory=dict)
+    rank_score: int | None = None
+    rank_score_history: dict[str, int] = field(default_factory=dict)
 
     @property
     def rank_game_season_levels(self) -> dict[str, int]:
@@ -187,6 +213,34 @@ class PlayerHeroStats:
             self.total.play_time_seconds = _sum_optional(
                 self.quick.play_time_seconds, self.competitive.play_time_seconds
             )
+        for field_name in (
+            "effective_matches",
+            "kills", "deaths", "assists", "final_hits",
+            "solo_eliminations", "critical_eliminations",
+            "main_attack_count", "main_attack_hits",
+            "damage", "hero_damage", "heal", "damage_taken", "mvp", "svp",
+        ):
+            if getattr(self.total, field_name) is None:
+                setattr(
+                    self.total,
+                    field_name,
+                    _sum_optional(
+                        getattr(self.quick, field_name),
+                        getattr(self.competitive, field_name),
+                    ),
+                )
+        for field_name in ("max_kills", "max_assists", "max_final_hits"):
+            if getattr(self.total, field_name) is None:
+                values = [
+                    getattr(self.quick, field_name),
+                    getattr(self.competitive, field_name),
+                ]
+                values = [value for value in values if value is not None]
+                setattr(self.total, field_name, max(values) if values else None)
+        if not self.total.dynamic_sum:
+            self.total.dynamic_sum = _merge_dynamic_sum(self.quick.dynamic_sum, self.competitive.dynamic_sum)
+        if not self.total.dynamic_max:
+            self.total.dynamic_max = _merge_dynamic_max(self.quick.dynamic_max, self.competitive.dynamic_max)
 
         pairs = (
             ("matches", "total_matches"),
@@ -226,8 +280,8 @@ class PlayerHeroStats:
 
 
 def _mode_is_empty(mode: ModeStats) -> bool:
-    return all(value is None for value in vars(mode).values()) if hasattr(mode, "__dict__") else all(
-        getattr(mode, field_name) is None
+    return all(value is None or value == {} for value in vars(mode).values()) if hasattr(mode, "__dict__") else all(
+        getattr(mode, field_name) is None or getattr(mode, field_name) == {}
         for field_name in ModeStats.__dataclass_fields__
     )
 
@@ -235,6 +289,22 @@ def _mode_is_empty(mode: ModeStats) -> bool:
 def _sum_optional(*values: int | float | None) -> int | float | None:
     present = [value for value in values if value is not None]
     return sum(present) if present else None
+
+
+def _merge_dynamic_sum(*values: dict[str, float]) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for mapping in values:
+        for key, value in mapping.items():
+            result[key] = result.get(key, 0.0) + value
+    return result
+
+
+def _merge_dynamic_max(*values: dict[str, float]) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for mapping in values:
+        for key, value in mapping.items():
+            result[key] = max(result.get(key, value), value)
+    return result
 
 
 @dataclass(slots=True)

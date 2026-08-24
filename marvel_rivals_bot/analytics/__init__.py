@@ -11,6 +11,16 @@ from .models import (
     PlayerSignatureProfile,
     analysis_scope_label,
 )
+from .archetypes import (
+    CombatStyle,
+    HERO_ARCHETYPES,
+    HeroArchetype,
+    METRIC_PROFILES,
+    MetricDimension,
+    MetricProfile,
+    MetricProfileId,
+    TacticalFunction,
+)
 from .player_meta import PlayerMetaQueryError, PlayerMetaService
 from .signature import (
     CareerAnalysisCache,
@@ -31,6 +41,14 @@ __all__ = [
     "PlayerCareerAnalysis",
     "PlayerSignatureProfile",
     "analysis_scope_label",
+    "CombatStyle",
+    "HERO_ARCHETYPES",
+    "HeroArchetype",
+    "METRIC_PROFILES",
+    "MetricDimension",
+    "MetricProfile",
+    "MetricProfileId",
+    "TacticalFunction",
     "PlayerMetaQueryError",
     "PlayerMetaService",
     "PlayerSignatureService",

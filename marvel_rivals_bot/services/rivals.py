@@ -1179,6 +1179,21 @@ def _generic_number(row: Mapping[str, Any], *keys: str) -> int | float | None:
     return None
 
 
+def _generic_dynamic(row: Mapping[str, Any], *keys: str) -> dict[str, float]:
+    for key in keys:
+        value = row.get(key)
+        if not isinstance(value, Mapping):
+            continue
+        result: dict[str, float] = {}
+        for feature_key, feature_value in value.items():
+            try:
+                result[str(feature_key)] = float(feature_value)
+            except (TypeError, ValueError):
+                continue
+        return result
+    return {}
+
+
 def _parse_generic_hero_career(
     payload: Any,
     hero_ids: list[int | str],
@@ -1205,14 +1220,29 @@ def _parse_generic_hero_career(
         win_rate = _generic_number(row, "winRate")
         if win_rate is None and matches and wins is not None:
             win_rate = wins * 100 / matches
+        effective_matches = _generic_number(row, "effectiveMatches", "effectiveMatchCount")
+        if effective_matches is None:
+            effective_matches = matches
         scope = ModeStats(
             matches=round(matches) if matches is not None else None,
+            effective_matches=float(effective_matches) if effective_matches is not None else None,
             wins=round(wins) if wins is not None else None,
             win_rate=win_rate,
             kills=_generic_number(row, "k", "kills"),
             deaths=_generic_number(row, "d", "deaths"),
             assists=_generic_number(row, "a", "assists"),
+            final_hits=_generic_number(row, "lastKill", "finalHits", "finalHit"),
+            solo_eliminations=_generic_number(row, "soloKill", "soloEliminations"),
+            critical_eliminations=_generic_number(row, "headKill", "criticalKill", "criticalEliminations"),
+            main_attack_count=_generic_number(row, "mainAttackCnt", "mainAttackCount"),
+            main_attack_hits=_generic_number(row, "mainAttackHit", "mainAttackHits"),
+            damage=_generic_number(row, "totalDamage", "damage"),
+            hero_damage=_generic_number(row, "totalHeroDamage", "heroDamage"),
+            heal=_generic_number(row, "totalHeroHeal", "totalHeal", "heroHeal", "heal"),
+            damage_taken=_generic_number(row, "totalDamageTaken", "damageTaken"),
             play_time_seconds=_generic_number(row, "totalPlayTime", "playTime"),
+            dynamic_sum=_generic_dynamic(row, "sumDynamicFields", "sum_dynamic_fields"),
+            dynamic_max=_generic_dynamic(row, "maxDynamicFields", "max_dynamic_fields"),
         )
         hero = PlayerHeroStats(
             hero_id=hero_id,

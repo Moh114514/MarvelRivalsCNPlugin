@@ -167,6 +167,40 @@ class TestSignatureRules(unittest.TestCase):
         self.assertEqual(adjusted[1].heroes["1026"].competitive.kills, 100)
         self.assertEqual(adjusted[1].heroes["1026"].competitive.hero_damage, 1500)
 
+    def test_normalized_v2_fields_round_trip_and_use_explicit_merge_rules(self):
+        current = NormalizedModeStats(
+            matches=4,
+            effective_matches=3.5,
+            solo_eliminations=6,
+            critical_eliminations=4,
+            main_attack_count=100,
+            main_attack_hits=75,
+            dynamic_sum={"Feature_1": 8.0},
+            dynamic_max={"Feature_1": 5.0},
+        )
+        previous = NormalizedModeStats(
+            matches=2,
+            effective_matches=1.5,
+            solo_eliminations=2,
+            critical_eliminations=1,
+            main_attack_count=40,
+            main_attack_hits=30,
+            dynamic_sum={"Feature_1": 3.0},
+            dynamic_max={"Feature_1": 4.0},
+        )
+
+        delta = current.difference(previous)
+        self.assertEqual(delta.solo_eliminations, 4)
+        self.assertEqual(delta.main_attack_count, 60)
+        self.assertEqual(delta.dynamic_sum, {"Feature_1": 5.0})
+        self.assertEqual(delta.dynamic_max, {"Feature_1": 5.0})
+        self.assertAlmostEqual(current.main_attack_accuracy, 75.0)
+        restored = NormalizedModeStats.from_dict(current.__dict__ if hasattr(current, "__dict__") else {
+            name: getattr(current, name) for name in current.__dataclass_fields__
+        })
+        self.assertEqual(restored.dynamic_sum, current.dynamic_sum)
+        self.assertEqual(restored.effective_matches, current.effective_matches)
+
     def test_sort_key_keeps_zero_delta_and_stability_as_real_values(self):
         zero = SimpleNamespace(
             classification="常用英雄",

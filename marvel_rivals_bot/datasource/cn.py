@@ -49,6 +49,25 @@ def _text(data: Mapping[str, Any], *keys: str, default: str = "") -> str:
     return default
 
 
+def _dynamic_fields(data: Mapping[str, Any], *keys: str) -> dict[str, float]:
+    """Read numeric DynamicFields without assigning them business meaning."""
+
+    for key in keys:
+        value = data.get(key)
+        if not isinstance(value, Mapping):
+            continue
+        result: dict[str, float] = {}
+        for feature_key, feature_value in value.items():
+            try:
+                if isinstance(feature_value, bool) or feature_value in (None, ""):
+                    continue
+                result[str(feature_key)] = float(feature_value)
+            except (TypeError, ValueError):
+                continue
+        return result
+    return {}
+
+
 def _first_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
@@ -75,6 +94,13 @@ def _career_mapping(value: Any) -> dict[str, Any]:
 
 def _mode_stats(value: Any) -> ModeStats:
     data = _career_mapping(value)
+    raw_matches = _number(
+        data,
+        "totalMatchCount", "matchCount", "matches", "totalMatches",
+        "totalMatchNum", "matchNum", "gameCount", "totalGameCount",
+        "battleCount", "totalBattleCount", "playCount", "totalPlayCount",
+        "useCount", "totalUseCount",
+    )
     matches = _number(
         data,
         "totalMatchCount", "matchCount", "matches", "totalMatches",
@@ -82,6 +108,9 @@ def _mode_stats(value: Any) -> ModeStats:
         "battleCount", "totalBattleCount", "playCount", "totalPlayCount",
         "useCount", "totalUseCount",
     )
+    effective_matches = _number(data, "effectiveMatches", "effectiveMatchCount")
+    if effective_matches is None:
+        effective_matches = raw_matches
     wins = _number(
         data,
         "totalMatchWinCount", "totalWinCount", "winCount", "wins",
@@ -92,11 +121,16 @@ def _mode_stats(value: Any) -> ModeStats:
         win_rate = wins * 100 / matches
     return ModeStats(
         matches=round(matches) if matches is not None else None,
+        effective_matches=float(effective_matches) if effective_matches is not None else None,
         wins=round(wins) if wins is not None else None,
         kills=_count(data, "k", "kills", "totalKill"),
         deaths=_count(data, "d", "deaths", "totalDeath"),
         assists=_count(data, "a", "assists", "totalAssist"),
         final_hits=_count(data, "lastKill"),
+        solo_eliminations=_count(data, "soloKill", "soloKills", "soloEliminations"),
+        critical_eliminations=_count(data, "headKill", "criticalKill", "criticalEliminations"),
+        main_attack_count=_count(data, "mainAttackCnt", "mainAttackCount"),
+        main_attack_hits=_count(data, "mainAttackHit", "mainAttackHits"),
         max_kills=_count(data, "sessionMaxK"),
         max_assists=_count(data, "sessionMaxA"),
         max_final_hits=_count(data, "sessionMaxLastKill"),
@@ -109,11 +143,16 @@ def _mode_stats(value: Any) -> ModeStats:
         play_time_seconds=_number(data, "totalPlayTime", "playTime"),
         mvp=_count(data, "totalMvpTimes", "mvp", "mvpTimes"),
         svp=_count(data, "totalSvpTimes", "svp", "svpTimes"),
+        dynamic_sum=_dynamic_fields(data, "sumDynamicFields", "sum_dynamic_fields"),
+        dynamic_max=_dynamic_fields(data, "maxDynamicFields", "max_dynamic_fields"),
     )
 
 
 def _mode_stats_is_empty(value: ModeStats) -> bool:
-    return all(getattr(value, field_name) is None for field_name in ModeStats.__dataclass_fields__)
+    return all(
+        getattr(value, field_name) is None or getattr(value, field_name) == {}
+        for field_name in ModeStats.__dataclass_fields__
+    )
 
 
 def _rank_level(value: Any, season: str = "19") -> int | None:
@@ -153,6 +192,39 @@ def _rank_levels(value: Any) -> dict[str, int]:
         level = _number(rank, "level")
         if level is not None:
             result[season_code] = int(level)
+    return result
+
+
+def _rank_scores(value: Any) -> dict[str, int]:
+    """Parse CN ``rankGameSeason`` into ``season_code -> rank score``."""
+
+    if not isinstance(value, (str, Mapping)) or not value:
+        return {}
+    try:
+        seasons = json.loads(value) if isinstance(value, str) else value
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(seasons, Mapping):
+        return {}
+
+    result: dict[str, int] = {}
+    for key, raw_rank in seasons.items():
+        key_text = str(key)
+        if key_text.startswith("10010") and key_text[5:].isdigit():
+            season_code = str(int(key_text[5:]))
+        elif key_text.isdigit():
+            season_code = str(int(key_text))
+        else:
+            continue
+        try:
+            rank = json.loads(raw_rank) if isinstance(raw_rank, str) else raw_rank
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(rank, Mapping):
+            continue
+        score = _number(rank, "rank_score", "rankScore", "score")
+        if score is not None:
+            result[season_code] = int(round(score))
     return result
 
 
@@ -573,6 +645,12 @@ class CNDataSource(RivalsDataSource):
         response_uid: str,
         season: str,
     ) -> PlayerProfile:
+        rank_scores = _rank_scores(data.get("rankGameSeason"))
+        season_key = str(int(season))
+        rank_score = rank_scores.get(season_key)
+        if rank_score is None:
+            score = _number(data, "rank_score", "rankScore", "currentRankScore")
+            rank_score = int(round(score)) if score is not None else None
         return PlayerProfile(
             uid=response_uid,
             name=_text(data, "name", "playerName", "nickName", default=_text(role, "roleName", default="未知")),
@@ -586,6 +664,8 @@ class CNDataSource(RivalsDataSource):
                 data, "rankLevel", "rankLevelId", "currentRankLevel"
             ),
             rank_history=_rank_levels(data.get("rankGameSeason")),
+            rank_score=rank_score,
+            rank_score_history=rank_scores,
         )
 
     @staticmethod
@@ -600,15 +680,34 @@ class CNDataSource(RivalsDataSource):
             present = [value for value in values if value is not None]
             return max(present) if present else None
 
+        def merge_dynamic_sum() -> dict[str, float]:
+            result: dict[str, float] = {}
+            for source in (quick.dynamic_sum, competitive.dynamic_sum):
+                for key, value in source.items():
+                    result[key] = result.get(key, 0.0) + value
+            return result
+
+        def merge_dynamic_max() -> dict[str, float]:
+            result: dict[str, float] = {}
+            for source in (quick.dynamic_max, competitive.dynamic_max):
+                for key, value in source.items():
+                    result[key] = max(result.get(key, value), value)
+            return result
+
         matches = add("matches")
         wins = add("wins")
         return ModeStats(
             matches=matches,
+            effective_matches=add("effective_matches"),
             wins=wins,
             kills=add("kills"),
             deaths=add("deaths"),
             assists=add("assists"),
             final_hits=add("final_hits"),
+            solo_eliminations=add("solo_eliminations"),
+            critical_eliminations=add("critical_eliminations"),
+            main_attack_count=add("main_attack_count"),
+            main_attack_hits=add("main_attack_hits"),
             max_kills=maximum("max_kills"),
             max_assists=maximum("max_assists"),
             max_final_hits=maximum("max_final_hits"),
@@ -620,6 +719,8 @@ class CNDataSource(RivalsDataSource):
             play_time_seconds=add("play_time_seconds"),
             mvp=add("mvp"),
             svp=add("svp"),
+            dynamic_sum=merge_dynamic_sum(),
+            dynamic_max=merge_dynamic_max(),
         )
 
     @staticmethod
@@ -634,6 +735,11 @@ class CNDataSource(RivalsDataSource):
             )
             for field_name in ModeStats.__dataclass_fields__
         }
+        for field_name in ("dynamic_sum", "dynamic_max"):
+            values[field_name] = {
+                **getattr(existing, field_name),
+                **getattr(incoming, field_name),
+            }
         return ModeStats(**values)
 
     async def get_player_profile(self, uid: str, season: str | None = None) -> PlayerProfile:

@@ -3,7 +3,7 @@ import unittest
 
 import httpx
 
-from marvel_rivals_bot.datasource.cn import CNDataSource, _mode_stats, _rank_text
+from marvel_rivals_bot.datasource.cn import CNDataSource, _mode_stats, _rank_scores, _rank_text
 from marvel_rivals_bot.models import PlayerStats
 
 
@@ -22,6 +22,53 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.max_kills, 18)
         self.assertEqual(stats.max_assists, 11)
         self.assertEqual(stats.max_final_hits, 4)
+
+    def test_mode_stats_preserves_v2_fields_and_dynamic_fields(self):
+        stats = _mode_stats({
+            "totalMatchCount": 3.159391452199304,
+            "soloKill": 3,
+            "headKill": "2",
+            "mainAttackCnt": 8022,
+            "mainAttackHit": 3153,
+            "sumDynamicFields": {"Feature_105802": 49, "ignored": "not-a-number"},
+            "maxDynamicFields": {"Feature_105802": 12},
+        })
+
+        self.assertEqual(stats.matches, 3)
+        self.assertAlmostEqual(stats.effective_matches, 3.159391452199304)
+        self.assertEqual(stats.solo_eliminations, 3)
+        self.assertEqual(stats.critical_eliminations, 2)
+        self.assertEqual(stats.main_attack_count, 8022)
+        self.assertEqual(stats.main_attack_hits, 3153)
+        self.assertAlmostEqual(stats.main_attack_accuracy, 3153 * 100 / 8022)
+        self.assertEqual(stats.dynamic_sum, {"Feature_105802": 49.0})
+        self.assertEqual(stats.dynamic_max, {"Feature_105802": 12.0})
+
+    def test_rank_scores_are_kept_separate_from_rank_levels(self):
+        payload = json.dumps({
+            "1001018": json.dumps({"level": 14, "rank_score": 4411.2}),
+            "1001019": json.dumps({"level": 1, "rank_score": "1234"}),
+        })
+        self.assertEqual(_rank_scores(payload), {"18": 4411, "19": 1234})
+
+    def test_mode_combination_uses_additive_and_max_dynamic_semantics(self):
+        quick = _mode_stats({
+            "totalMatchCount": 2.5,
+            "soloKill": 3,
+            "sumDynamicFields": {"Feature_1": 2},
+            "maxDynamicFields": {"Feature_1": 4},
+        })
+        competitive = _mode_stats({
+            "totalMatchCount": 1.5,
+            "soloKill": 1,
+            "sumDynamicFields": {"Feature_1": 5, "Feature_2": 7},
+            "maxDynamicFields": {"Feature_1": 6},
+        })
+        total = CNDataSource._combine_mode_stats(quick, competitive)
+        self.assertEqual(total.solo_eliminations, 4)
+        self.assertEqual(total.effective_matches, 4.0)
+        self.assertEqual(total.dynamic_sum, {"Feature_1": 7.0, "Feature_2": 7.0})
+        self.assertEqual(total.dynamic_max, {"Feature_1": 6.0})
 
     async def test_owned_client_is_reused_and_closed_explicitly(self):
         source = CNDataSource(env={"MRCN_API_BASE_URL": "https://example.test"})
@@ -312,6 +359,8 @@ class TestCNDataSource(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(stats.season, "18")
         self.assertEqual(stats.profile.rank_level, 14)
+        self.assertEqual(stats.profile.rank_score, 4411)
+        self.assertEqual(stats.profile.rank_score_history, {"18": 4411})
         self.assertEqual(stats.profile.rank_game_season, "钻石2（4411 分）")
         self.assertEqual(stats.heroes[0].kills, 123)
         for path, body in calls:
