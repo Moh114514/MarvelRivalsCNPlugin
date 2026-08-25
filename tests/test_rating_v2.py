@@ -14,7 +14,7 @@ from marvel_rivals_bot.analytics.rating.models import RatingContext, RatingHeroS
 from marvel_rivals_bot.analytics.rating.outcome import calculate_outcome
 from marvel_rivals_bot.analytics.rating.transforms import robust_score, robust_z
 from marvel_rivals_bot.analytics.rating.specialization import classify_rating
-from marvel_rivals_bot.analytics.rating.specialization import apply_specialization
+from marvel_rivals_bot.analytics.rating.specialization import apply_specialization, SpecializationEvidencePolicy
 from marvel_rivals_bot.analytics.rating.models import HeroRatingResult
 from marvel_rivals_bot.analytics.signature import (
     AnalysisScope,
@@ -103,6 +103,29 @@ class TestRatingV2(unittest.TestCase):
         self.assertGreater(result.observable_coverage, 0)
         self.assertIsNotNone(result.baseline_group)
 
+    def test_combat_shrinks_raw_dimensions_by_baseline_and_peer_quality(self):
+        heroes = tuple(snapshot(hero_id, seed) for hero_id, seed in zip((1011, 1039, 1051, 1062), (1, 2, 3, 4)))
+        result = calculate_combat(RatingContext(heroes, "19"), heroes[0])
+        self.assertEqual(result.baseline_group, "同 MetricProfile")
+        self.assertEqual(result.baseline_peer_count, 3)
+        self.assertEqual(result.baseline_quality, 1.0)
+        self.assertAlmostEqual(result.peer_quality, 0.6)
+        self.assertAlmostEqual(result.final_quality, 0.6)
+        raw = result.raw_dimension_score["fin"]
+        shrunk = result.shrunk_dimension_score["fin"]
+        self.assertIsNotNone(raw)
+        self.assertIsNotNone(shrunk)
+        self.assertAlmostEqual(shrunk, 50.0 + 0.6 * (raw - 50.0))
+        self.assertAlmostEqual(result.dimensions["fin"], shrunk)
+
+    def test_combat_diagnostics_show_coarse_role_fallback_quality(self):
+        heroes = tuple(snapshot(hero_id, seed) for hero_id, seed in zip((1011, 1018, 1022, 1027), (1, 2, 3, 4)))
+        result = calculate_combat(RatingContext(heroes, "19"), heroes[0])
+        self.assertEqual(result.baseline_group, "同 OfficialRole")
+        self.assertAlmostEqual(result.baseline_quality, 0.6)
+        self.assertAlmostEqual(result.peer_quality, 0.6)
+        self.assertAlmostEqual(result.final_quality, 0.36)
+
     def test_engine_exposes_v2_result_and_leave_one_out_specialization(self):
         heroes = tuple(snapshot(hero_id, seed) for hero_id, seed in zip((1011, 1039, 1051, 1062), (8, 2, 3, 4)))
         results = HeroRatingEngine().rate_many(RatingContext(heroes, "19"))
@@ -180,6 +203,41 @@ class TestRatingV2(unittest.TestCase):
         rated = apply_specialization(results)
         self.assertTrue(all(item.specialization is None for item in rated.values()))
 
+    def test_specialization_evidence_gate_blocks_hero_without_rating_signal(self):
+        target = HeroRatingResult(
+            hero_id="1011", hero_name="Target", archetype=get_archetype(1011),
+            outcome=None, combat=None, consistency=None, experience=100,
+            performance_raw=50, performance=50, confidence=0, mastery=50,
+        )
+        peers = {
+            str(hero_id): HeroRatingResult(
+                hero_id=str(hero_id), hero_name="Peer", archetype=get_archetype(1011),
+                outcome=60, combat=60, consistency=60, experience=30,
+                performance_raw=70, performance=70, confidence=.8, mastery=70,
+            )
+            for hero_id in (1039, 1051, 1062)
+        }
+        rated = apply_specialization({"1011": target, **peers})
+        self.assertIsNone(rated["1011"].specialization)
+
+    def test_specialization_evidence_policy_is_configurable(self):
+        def make(hero_id, *, confidence, experience):
+            return HeroRatingResult(
+                hero_id=str(hero_id), hero_name="Hero", archetype=get_archetype(1011),
+                outcome=50, combat=50, consistency=50, experience=experience,
+                performance_raw=60, performance=60, confidence=confidence, mastery=60,
+            )
+        results = {
+            "1011": make(1011, confidence=.4, experience=30),
+            "1039": make(1039, confidence=.8, experience=30),
+            "1051": make(1051, confidence=.8, experience=30),
+            "1062": make(1062, confidence=.8, experience=30),
+        }
+        policy = SpecializationEvidencePolicy(min_confidence=.5, min_experience=40)
+        self.assertIsNone(apply_specialization(results, evidence_policy=policy)["1011"].specialization)
+        policy = SpecializationEvidencePolicy(min_confidence=.5, min_experience=20)
+        self.assertIsNotNone(apply_specialization(results, evidence_policy=policy)["1011"].specialization)
+
     def test_v2_signature_tier_precedes_specialization(self):
         from types import SimpleNamespace
         from marvel_rivals_bot.analytics.signature import _v2_signature_sort_key
@@ -194,7 +252,7 @@ class TestRatingV2(unittest.TestCase):
         shadow = cache._analysis_path("123", career, rating_version="shadow")
         v2 = cache._analysis_path("123", career, rating_version="v2")
         self.assertNotEqual(shadow, v2)
-        self.assertIn("_r2", str(v2))
+        self.assertIn("_r3", str(v2))
 
 
 class TestRatingIntegration(unittest.IsolatedAsyncioTestCase):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..archetypes import MetricDimension
 from ..archetypes.profiles import METRIC_PROFILES
@@ -18,6 +18,20 @@ class CombatResult:
     dimensions: dict[str, float | None]
     observable_coverage: float
     baseline_group: str | None
+    baseline_peer_count: int = 0
+    baseline_quality: float = 0.0
+    peer_quality: float = 0.0
+    final_quality: float = 0.0
+    raw_dimension_score: dict[str, float | None] = field(default_factory=dict)
+    shrunk_dimension_score: dict[str, float | None] = field(default_factory=dict)
+
+
+_BASELINE_QUALITY = {
+    "同 MetricProfile": 1.0,
+    "同职责 + 同 TacticalFunction": 0.85,
+    "同 OfficialRole": 0.6,
+}
+_PEER_QUALITY_FULL_COUNT = 5
 
 
 def _value(snapshot: RatingHeroSnapshot, dimension: MetricDimension) -> float | None:
@@ -91,11 +105,30 @@ def _group(context: RatingContext, current: RatingHeroSnapshot) -> tuple[list[Ra
     return [], None
 
 
+def _peer_quality(peer_count: int) -> float:
+    """Return a bounded quality factor for the size of the peer sample.
+
+    Baselines require three peers, while five peers are treated as a full
+    sample.  This keeps the existing eligibility/fallback rules intact and
+    makes the amount of peer evidence visible to calibration diagnostics.
+    """
+
+    return min(1.0, max(0.0, float(peer_count) / _PEER_QUALITY_FULL_COUNT))
+
+
 def calculate_combat(context: RatingContext, current: RatingHeroSnapshot) -> CombatResult:
     peers, group_name = _group(context, current)
     if not peers:
-        return CombatResult(None, {dimension.value: None for dimension in MetricDimension}, 0.0, None)
-    dimensions: dict[str, float | None] = {}
+        unavailable = {dimension.value: None for dimension in MetricDimension}
+        return CombatResult(
+            None,
+            unavailable,
+            0.0,
+            None,
+            raw_dimension_score=dict(unavailable),
+            shrunk_dimension_score=dict(unavailable),
+        )
+    raw_dimensions: dict[str, float | None] = {}
     for dimension in (MetricDimension.FIN, MetricDimension.PRS, MetricDimension.SUR, MetricDimension.TEAM, MetricDimension.HEAL, MetricDimension.FRONT, MetricDimension.UTIL):
         if dimension is MetricDimension.FRONT:
             current_taken = _value(current, MetricDimension.FRONT)
@@ -103,21 +136,39 @@ def calculate_combat(context: RatingContext, current: RatingHeroSnapshot) -> Com
             peer_taken = [value for value in (_value(item, MetricDimension.FRONT) for item in peers) if value is not None]
             peer_survival = [value for value in (_value(item, MetricDimension.SUR) for item in peers) if value is not None]
             if current_taken is None or current_survival is None or not peer_taken or not peer_survival:
-                dimensions[dimension.value] = None
+                raw_dimensions[dimension.value] = None
             else:
-                dimensions[dimension.value] = 0.65 * robust_score(current_taken, peer_taken, max_z=2.0) + 0.35 * robust_score(current_survival, peer_survival)
+                raw_dimensions[dimension.value] = 0.65 * robust_score(current_taken, peer_taken, max_z=2.0) + 0.35 * robust_score(current_survival, peer_survival)
             continue
         current_value = _value(current, dimension)
         peer_values = [value for value in (_value(item, dimension) for item in peers) if value is not None]
         if current_value is None or not peer_values:
-            dimensions[dimension.value] = None
+            raw_dimensions[dimension.value] = None
             continue
-        dimensions[dimension.value] = robust_score(current_value, peer_values, max_z=2.0 if dimension is MetricDimension.FRONT else 3.0)
+        raw_dimensions[dimension.value] = robust_score(current_value, peer_values, max_z=2.0 if dimension is MetricDimension.FRONT else 3.0)
     profile = METRIC_PROFILES[current.archetype.metric_profile]
-    available = [(dimensions[dimension.value], weight) for dimension, weight in profile.weights]
+    baseline_quality = _BASELINE_QUALITY.get(group_name or "", 0.0)
+    peer_quality = _peer_quality(len(peers))
+    final_quality = baseline_quality * peer_quality
+    shrunk_dimensions = {
+        key: None if value is None else 50.0 + final_quality * (value - 50.0)
+        for key, value in raw_dimensions.items()
+    }
+    available = [(shrunk_dimensions[dimension.value], weight) for dimension, weight in profile.weights]
     combat = weighted_mean(available)
     coverage = 100.0 * sum(weight for value, weight in available if value is not None) / profile.total_weight
-    return CombatResult(combat, dimensions, coverage, group_name)
+    return CombatResult(
+        combat,
+        shrunk_dimensions,
+        coverage,
+        group_name,
+        baseline_peer_count=len(peers),
+        baseline_quality=baseline_quality,
+        peer_quality=peer_quality,
+        final_quality=final_quality,
+        raw_dimension_score=raw_dimensions,
+        shrunk_dimension_score=shrunk_dimensions,
+    )
 
 
 __all__ = ["CombatResult", "calculate_combat"]

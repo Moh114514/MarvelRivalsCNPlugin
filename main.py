@@ -182,7 +182,7 @@ def _safe_float_config(config: dict, key: str, default: float, minimum: float = 
         return default
 
 
-@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.7", "")
+@register("marvel_rivals", "MR-bot", "Marvel Rivals CN stats query", "1.3.8", "")
 class MarvelRivalsPlugin(Star):
     HELP_TEXT = """漫威争锋国服查询 | 指令帮助
 
@@ -387,6 +387,12 @@ class MarvelRivalsPlugin(Star):
                 str(env_config.get("MRCN_RATING_VERSION", "shadow")).lower()
                 if str(env_config.get("MRCN_RATING_VERSION", "shadow")).lower() in {"v1", "shadow", "v2"}
                 else "shadow"
+            ),
+            specialization_min_confidence=_safe_float_config(
+                env_config, "MRCN_RATING_SPECIALIZATION_MIN_CONFIDENCE", 0.55
+            ),
+            specialization_min_experience=_safe_float_config(
+                env_config, "MRCN_RATING_SPECIALIZATION_MIN_EXPERIENCE", 20.0
             ),
         )
         # Keep the old attribute for integrations that still import the

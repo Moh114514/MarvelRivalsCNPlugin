@@ -7,5 +7,12 @@ engine and keeps the existing public result fields compatible.
 
 from .engine import HeroRatingEngine
 from .models import HeroRatingResult, RatingContext, RatingHeroSnapshot
+from .specialization import SpecializationEvidencePolicy
 
-__all__ = ["HeroRatingEngine", "HeroRatingResult", "RatingContext", "RatingHeroSnapshot"]
+__all__ = [
+    "HeroRatingEngine",
+    "HeroRatingResult",
+    "RatingContext",
+    "RatingHeroSnapshot",
+    "SpecializationEvidencePolicy",
+]

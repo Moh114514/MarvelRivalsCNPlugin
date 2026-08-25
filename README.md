@@ -2,13 +2,20 @@
 
 漫威争锋国服战绩查询插件，面向 AstrBot，支持 QQ Official、NapCat/OneBot 和其他兼容的 QQ 适配器。
 
-当前稳定版本：`1.3.7`
+当前稳定版本：`1.3.8`
 
 ## Player Rating V2
 
 个人英雄分析已接入可解释的 Rating V2 与英雄战术原型层。V2 将结果拆为 Outcome、Combat、Consistency、Experience、Confidence、Performance、Mastery 和 Leave-one-out Specialization；Combat 按英雄的战术原型与同类英雄稳健基线比较，缺失指标不会被当作零分。快速模式只参与经验与辅助证据，不直接参与 HeroPerformance。
 
 `MRCN_RATING_VERSION` 支持 `v1`、`shadow`、`v2`，默认 `shadow`：会计算并缓存 V2，同时保持现有用户输出和候选规则；切换为 `v2` 后，绝活、绝症和英雄池会使用 V2 的 Mastery、Performance、Confidence、Specialization 与战术标签。评分不使用 TrueSkill、机器学习、未验证动态字段或强制额外请求；未知/不可观测维度显示为不可用。统计仍是非官方、基于第三方已追踪玩家样本的分析结果。
+
+Specialization 的证据门槛可通过 `MRCN_RATING_SPECIALIZATION_MIN_CONFIDENCE` 与 `MRCN_RATING_SPECIALIZATION_MIN_EXPERIENCE` 调整；缺少 Outcome、Combat、Consistency 可观测信号时始终保持不可用。Combat 会保留原有基线 fallback，并记录基线粒度、peer 数量及原始/收缩维度分数供校准使用。
+
+## 1.3.8 Rating V2 算法校准
+
+- 无可观测评分证据的英雄不会生成 Specialization；证据门槛可配置。
+- Combat 保留原有 fallback，并按基线质量与 peer 数量向 50 收缩。
 
 ## 1.3.7 对局交互与信息布局修复
 

@@ -3,13 +3,40 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from dataclasses import dataclass
 
 from .models import HeroRatingResult
 
 
-def apply_specialization(results: dict[str, HeroRatingResult]) -> dict[str, HeroRatingResult]:
+@dataclass(frozen=True, slots=True)
+class SpecializationEvidencePolicy:
+    """Configurable evidence gate for leave-one-out specialization."""
+
+    min_confidence: float = 0.55
+    min_experience: float = 20.0
+
+
+def _has_rating_signal(result: HeroRatingResult) -> bool:
+    return any(value is not None for value in (result.outcome, result.combat, result.consistency))
+
+
+def _passes_evidence_gate(result: HeroRatingResult, policy: SpecializationEvidencePolicy) -> bool:
+    if not _has_rating_signal(result):
+        return False
+    return result.confidence >= policy.min_confidence or result.experience >= policy.min_experience
+
+
+def apply_specialization(
+    results: dict[str, HeroRatingResult],
+    *,
+    evidence_policy: SpecializationEvidencePolicy | None = None,
+) -> dict[str, HeroRatingResult]:
+    policy = evidence_policy or SpecializationEvidencePolicy()
     output: dict[str, HeroRatingResult] = {}
     for hero_id, result in results.items():
+        if not _passes_evidence_gate(result, policy):
+            output[hero_id] = replace(result, specialization=None)
+            continue
         peers = [item for key, item in results.items() if key != hero_id and item.performance is not None and item.experience >= 20]
         if len(peers) < 3:
             output[hero_id] = result

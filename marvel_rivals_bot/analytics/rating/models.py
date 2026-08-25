@@ -57,6 +57,12 @@ class HeroRatingResult:
     confidence_components: dict[str, float] = field(default_factory=dict)
     observable_coverage: float = 0.0
     baseline_group: str | None = None
+    baseline_peer_count: int = 0
+    baseline_quality: float = 0.0
+    peer_quality: float = 0.0
+    final_quality: float = 0.0
+    raw_dimension_score: dict[str, float | None] = field(default_factory=dict)
+    shrunk_dimension_score: dict[str, float | None] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +90,12 @@ class HeroRatingResult:
             "confidence_components": dict(self.confidence_components),
             "observable_coverage": self.observable_coverage,
             "baseline_group": self.baseline_group,
+            "baseline_peer_count": self.baseline_peer_count,
+            "baseline_quality": self.baseline_quality,
+            "peer_quality": self.peer_quality,
+            "final_quality": self.final_quality,
+            "raw_dimension_score": dict(self.raw_dimension_score),
+            "shrunk_dimension_score": dict(self.shrunk_dimension_score),
         }
 
     @classmethod
@@ -111,6 +123,12 @@ class HeroRatingResult:
             confidence_components={str(k): float(v or 0.0) for k, v in (value.get("confidence_components") or {}).items()},
             observable_coverage=float(value.get("observable_coverage", 0.0) or 0.0),
             baseline_group=value.get("baseline_group"),
+            baseline_peer_count=int(value.get("baseline_peer_count", 0) or 0),
+            baseline_quality=float(value.get("baseline_quality", 0.0) or 0.0),
+            peer_quality=float(value.get("peer_quality", 0.0) or 0.0),
+            final_quality=float(value.get("final_quality", 0.0) or 0.0),
+            raw_dimension_score={str(k): _float(v) for k, v in (value.get("raw_dimension_score") or {}).items()},
+            shrunk_dimension_score={str(k): _float(v) for k, v in (value.get("shrunk_dimension_score") or {}).items()},
         )
 
 

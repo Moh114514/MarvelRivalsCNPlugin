@@ -33,7 +33,7 @@ from .models import (
 )
 from .hero_pool import build_hero_pool_analysis
 from .archetypes import get_archetype
-from .rating import HeroRatingEngine
+from .rating import HeroRatingEngine, SpecializationEvidencePolicy
 from .rating.models import RatingContext, RatingHeroSnapshot, HeroRatingResult
 from .performance import (
     PERSONAL_COMPETITIVE_PRIOR_MATCHES,
@@ -62,7 +62,7 @@ from .signature_rules import (
 
 logger = logging.getLogger(__name__)
 SIGNATURE_CACHE_SCHEMA_VERSION = 9
-RATING_SCHEMA_VERSION = 2
+RATING_SCHEMA_VERSION = 3
 SICKNESS_TOP_N = 10
 
 
@@ -376,6 +376,8 @@ class PlayerCareerAnalysisService:
         historical_cache_seconds: float = 7 * 86400,
         current_cache_seconds: float = 30 * 60,
         rating_version: str = "shadow",
+        specialization_min_confidence: float = 0.55,
+        specialization_min_experience: float = 20.0,
     ) -> None:
         self.rivals_service = rivals_service
         self.meta_service = meta_service
@@ -390,7 +392,12 @@ class PlayerCareerAnalysisService:
         if normalized_rating_version not in {"v1", "shadow", "v2"}:
             raise ValueError("MRCN_RATING_VERSION 只支持 v1、shadow 或 v2")
         self.rating_version = normalized_rating_version
-        self.rating_engine = HeroRatingEngine()
+        self.rating_engine = HeroRatingEngine(
+            specialization_evidence_policy=SpecializationEvidencePolicy(
+                min_confidence=float(specialization_min_confidence),
+                min_experience=float(specialization_min_experience),
+            )
+        )
         self.cache = SignatureCache(
             cache_root,
             historical_seconds=historical_cache_seconds,
@@ -1179,6 +1186,15 @@ def _optional_int(value: Any) -> int | None:
         return None
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return None
 

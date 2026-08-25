@@ -2,6 +2,12 @@
 
 本项目遵循 SemVer。`1.0.0` 是首个稳定版本；国服接口仍属于观察到的非公开稳定 API，接口适配和配置仍可能随上游变化调整。
 
+## [1.3.8] - 2026-08-25
+
+- Rating V2 校准：无可观测评分证据的英雄不再生成 Specialization；Confidence/Experience 证据门槛可配置。
+- Combat 保留原有基线 fallback，并按基线粒度与 peer 数量对维度分数向 50 收缩；结果增加原始/收缩分数及基线质量诊断字段。
+- Rating 结果缓存 schema 升级，避免复用校准前的 V2 结果。
+
 ## [1.3.7] - 2026-08-24
 
 - 接入 Player Rating V2 纯计算引擎：加入稳健 Combat、Outcome、Consistency、Experience、Confidence、Mastery 与留一法 Specialization，并为 55 个官方英雄建立独立战术原型。

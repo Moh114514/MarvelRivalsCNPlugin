@@ -116,6 +116,16 @@
     "type": "string",
     "default": "shadow"
   },
+  "MRCN_RATING_SPECIALIZATION_MIN_CONFIDENCE": {
+    "description": "Minimum V2 confidence for specialization evidence; specialization also passes through the experience gate",
+    "type": "float",
+    "default": 0.55
+  },
+  "MRCN_RATING_SPECIALIZATION_MIN_EXPERIENCE": {
+    "description": "Minimum V2 experience for specialization evidence; specialization also passes through the confidence gate",
+    "type": "float",
+    "default": 20
+  },
   "MRCN_META_ENABLED": {
     "description": "Enable third-party global hero Meta queries",
     "type": "bool",
