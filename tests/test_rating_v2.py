@@ -180,6 +180,18 @@ class TestRatingV2(unittest.TestCase):
         )
         self.assertEqual(classify_rating(HeroRatingResult(performance=40, **base), scope="season"), "赛季待验证")
 
+    def test_career_potential_signature_mastery_boundary(self):
+        base = dict(
+            hero_id="1011", hero_name="Hero", archetype=get_archetype(1011),
+            outcome=70, combat=70, consistency=70, experience=50,
+            performance_raw=70, performance=70, confidence=.55,
+            specialization=8,
+        )
+        below = HeroRatingResult(mastery=67.99, **base)
+        at_boundary = HeroRatingResult(mastery=68.00, **base)
+        self.assertNotEqual(classify_rating(below, scope="career"), "潜力绝活")
+        self.assertEqual(classify_rating(at_boundary, scope="career"), "潜力绝活")
+
     def test_observed_1031_dynamic_fields_are_inventory_only(self):
         keys = {
             "Feature_103102:ally_hit",
@@ -252,7 +264,7 @@ class TestRatingV2(unittest.TestCase):
         shadow = cache._analysis_path("123", career, rating_version="shadow")
         v2 = cache._analysis_path("123", career, rating_version="v2")
         self.assertNotEqual(shadow, v2)
-        self.assertIn("_r3", str(v2))
+        self.assertIn("_r4", str(v2))
 
 
 class TestRatingIntegration(unittest.IsolatedAsyncioTestCase):

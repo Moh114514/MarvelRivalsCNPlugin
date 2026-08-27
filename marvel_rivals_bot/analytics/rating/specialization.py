@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from dataclasses import dataclass
+from dataclasses import replace
 
 from .models import HeroRatingResult
 
@@ -14,6 +14,30 @@ class SpecializationEvidencePolicy:
 
     min_confidence: float = 0.55
     min_experience: float = 20.0
+
+
+@dataclass(frozen=True, slots=True)
+class CareerClassificationThresholds:
+    """Centralized Career Scope classification thresholds."""
+
+    sickness_performance_max: float = 35.0
+    sickness_specialization_max: float = -10.0
+    sickness_experience_min: float = 20.0
+    sickness_confidence_min: float = 0.70
+    signature_mastery_min: float = 85.0
+    signature_specialization_min: float = 15.0
+    signature_confidence_min: float = 0.85
+    strong_mastery_min: float = 78.0
+    strong_specialization_min: float = 10.0
+    strong_confidence_min: float = 0.70
+    potential_mastery_min: float = 68.0
+    potential_specialization_min: float = 8.0
+    potential_confidence_min: float = 0.55
+    unverified_mastery_min: float = 70.0
+    unverified_confidence_max: float = 0.55
+
+
+CAREER_CLASSIFICATION_THRESHOLDS = CareerClassificationThresholds()
 
 
 def _has_rating_signal(result: HeroRatingResult) -> bool:
@@ -69,14 +93,36 @@ def classify_rating(result: HeroRatingResult, *, scope: str = "career") -> str:
             return "赛季中性"
         return "赛季偏弱"
     spec = result.specialization
-    if result.performance <= 35 and spec is not None and spec <= -10 and result.experience >= 20 and result.confidence >= 0.70:
+    thresholds = CAREER_CLASSIFICATION_THRESHOLDS
+    if (
+        result.performance <= thresholds.sickness_performance_max
+        and spec is not None
+        and spec <= thresholds.sickness_specialization_max
+        and result.experience >= thresholds.sickness_experience_min
+        and result.confidence >= thresholds.sickness_confidence_min
+    ):
         return "绝症候选"
-    if spec is not None and result.mastery >= 85 and spec >= 15 and result.confidence >= 0.85:
+    if (
+        spec is not None
+        and result.mastery >= thresholds.signature_mastery_min
+        and spec >= thresholds.signature_specialization_min
+        and result.confidence >= thresholds.signature_confidence_min
+    ):
         return "招牌绝活"
-    if spec is not None and result.mastery >= 78 and spec >= 10 and result.confidence >= 0.70:
+    if (
+        spec is not None
+        and result.mastery >= thresholds.strong_mastery_min
+        and spec >= thresholds.strong_specialization_min
+        and result.confidence >= thresholds.strong_confidence_min
+    ):
         return "强势绝活"
-    if spec is not None and result.mastery >= 70 and spec >= 8 and result.confidence >= 0.55:
+    if (
+        spec is not None
+        and result.mastery >= thresholds.potential_mastery_min
+        and spec >= thresholds.potential_specialization_min
+        and result.confidence >= thresholds.potential_confidence_min
+    ):
         return "潜力绝活"
-    if result.mastery >= 70 and result.confidence < 0.55:
+    if result.mastery >= thresholds.unverified_mastery_min and result.confidence < thresholds.unverified_confidence_max:
         return "待验证"
     return "常用英雄"

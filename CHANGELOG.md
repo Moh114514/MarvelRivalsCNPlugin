@@ -2,6 +2,11 @@
 
 本项目遵循 SemVer。`1.0.0` 是首个稳定版本；国服接口仍属于观察到的非公开稳定 API，接口适配和配置仍可能随上游变化调整。
 
+## [1.3.9] - 2026-08-27
+
+- Calibration Round 1：仅将 Career Scope“潜力绝活”的最低 Mastery 从 70.0 调整为 68.0；Specialization、Confidence、强势绝活、招牌绝活及绝症门槛保持不变。
+- Rating schema 升级至 r4，确保依赖分类结果的缓存失效。
+
 ## [1.3.8] - 2026-08-25
 
 - Rating V2 校准：无可观测评分证据的英雄不再生成 Specialization；Confidence/Experience 证据门槛可配置。

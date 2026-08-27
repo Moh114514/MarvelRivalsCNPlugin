@@ -2,7 +2,7 @@
 
 漫威争锋国服战绩查询插件，面向 AstrBot，支持 QQ Official、NapCat/OneBot 和其他兼容的 QQ 适配器。
 
-当前稳定版本：`1.3.8`
+当前稳定版本：`1.3.9`
 
 ## Player Rating V2
 
@@ -12,10 +12,10 @@
 
 Specialization 的证据门槛可通过 `MRCN_RATING_SPECIALIZATION_MIN_CONFIDENCE` 与 `MRCN_RATING_SPECIALIZATION_MIN_EXPERIENCE` 调整；缺少 Outcome、Combat、Consistency 可观测信号时始终保持不可用。Combat 会保留原有基线 fallback，并记录基线粒度、peer 数量及原始/收缩维度分数供校准使用。
 
-## 1.3.8 Rating V2 算法校准
+## 1.3.9 Rating V2 Calibration Round 1
 
-- 无可观测评分证据的英雄不会生成 Specialization；证据门槛可配置。
-- Combat 保留原有 fallback，并按基线质量与 peer 数量向 50 收缩。
+- Career Scope 的“潜力绝活”最低 Mastery 调整为 68.0；Specialization 与 Confidence 门槛保持不变。
+- Rating 分类缓存 schema 已升级，避免复用旧分类结果。
 
 ## 1.3.7 对局交互与信息布局修复
 

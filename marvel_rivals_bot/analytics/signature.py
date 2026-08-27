@@ -62,7 +62,7 @@ from .signature_rules import (
 
 logger = logging.getLogger(__name__)
 SIGNATURE_CACHE_SCHEMA_VERSION = 9
-RATING_SCHEMA_VERSION = 3
+RATING_SCHEMA_VERSION = 4
 SICKNESS_TOP_N = 10
 
 
