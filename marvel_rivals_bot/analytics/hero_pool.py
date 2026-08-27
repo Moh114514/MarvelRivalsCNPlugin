@@ -7,6 +7,12 @@ from collections.abc import Iterable
 from ..reference.heroes import HERO_ROLE_MAP
 from .archetypes import get_archetype
 from .models import CareerHeroSignature, HeroPoolAnalysis, PlayerCareerAnalysis
+from .rating.temporal import (
+    TEMPORAL_DECLINING,
+    TEMPORAL_FORMER,
+    TEMPORAL_RISING,
+    TEMPORAL_STABLE,
+)
 
 
 def _usage_sorted(heroes: Iterable[CareerHeroSignature]) -> list[CareerHeroSignature]:
@@ -154,6 +160,34 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
         if getattr(item, "rating", None) is not None
         and (item.rating.specialization or 0.0) < 0
     )
+    rated_temporal = [
+        item for item in heroes
+        if getattr(item, "rating", None) is not None
+        and getattr(item.rating, "temporal_label", None)
+    ]
+    current_labels = {TEMPORAL_STABLE, TEMPORAL_RISING}
+    current_strong_count = sum(
+        1 for item in rated_temporal if item.rating.temporal_label in current_labels
+    )
+    rising_count = sum(
+        1 for item in rated_temporal if item.rating.temporal_label == TEMPORAL_RISING
+    )
+    former_strong_count = sum(
+        1 for item in rated_temporal if item.rating.temporal_label == TEMPORAL_FORMER
+    )
+    declining_count = sum(
+        1 for item in rated_temporal if item.rating.temporal_label == TEMPORAL_DECLINING
+    )
+    fresh_usage_share = sum(
+        float(item.usage_share or 0.0)
+        for item in rated_temporal
+        if item.rating.freshness is not None and item.rating.freshness >= 0.70
+    )
+    stale_usage_share = sum(
+        float(item.usage_share or 0.0)
+        for item in rated_temporal
+        if item.rating.freshness is not None and item.rating.freshness < 0.45
+    )
     tags = _structure_tags(
         ordered=ordered,
         top1=top1_share,
@@ -190,6 +224,12 @@ def build_hero_pool_analysis(profile: PlayerCareerAnalysis) -> HeroPoolAnalysis:
         high_specialization_count=high_specialization,
         high_confidence_count=high_confidence,
         negative_specialization_usage_share=negative_specialization_usage,
+        current_strong_count=current_strong_count,
+        rising_count=rising_count,
+        former_strong_count=former_strong_count,
+        declining_count=declining_count,
+        fresh_usage_share=fresh_usage_share,
+        stale_usage_share=stale_usage_share,
     )
 
 

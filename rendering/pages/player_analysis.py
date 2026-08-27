@@ -77,13 +77,24 @@ def build_player_hero_analysis_html(
     is_career = profile.scope.kind == "career"
     title = f"{hero.hero_name} · {scope_label}分析"
     rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
-    conclusion = product_status(rating) if rating is not None else hero.status
+    temporal_label = getattr(rating, "temporal_label", None) if rating is not None else None
+    conclusion = (
+        temporal_label
+        if is_career and temporal_label in {"曾经强势", "状态回落", "近期待验证"}
+        else product_status(rating) if rating is not None else hero.status
+    )
     if is_career and conclusion in {"招牌绝活", "强势绝活", "潜力绝活", "强势英雄"}:
         description = "生涯表现高于个人基准和可用同期环境。"
     elif not is_career and conclusion in {"赛季强势", "赛季表现优秀"}:
         description = "本赛季表现高于个人基准和可用同期环境。"
     elif conclusion in {"绝症候选", "赛季偏弱", "相对弱势"}:
         description = "当前使用量和证据显示相对表现偏弱。"
+    elif conclusion == "曾经强势":
+        description = "历史能力曾经突出，但当前时间有效性不足，已单独标记为历史状态。"
+    elif conclusion == "状态回落":
+        description = "历史能力仍有记录，但近期表现正在回落，当前结论需要谨慎使用。"
+    elif conclusion == "近期待验证":
+        description = "近期出现过正向信号，但当前样本还不足以确认稳定结论。"
     else:
         description = "当前处于中性区或证据不足。"
     header_rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
@@ -147,6 +158,25 @@ def build_player_hero_analysis_html(
              )
              + '</section>'
          )
+        if is_career:
+            freshness = getattr(rating, "freshness", None)
+            recent_performance = getattr(rating, "recent_performance", None)
+            recent_mastery = getattr(rating, "recent_mastery", None)
+            trend = getattr(rating, "trend", None)
+            content += (
+                '<section class="mr-section mr-rating-temporal">'
+                + section_title("时间有效性", "TEMPORAL RATING")
+                + metric_grid((
+                    ("Freshness", "—" if freshness is None else f"{freshness:.2f}"),
+                    ("Recent Performance", "—" if recent_performance is None else f"{recent_performance:.1f}"),
+                    ("Recent Mastery", "—" if recent_mastery is None else f"{recent_mastery:.1f}"),
+                    ("Trend", "—" if trend is None else f"{trend:+.1f}"),
+                    ("Last Active Season", escape_text(getattr(rating, "last_active_season", None) or "—")),
+                    ("Temporal Label", escape_text(getattr(rating, "temporal_label", None) or "—")),
+                ))
+                + '<div class="mr-meta-source">时间有效性仅用于生涯视图；赛季视图不混入跨赛季新鲜度和趋势判断。</div>'
+                + '</section>'
+            )
     if profile.rating_version != "v2":
         content += '<section class="mr-section">' + section_title("竞技环境比较", "ENVIRONMENT")
         content += metric_grid((

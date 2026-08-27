@@ -82,7 +82,12 @@ def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHer
     scope_label = analysis_scope_label(scope)
     is_career = scope.kind == "career"
     performance = float(hero.performance_index or 0.0)
-    conclusion = hero.status
+    temporal_label = getattr(v2_rating, "temporal_label", None) if is_career else None
+    conclusion = (
+        temporal_label
+        if temporal_label in {"曾经强势", "状态回落", "近期待验证"}
+        else hero.status
+    )
     if is_career and conclusion in {"招牌绝活", "强势绝活", "潜力绝活"}:
         explanation = "这是你在生涯范围内表现高于个人基准和可用同期环境的英雄。"
     elif not is_career and conclusion in {"赛季强势", "赛季表现优秀"}:
@@ -96,10 +101,10 @@ def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHer
             f"{hero.hero_name} · {scope_label}分析",
             f"玩家：{profile.player_name}（UID：{profile.uid}）",
             "",
-            product_status(v2_rating),
+            conclusion if temporal_label in {"曾经强势", "状态回落", "近期待验证"} else product_status(v2_rating),
             explanation,
             "V2 评分",
-            *_rating_lines(v2_rating),
+            *_rating_lines(v2_rating, include_temporal=is_career),
             "",
             "生涯使用" if is_career else "本赛季使用",
             f"总场次：{_count(hero.total_matches)}｜竞技：{_count(hero.competitive_matches)}｜快速：{_count(hero.quick_matches)}",
@@ -133,7 +138,7 @@ def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHer
         "",
     ]
     if v2_rating is not None:
-        lines.extend(_rating_lines(v2_rating))
+        lines.extend(_rating_lines(v2_rating, include_temporal=is_career))
     if not getattr(profile, "meta_available", True):
         lines.insert(7, "提示：当前缺少同期 Meta，综合表现仅基于个人竞技/快速基准，可信度已降级。")
     lines.extend(_mode_analysis_lines("竞技详细数据", hero.competitive_stats))
@@ -315,6 +320,8 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 if scope == "生涯"
                 else "本赛季暂无达到正向候选门槛的英雄。",
             ))
+        if show_v2 and scope == "\u751f\u6daf":
+            lines.extend(_former_strong_lines(profile))
         return "\n".join(lines)
     if show_v2:
         lines.extend(("", f"{scope}绝活 Top 5"))
@@ -327,8 +334,9 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 f"{index}. {item.hero_name}",
                 f"{product_status(rating)}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
                 f"战术原型：{archetype_summary(rating.archetype)}",
-                *_rating_lines(rating),
+                *_rating_lines(rating, include_temporal=scope == "\u751f\u6daf"),
             ))
+        lines.extend(_former_strong_lines(profile))
         return "\n".join(lines)
     lines.extend(("", f"{scope}绝活 Top 5"))
     for index, item in enumerate(profile.signature_heroes, 1):
@@ -359,8 +367,27 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
     if rated and getattr(profile, "rating_version", "shadow") == "v2":
         lines.extend(("", "V2 评分摘要"))
         for item in rated:
-            lines.extend(_rating_lines(item.rating))
+            lines.extend(_rating_lines(item.rating, include_temporal=scope == "\u751f\u6daf"))
     return "\n".join(lines)
+
+
+def _former_strong_lines(profile: PlayerSignatureProfile) -> list[str]:
+    heroes = tuple(getattr(profile, "former_strong_heroes", ()) or ())
+    if not heroes:
+        return []
+    lines = ["", "\u66fe\u7ecf\u5f3a\u52bf\uff08\u5386\u53f2\u80fd\u529b\uff0c\u5f53\u524d\u6682\u65e0\u8db3\u591f\u8bc1\u636e\uff09"]
+    for index, item in enumerate(heroes, 1):
+        rating = getattr(item, "rating", None)
+        if rating is None:
+            lines.append(f"{index}. {item.hero_name}")
+            continue
+        freshness = "—" if rating.freshness is None else f"{rating.freshness:.2f}"
+        last = rating.last_active_season or "—"
+        lines.extend((
+            f"{index}. {item.hero_name}",
+            f"\u5386\u53f2 Mastery {rating.mastery:.1f} · \u6700\u540e\u6709\u6548\u4f7f\u7528 {last} · Freshness {freshness}",
+        ))
+    return lines
 
 
 def format_player_sickness(profile: PlayerSignatureProfile) -> str:
@@ -406,7 +433,7 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
                 f"{index}. {item.hero_name}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
                 f"{product_status(rating)}",
                 f"战术原型：{archetype_summary(rating.archetype)}",
-                *_rating_lines(rating),
+                *_rating_lines(rating, include_temporal=scope == "\u751f\u6daf"),
             ))
         return "\n".join(lines)
     for index, item in enumerate(profile.sick_heroes, 1):
@@ -433,11 +460,11 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
         if rated:
             lines.extend(("", "V2 评分明细"))
             for item in rated:
-                lines.extend(_rating_lines(item.rating))
+                lines.extend(_rating_lines(item.rating, include_temporal=scope == "\u751f\u6daf"))
     return "\n".join(lines)
 
 
-def _rating_lines(rating) -> list[str]:
+def _rating_lines(rating, *, include_temporal: bool = True) -> list[str]:
     """Compact V2 block shared by text fallbacks."""
     dimensions = ("FIN", "PRS", "SUR", "TEAM", "HEAL", "FRONT", "UTIL")
     values = "｜".join(
@@ -453,13 +480,16 @@ def _rating_lines(rating) -> list[str]:
     trend_value = getattr(rating, "trend", None)
     trend = "—" if trend_value is None else f"{trend_value:+.1f}"
     temporal_label = getattr(rating, "temporal_label", None) or "—"
-    return [
+    lines = [
         f"{temporal_label} · Freshness {freshness} · Recent Performance {recent_performance} · Trend {trend} · Recent matches {_format_rating_value(getattr(rating, 'recent_effective_matches', None))}",
         f"V2评级：{product_status(rating)}｜{archetype_summary(archetype)}",
         f"Mastery {rating.mastery:.1f}｜Performance {rating.performance:.1f}｜Specialization {specialization}",
         f"Outcome {_format_rating_value(rating.outcome)}｜Combat {_format_rating_value(rating.combat)}｜Consistency {_format_rating_value(rating.consistency)}｜Experience {rating.experience:.1f}",
         f"Combat dimensions：{values}｜Observable {rating.observable_coverage:.0f}%｜Confidence {rating.confidence:.2f}",
     ]
+    if not include_temporal:
+        del lines[0]
+    return lines
 
 
 def _format_rating_value(value) -> str:

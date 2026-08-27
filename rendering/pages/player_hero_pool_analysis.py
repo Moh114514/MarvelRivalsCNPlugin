@@ -66,6 +66,16 @@ def build_player_hero_pool_analysis_html(pool: HeroPoolAnalysis) -> str:
             ("高置信度英雄", str(pool.high_confidence_count)),
             ("负专精使用占比", _percent(pool.negative_specialization_usage_share)),
         )) + '</section>'
+        if pool.scope.kind == "career":
+            content += '<section class="mr-section mr-rating-v2 mr-pool-temporal-section">' + section_title("时间有效性", "TEMPORAL RATING")
+            content += metric_grid((
+                ("当前强势英雄", str(getattr(pool, "current_strong_count", 0))),
+                ("新近上升", str(getattr(pool, "rising_count", 0))),
+                ("曾经强势", str(getattr(pool, "former_strong_count", 0))),
+                ("状态回落", str(getattr(pool, "declining_count", 0))),
+                ("新鲜使用占比", _percent(getattr(pool, "fresh_usage_share", 0.0))),
+                ("陈旧使用占比", _percent(getattr(pool, "stale_usage_share", 0.0))),
+            )) + '<div class="mr-meta-source">时间有效性只用于生涯视图；赛季视图继续使用本赛季评分。</div></section>'
     content += '<section class="mr-section">' + section_title("结构结论", "STRUCTURE TAGS")
     if pool.structure_tags:
         content += '<div class="mr-meta-source">' + escape_text(" · ".join(pool.structure_tags)) + '</div>'
@@ -106,13 +116,21 @@ def build_player_hero_pool_analysis_html(pool: HeroPoolAnalysis) -> str:
     if show_v2:
         content += '<section class="mr-section mr-rating-v2">' + section_title("V2 核心英雄评分", "CORE RATING")
         if pool.core_heroes:
+            career_temporal = pool.scope.kind == "career"
             content += metric_grid(tuple(
                 (
                     item.hero_name,
                     (
                         f"Mastery {item.rating.mastery:.1f} · Performance {item.rating.performance:.1f} · "
                         f"Specialization {'—' if item.rating.specialization is None else f'{item.rating.specialization:+.1f}'} · "
-                        f"Confidence {item.rating.confidence:.2f} · {product_status(item.rating)} · {archetype_summary(item.rating.archetype)}"
+                        f"Confidence {item.rating.confidence:.2f} · "
+                        f"{getattr(item.rating, 'temporal_label', None) or product_status(item.rating)} · "
+                        f"{archetype_summary(item.rating.archetype)}"
+                        + (
+                            f" · {getattr(item.rating, 'temporal_label', None) or '—'} · Freshness "
+                            f"{'—' if getattr(item.rating, 'freshness', None) is None else f'{item.rating.freshness:.2f}'}"
+                            if career_temporal else ""
+                        )
                     ),
                 )
                 for item in pool.core_heroes

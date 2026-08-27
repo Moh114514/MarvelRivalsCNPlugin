@@ -340,6 +340,11 @@ class SignatureCache:
                 scope=scope,
                 heroes=heroes,
                 rating_version=str(payload.get("rating_version", "shadow")),
+                former_strong_heroes=tuple(
+                    _signature_from_dict(item)
+                    for item in payload.get("former_strong_heroes", [])
+                    if isinstance(item, dict)
+                ),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -696,6 +701,15 @@ class PlayerCareerAnalysisService:
                 key=_v2_signature_sort_key if self.rating_version == "v2" else _signature_score_sort_key,
             )[:5]
         )
+        former_strong_heroes = tuple(
+            sorted(
+                (
+                    item for item in signatures
+                    if getattr(item, "temporal_label", None) == "\u66fe\u7ecf\u5f3a\u52bf"
+                ),
+                key=_former_strong_sort_key,
+            )[:5]
+        ) if scope.kind == "career" else ()
         result = PlayerCareerAnalysis(
             uid=uid,
             player_name=getattr(profile, "name", "未知") or "未知",
@@ -728,6 +742,7 @@ class PlayerCareerAnalysisService:
             scope=scope,
             heroes=all_heroes,
             rating_version=self.rating_version,
+            former_strong_heroes=former_strong_heroes,
         )
         cache_key = f"{uid}:{scope.key}:{self.rating_version}:r{RATING_SCHEMA_VERSION}"
         self._memory_profiles[cache_key] = (time.monotonic(), result)
@@ -901,6 +916,11 @@ class PlayerCareerAnalysisService:
                 )
                 signed_performance = (rating.performance - 50.0) * 2.0
                 sick = max(0.0, 50.0 - rating.performance)
+                current_signature_candidate = _is_current_signature_candidate(
+                    rating,
+                    scope,
+                    signature_classes,
+                )
                 updated = replace(
                     updated,
                     play_index=rating.experience,
@@ -912,13 +932,20 @@ class PlayerCareerAnalysisService:
                     evidence_factor=rating.confidence,
                     status=rating.classification,
                     classification=rating.classification,
-                    is_signature_candidate=rating.classification in signature_classes,
+                    is_signature_candidate=current_signature_candidate,
                     is_sickness_candidate=(
-                        rating.classification in sickness_classes
-                        or (
-                            scope.kind == "season"
-                            and rating.performance <= 35
-                            and rating.confidence >= 0.70
+                        (
+                            rating.classification in sickness_classes
+                            or (
+                                scope.kind == "season"
+                                and rating.performance <= 35
+                                and rating.confidence >= 0.70
+                            )
+                        )
+                        and not (
+                            scope.kind == "career"
+                            and rating.freshness is not None
+                            and rating.freshness < 0.45
                         )
                     ),
                     is_analysis_eligible=item.is_analysis_eligible,
@@ -934,14 +961,6 @@ class PlayerCareerAnalysisService:
                     last_active_season=rating.last_active_season,
                     recent_effective_matches=rating.recent_effective_matches,
                 )
-                if scope.kind == "career":
-                    updated = replace(
-                        updated,
-                        is_signature_candidate=(
-                            updated.is_signature_candidate
-                            or rating.temporal_label in {TEMPORAL_STABLE, TEMPORAL_RISING}
-                        ),
-                    )
             output.append(updated)
         return output
 
@@ -1589,6 +1608,10 @@ def _profile_to_dict(profile: PlayerSignatureProfile) -> dict[str, Any]:
         "scope": asdict(profile.scope or AnalysisScope.career()),
         "heroes": [_signature_to_dict(item) for item in (profile.heroes or profile.signature_heroes)],
         "rating_version": getattr(profile, "rating_version", "shadow"),
+        "former_strong_heroes": [
+            _signature_to_dict(item)
+            for item in getattr(profile, "former_strong_heroes", ())
+        ],
         "rating_schema_version": RATING_SCHEMA_VERSION,
     }
 
@@ -1668,6 +1691,31 @@ def _v2_sickness_sort_key(item: Any) -> tuple[float, float, float, float, int]:
         -float(getattr(rating, "experience", 0.0) if rating is not None else 0.0),
         int(getattr(item, "hero_id", 0) or 0),
     )
+
+
+def _former_strong_sort_key(item: Any) -> tuple[float, float, float, int]:
+    rating = getattr(item, "rating", None)
+    return (
+        -float(getattr(rating, "mastery", 0.0) if rating is not None else 0.0),
+        -float(getattr(rating, "performance", 0.0) if rating is not None else 0.0),
+        -float(getattr(item, "competitive_matches", 0) or 0),
+        int(getattr(item, "hero_id", 0) or 0),
+    )
+
+
+def _is_current_signature_candidate(
+    rating: Any,
+    scope: AnalysisScope,
+    signature_classes: set[str],
+) -> bool:
+    """Keep Career current signatures inside the temporal layer."""
+
+    if scope.kind == "career":
+        return getattr(rating, "temporal_label", None) in {
+            TEMPORAL_STABLE,
+            TEMPORAL_RISING,
+        }
+    return getattr(rating, "classification", None) in signature_classes
 
 
 __all__ = [

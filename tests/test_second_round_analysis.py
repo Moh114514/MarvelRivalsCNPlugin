@@ -159,6 +159,44 @@ class TestHeroPoolAnalysis(unittest.TestCase):
         self.assertAlmostEqual(pool.positive_usage_share, 90.0)
         self.assertAlmostEqual(pool.negative_usage_share, 0.0)
 
+    def test_pool_temporal_summary_aggregates_career_states_and_usage(self):
+        heroes = [
+            self._hero(1026, 40, 40, 20),
+            self._hero(1011, 30, 30, 20),
+            self._hero(1020, 20, 20, 0),
+            self._hero(1027, 10, 10, 0),
+        ]
+        labels = (
+            ("稳定强势", 0.85),
+            ("近期崛起", 0.75),
+            ("曾经强势", 0.20),
+            ("状态回落", 0.60),
+        )
+        for hero, (label, freshness) in zip(heroes, labels):
+            hero.rating = SimpleNamespace(
+                mastery=80.0,
+                specialization=5.0,
+                confidence=0.8,
+                temporal_label=label,
+                freshness=freshness,
+            )
+        profile = SimpleNamespace(
+            uid="123",
+            player_name="玩家",
+            scope=AnalysisScope.career(),
+            meta_available=True,
+            meta_stale=False,
+            rating_version="v2",
+            heroes=tuple(heroes),
+        )
+        pool = build_hero_pool_analysis(profile)
+        self.assertEqual(pool.current_strong_count, 2)
+        self.assertEqual(pool.rising_count, 1)
+        self.assertEqual(pool.former_strong_count, 1)
+        self.assertEqual(pool.declining_count, 1)
+        self.assertAlmostEqual(pool.fresh_usage_share, 70.0)
+        self.assertAlmostEqual(pool.stale_usage_share, 20.0)
+
     def test_pool_role_shares_use_effective_matches(self):
         first = self._hero(1026, 20, 1, 0)
         second = self._hero(1011, 80, 1, 0)

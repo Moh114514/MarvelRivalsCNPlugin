@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from marvel_rivals_bot.analytics.archetypes import archetype_summary, get_archetype, product_status
 from rendering.pages.player_hero_pool_analysis import build_player_hero_pool_analysis_html
 from rendering.pages.player_analysis import build_player_hero_analysis_html
-from rendering.pages.player_signature import _hero_card
+from rendering.pages.player_signature import _former_strong_card, _hero_card
 from rendering.pages.player_sickness import _sick_card
 
 
@@ -155,6 +155,60 @@ class TestRatingV2Productization(unittest.TestCase):
         self.assertNotIn("核心综合表现", html)
         self.assertNotIn("正向使用占比", html)
         self.assertNotIn("使用指数", html)
+        self.assertIn("TEMPORAL RATING", html)
+        season_pool = SimpleNamespace(
+            **{**pool.__dict__, "scope": SimpleNamespace(kind="season", season_code="19")}
+        )
+        season_html = build_player_hero_pool_analysis_html(season_pool)
+        self.assertNotIn("TEMPORAL RATING", season_html)
+
+    def test_temporal_metrics_are_only_rendered_for_career_scope(self):
+        rating = _rating(
+            temporal_label="状态稳定",
+            freshness=0.82,
+            recent_performance=74.0,
+            recent_mastery=76.0,
+            trend=3.0,
+            last_active_season="19",
+        )
+        item = _item(rating)
+        item.active_seasons = 2
+        item.competitive_stats = None
+        item.quick_stats = None
+
+        career_profile = SimpleNamespace(
+            scope=SimpleNamespace(kind="career"),
+            rating_version="v2",
+            meta_available=True,
+        )
+        season_profile = SimpleNamespace(
+            scope=SimpleNamespace(kind="season", season_code="19"),
+            rating_version="v2",
+            meta_available=True,
+        )
+        career_hero = build_player_hero_analysis_html(career_profile, item)
+        season_hero = build_player_hero_analysis_html(season_profile, item)
+        self.assertIn("Last Active Season", career_hero)
+        self.assertIn("Temporal Label", career_hero)
+        self.assertNotIn("Last Active Season", season_hero)
+        self.assertNotIn("Temporal Label", season_hero)
+
+        self.assertIn("Freshness", _hero_card(1, item, career=True, show_v2=True))
+        self.assertNotIn("Freshness", _hero_card(1, item, career=False, show_v2=True))
+        self.assertIn("Temporal", _sick_card(1, item, show_v2=True, include_temporal=True))
+        self.assertNotIn("Temporal", _sick_card(1, item, show_v2=True, include_temporal=False))
+
+    def test_former_strong_card_is_a_separate_historical_surface(self):
+        rating = _rating(
+            temporal_label="曾经强势",
+            freshness=0.20,
+            last_active_season="17",
+        )
+        html = _former_strong_card(1, _item(rating))
+        self.assertIn("mr-signature-card--former", html)
+        self.assertIn("曾经强势", html)
+        self.assertIn("历史 Mastery", html)
+        self.assertIn("最后活跃赛季", html)
 
 
 if __name__ == "__main__":

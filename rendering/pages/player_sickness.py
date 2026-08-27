@@ -31,12 +31,27 @@ def _meta_disadvantage(item) -> float | None:
     return max(-float(raw_delta), 0.0) if raw_delta is not None else None
 
 
-def _sick_card(index: int, item, *, show_v2: bool = False) -> str:
+def _sick_card(index: int, item, *, show_v2: bool = False, include_temporal: bool = False) -> str:
     sickness_score = float(getattr(item, "sickness_score", getattr(item, "sick_score", 0.0)) or 0.0)
     rating = getattr(item, "rating", None) if show_v2 else None
     rating_detail = ""
     if rating is not None:
         specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+        temporal_detail = ""
+        if include_temporal:
+            freshness = getattr(rating, "freshness", None)
+            recent = getattr(rating, "recent_performance", None)
+            recent_mastery = getattr(rating, "recent_mastery", None)
+            trend = getattr(rating, "trend", None)
+            last_active = getattr(rating, "last_active_season", None) or "—"
+            temporal_detail = (
+                f'<small>Temporal {escape_text(getattr(rating, "temporal_label", None) or "—")} · '
+                f'Freshness {"—" if freshness is None else f"{freshness:.2f}"} · '
+                f'Recent Performance {"—" if recent is None else f"{recent:.1f}"} · '
+                f'Recent Mastery {"—" if recent_mastery is None else f"{recent_mastery:.1f}"} · '
+                f'Trend {"—" if trend is None else f"{trend:+.1f}"} · '
+                f'Last Active Season {escape_text(last_active)}</small>'
+            )
         rating_detail = (
             f'<small>V2 Performance {rating.performance:.1f} · Mastery {rating.mastery:.1f} · '
             f'Specialization {specialization} · Confidence {rating.confidence:.2f}</small>'
@@ -59,7 +74,8 @@ def _sick_card(index: int, item, *, show_v2: bool = False) -> str:
             f'<small>Outcome {getattr(rating, "outcome", None) if getattr(rating, "outcome", None) is not None else "—"} · '
             f'Combat {getattr(rating, "combat", None) if getattr(rating, "combat", None) is not None else "—"} · '
             f'Consistency {getattr(rating, "consistency", None) if getattr(rating, "consistency", None) is not None else "—"}</small>'
-            '</div></article>'
+            + temporal_detail
+            + '</div></article>'
         )
     return (
         '<article class="mr-sickness-card">'
@@ -168,7 +184,12 @@ def build_player_sickness_html(profile: PlayerSignatureProfile) -> str:
     if profile.sick_heroes:
         content += '<div class="mr-sickness-list">'
         content += "".join(
-            _sick_card(index, item, show_v2=profile.rating_version == "v2")
+            _sick_card(
+                index,
+                item,
+                show_v2=profile.rating_version == "v2",
+                include_temporal=profile.scope.kind == "career",
+            )
             for index, item in enumerate(profile.sick_heroes, 1)
         )
         content += '</div>'

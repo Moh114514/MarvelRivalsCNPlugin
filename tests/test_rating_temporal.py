@@ -18,6 +18,8 @@ from marvel_rivals_bot.analytics.rating.temporal import (
 )
 from marvel_rivals_bot.analytics.archetypes import get_archetype
 from marvel_rivals_bot.analytics.models import NormalizedModeStats
+from marvel_rivals_bot.analytics.models import AnalysisScope
+from marvel_rivals_bot.analytics.signature import _is_current_signature_candidate
 
 
 def _season(code: int, matches: float, wins: float | None = None) -> SeasonRatingSnapshot:
@@ -64,6 +66,20 @@ def _rating(**changes):
 
 
 class TestTemporalRating(unittest.TestCase):
+    def test_former_strong_is_not_a_current_career_signature(self):
+        career = AnalysisScope.career()
+        classes = {"招牌绝活", "强势绝活", "潜力绝活"}
+        self.assertFalse(
+            _is_current_signature_candidate(
+                _rating(temporal_label=TEMPORAL_FORMER), career, classes
+            )
+        )
+        self.assertTrue(
+            _is_current_signature_candidate(
+                _rating(temporal_label=TEMPORAL_RISING), career, classes
+            )
+        )
+
     def test_freshness_requires_three_effective_matches_and_decays_by_half_seasons(self):
         fresh, last, sample = calculate_freshness((_season(19, 30),), "19")
         self.assertEqual(last, "19")

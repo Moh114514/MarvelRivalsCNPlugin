@@ -457,6 +457,7 @@ class PlayerSignatureProfile:
     scope: AnalysisScope = field(default_factory=AnalysisScope.career)
     heroes: tuple[CareerHeroSignature, ...] = ()
     rating_version: str = "shadow"
+    former_strong_heroes: tuple[CareerHeroSignature, ...] = ()
 
 
 class HeroPerformanceAnalysis(CareerHeroSignature):
@@ -497,6 +498,12 @@ class HeroPoolAnalysis:
     high_specialization_count: int = 0
     high_confidence_count: int = 0
     negative_specialization_usage_share: float = 0.0
+    current_strong_count: int = 0
+    rising_count: int = 0
+    former_strong_count: int = 0
+    declining_count: int = 0
+    fresh_usage_share: float = 0.0
+    stale_usage_share: float = 0.0
 
 
 def _optional_int(value: Any) -> int | None:

@@ -92,7 +92,13 @@ class HeroRatingEngine:
             raw_dimension_score=combat_result.raw_dimension_score,
             shrunk_dimension_score=combat_result.shrunk_dimension_score,
         )
-        temporal = calculate_temporal_rating(context, hero, result)
+        temporal = (
+            calculate_temporal_rating(context, hero, result)
+            if context.scope == "career"
+            else None
+        )
+        if temporal is None:
+            return result
         result = replace(
             result,
             freshness=temporal.freshness,
@@ -112,7 +118,8 @@ class HeroRatingEngine:
     def rate_many(self, context: RatingContext) -> dict[str, HeroRatingResult]:
         results = {hero.hero_id: self.rate(context, hero) for hero in context.heroes}
         results = apply_specialization(results, evidence_policy=self.specialization_evidence_policy)
-        results = apply_temporal_ratings(results, context)
+        if context.scope == "career":
+            results = apply_temporal_ratings(results, context)
         return {
             hero_id: replace(result, classification=classify_rating(result, scope=context.scope))
             for hero_id, result in results.items()

@@ -60,6 +60,7 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
     meta_delta = _first(item, "adjusted_meta_delta", "adjusted_delta", "win_rate_delta")
     rating = getattr(item, "rating", None) if show_v2 else None
     v2_markup = ""
+    temporal_markup = ""
     if rating is not None:
         specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
         freshness_value = getattr(rating, "freshness", None)
@@ -68,12 +69,18 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
         freshness = "—" if freshness_value is None else f"{freshness_value:.2f}"
         recent = "—" if recent_value is None else f"{recent_value:.1f}"
         trend = "—" if trend_value is None else f"{trend_value:+.1f}"
+        if career:
+            temporal_markup = (
+                f'<span>{escape_text(getattr(rating, "temporal_label", None) or "—")}</span>'
+                f'<span>Freshness {freshness} · Recent {recent} · Trend {trend}</span>'
+            )
         v2_markup = (
             '<div class="mr-signature-card__v2">'
             f'V2 {escape_text(rating.classification)} · Mastery {rating.mastery:.1f} · '
             f'Performance {rating.performance:.1f} · Specialization {specialization} · '
-            f'Confidence {rating.confidence:.2f} · {escape_text(getattr(rating, "temporal_label", None) or "—")} · Freshness {freshness} · Recent {recent} · Trend {trend}'
-            '</div>'
+            f'Confidence {rating.confidence:.2f}'
+            + (f' · {escape_text(getattr(rating, "temporal_label", None) or "—")} · Freshness {freshness} · Recent {recent} · Trend {trend}' if career else "")
+            + '</div>'
         )
     if rating is not None:
         specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
@@ -99,9 +106,9 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
             f'<div class="mr-signature-card__quality"><span>Outcome {_score(rating.outcome)}</span>'
             f'<span>Combat {_score(rating.combat)}</span><span>Consistency {_score(rating.consistency)}</span>'
             f'<span>Experience {_score(rating.experience)}</span>'
-            f'<span>{escape_text(getattr(rating, "temporal_label", None) or "—")}</span>'
-            f'<span>Freshness {freshness} · Recent {recent} · Trend {trend}</span></div>'
-            '</article>'
+            + temporal_markup
+            + '</div>'
+            + '</article>'
         )
     competitive_matches = _first(item, "competitive_matches", "ranked_matches")
     actual_win_rate = _first(item, "actual_win_rate", "ranked_win_rate")
@@ -178,6 +185,33 @@ def _glossary(*, career: bool, v2: bool = False) -> str:
     )
 
 
+def _former_strong_card(index: int, item: Any) -> str:
+    rating = getattr(item, "rating", None)
+    if rating is None:
+        return (
+            '<article class="mr-signature-card mr-signature-card--former">'
+            f'<div class="mr-signature-card__index">{index:02d}</div>'
+            f'<div class="mr-signature-card__name">{escape_text(item.hero_name)}</div>'
+            '<div class="mr-signature-card__quality">曾经强势 · 当前暂无足够时间证据</div>'
+            '</article>'
+        )
+    freshness = getattr(rating, "freshness", None)
+    return (
+        '<article class="mr-signature-card mr-signature-card--former mr-signature-card--v2">'
+        f'<div class="mr-signature-card__index">{index:02d}</div>'
+        '<div class="mr-signature-card__main">'
+        f'<div class="mr-signature-card__name">{escape_text(item.hero_name)}</div>'
+        '<div class="mr-signature-card__stats">历史能力保留，当前不计入生涯绝活</div>'
+        '</div>'
+        '<div class="mr-signature-card__metrics mr-signature-card__metrics--v2">'
+        f'<div><span>历史 Mastery</span><strong>{rating.mastery:.1f}</strong></div>'
+        f'<div><span>Freshness</span><strong>{"—" if freshness is None else f"{freshness:.2f}"}</strong></div>'
+        f'<div><span>最后活跃赛季</span><strong>{escape_text(getattr(rating, "last_active_season", None) or "—")}</strong></div>'
+        f'<div><span>状态</span><strong>{escape_text(getattr(rating, "temporal_label", None) or "曾经强势")}</strong></div>'
+        '</div></article>'
+    )
+
+
 def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
     """Render V2 career data; retain a lazy legacy fallback for integrations."""
 
@@ -246,6 +280,15 @@ def build_player_signature_html(profile: PlayerSignatureProfile) -> str:
             else "本赛季暂无可比较的正向候选英雄"
         )
     content += '</section>'
+    if career and profile.rating_version == "v2" and profile.former_strong_heroes:
+        content += '<section class="mr-section mr-former-strong-section">'
+        content += section_title("曾经强势英雄", "FORMERLY STRONG")
+        content += '<div class="mr-signature-list mr-former-strong-list">'
+        content += "".join(
+            _former_strong_card(index, item)
+            for index, item in enumerate(profile.former_strong_heroes, 1)
+        )
+        content += '</div></section>'
     content += _glossary(
         career=profile.scope.kind == "career",
         v2=profile.rating_version == "v2",
