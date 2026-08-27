@@ -12,6 +12,7 @@ from .models import (
     PlayerSignatureProfile,
     analysis_scope_label,
 )
+from .archetypes import STYLE_LABELS, archetype_summary, product_status
 from .signature_rules import sickness_severity
 
 
@@ -95,7 +96,7 @@ def format_player_hero_analysis(profile: PlayerSignatureProfile, hero: CareerHer
             f"{hero.hero_name} · {scope_label}分析",
             f"玩家：{profile.player_name}（UID：{profile.uid}）",
             "",
-            str(v2_rating.classification),
+            product_status(v2_rating),
             explanation,
             "V2 评分",
             *_rating_lines(v2_rating),
@@ -234,6 +235,8 @@ def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
     if style_shares:
         style_labels = {"dive": "切入", "brawl": "缠斗", "poke": "消耗"}
         lines.extend(("", "战术体系", "｜".join(f"{style_labels.get(key, key)} {value:.1f}%" for key, value in sorted(style_shares.items(), key=lambda pair: -pair[1]))))
+        dominant_style, dominant_share = max(style_shares.items(), key=lambda pair: pair[1])
+        lines.append(f"主要战斗风格：{STYLE_LABELS.get(dominant_style, dominant_style)}（{dominant_share:.1f}%）")
     if tactical_tags:
         lines.append("战术标签：" + "｜".join(tactical_tags))
     if not pool.meta_available:
@@ -252,6 +255,7 @@ def format_player_hero_pool_analysis(pool: HeroPoolAnalysis) -> str:
             lines.extend((
                 f"{index}. {item.hero_name}｜使用占比 {item.usage_share:.1f}%｜竞技 {_count(item.competitive_matches)} 场｜快速 {_count(item.quick_matches)} 场",
                 f"Mastery {rating.mastery:.1f}｜Performance {rating.performance:.1f}｜Specialization {specialization}｜Confidence {rating.confidence:.2f}",
+                f"战术原型：{archetype_summary(rating.archetype)}",
                 f"Outcome {_format_rating_value(rating.outcome)}｜Combat {_format_rating_value(rating.combat)}｜Consistency {_format_rating_value(rating.consistency)}｜Experience {rating.experience:.1f}",
             ))
         return "\n".join(lines)
@@ -321,7 +325,8 @@ def _format_signature_profile(profile: PlayerSignatureProfile) -> str:
                 continue
             lines.extend((
                 f"{index}. {item.hero_name}",
-                f"{rating.classification}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
+                f"{product_status(rating)}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
+                f"战术原型：{archetype_summary(rating.archetype)}",
                 *_rating_lines(rating),
             ))
         return "\n".join(lines)
@@ -399,7 +404,8 @@ def format_player_sickness(profile: PlayerSignatureProfile) -> str:
                 continue
             lines.extend((
                 f"{index}. {item.hero_name}｜使用占比：{item.usage_share:.1f}%｜竞技：{_count(item.competitive_matches)} 场",
-                f"{rating.classification}",
+                f"{product_status(rating)}",
+                f"战术原型：{archetype_summary(rating.archetype)}",
                 *_rating_lines(rating),
             ))
         return "\n".join(lines)
@@ -441,14 +447,8 @@ def _rating_lines(rating) -> list[str]:
     )
     specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
     archetype = rating.archetype
-    style_labels = {"dive": "切入", "brawl": "缠斗", "poke": "消耗"}
-    function_labels = {
-        "assassin": "刺杀", "skirmisher": "游击", "pick": "抓单", "pressure": "压制",
-        "bruiser": "斗士", "tank_buster": "坦克克星", "anchor": "锚点", "zone": "区域",
-        "initiator": "开团", "utility": "功能", "support": "支援",
-    }
     return [
-        f"V2评级：{rating.classification}｜战术：{style_labels.get(archetype.primary_style.value, archetype.primary_style.value)}/{function_labels.get(archetype.function.value, archetype.function.value)}",
+        f"V2评级：{product_status(rating)}｜{archetype_summary(archetype)}",
         f"Mastery {rating.mastery:.1f}｜Performance {rating.performance:.1f}｜Specialization {specialization}",
         f"Outcome {_format_rating_value(rating.outcome)}｜Combat {_format_rating_value(rating.combat)}｜Consistency {_format_rating_value(rating.consistency)}｜Experience {rating.experience:.1f}",
         f"Combat dimensions：{values}｜Observable {rating.observable_coverage:.0f}%｜Confidence {rating.confidence:.2f}",

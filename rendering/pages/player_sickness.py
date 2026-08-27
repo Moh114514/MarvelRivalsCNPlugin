@@ -4,9 +4,11 @@ from __future__ import annotations
 
 try:
     from ...marvel_rivals_bot.analytics.models import PlayerSignatureProfile, analysis_scope_label
+    from ...marvel_rivals_bot.analytics.archetypes import archetype_summary, product_status
     from ...marvel_rivals_bot.analytics.signature_rules import sickness_severity
 except ImportError:
     from marvel_rivals_bot.analytics.models import PlayerSignatureProfile, analysis_scope_label
+    from marvel_rivals_bot.analytics.archetypes import archetype_summary, product_status
     from marvel_rivals_bot.analytics.signature_rules import sickness_severity
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
@@ -46,13 +48,17 @@ def _sick_card(index: int, item, *, show_v2: bool = False) -> str:
             f'<div class="mr-sickness-card__index">{index:02d}</div>'
             '<div class="mr-sickness-card__main">'
             f'<div class="mr-sickness-card__name">{escape_text(item.hero_name)}</div>'
-            f'<div class="mr-sickness-card__stats"><span>分类 {escape_text(rating.classification)}</span>'
+            f'<div class="mr-sickness-card__stats"><span>分类 {escape_text(product_status(rating))}</span>'
             f'<span>使用占比 {item.usage_share:.1f}%</span><span>竞技 {item.competitive_matches:,} 场</span></div>'
+            f'<div class="mr-sickness-card__archetype">战术原型：{escape_text(archetype_summary(getattr(rating, "archetype", None)))}</div>'
             '</div>'
             '<div class="mr-sickness-card__score mr-sickness-card__score--v2">'
             f'<span>Specialization</span><strong>{specialization}</strong>'
             f'<small>Performance {rating.performance:.1f} · Mastery {rating.mastery:.1f}</small>'
             f'<small>Confidence {rating.confidence:.2f} · Experience {rating.experience:.1f}</small>'
+            f'<small>Outcome {getattr(rating, "outcome", None) if getattr(rating, "outcome", None) is not None else "—"} · '
+            f'Combat {getattr(rating, "combat", None) if getattr(rating, "combat", None) is not None else "—"} · '
+            f'Consistency {getattr(rating, "consistency", None) if getattr(rating, "consistency", None) is not None else "—"}</small>'
             '</div></article>'
         )
     return (

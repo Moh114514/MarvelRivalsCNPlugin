@@ -62,7 +62,10 @@ from .signature_rules import (
 
 logger = logging.getLogger(__name__)
 SIGNATURE_CACHE_SCHEMA_VERSION = 9
-RATING_SCHEMA_VERSION = 4
+# Frozen Rating V2 cache schema.  Presentation-only label changes do not
+# invalidate cached ratings; algorithm or serialized-result changes do.
+RATING_V2_SCHEMA_VERSION = 4
+RATING_SCHEMA_VERSION = RATING_V2_SCHEMA_VERSION
 SICKNESS_TOP_N = 10
 
 

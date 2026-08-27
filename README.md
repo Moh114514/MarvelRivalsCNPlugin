@@ -2,7 +2,7 @@
 
 漫威争锋国服战绩查询插件，面向 AstrBot，支持 QQ Official、NapCat/OneBot 和其他兼容的 QQ 适配器。
 
-当前稳定版本：`1.3.9`
+当前稳定版本：`1.4.0`
 
 ## Player Rating V2
 
@@ -11,6 +11,14 @@
 `MRCN_RATING_VERSION` 支持 `v1`、`shadow`、`v2`，默认 `shadow`：会计算并缓存 V2，同时保持现有用户输出和候选规则；切换为 `v2` 后，绝活、绝症和英雄池会使用 V2 的 Mastery、Performance、Confidence、Specialization 与战术标签。评分不使用 TrueSkill、机器学习、未验证动态字段或强制额外请求；未知/不可观测维度显示为不可用。统计仍是非官方、基于第三方已追踪玩家样本的分析结果。
 
 Specialization 的证据门槛可通过 `MRCN_RATING_SPECIALIZATION_MIN_CONFIDENCE` 与 `MRCN_RATING_SPECIALIZATION_MIN_EXPERIENCE` 调整；缺少 Outcome、Combat、Consistency 可观测信号时始终保持不可用。Combat 会保留原有基线 fallback，并记录基线粒度、peer 数量及原始/收缩维度分数供校准使用。
+
+## 1.4.0 Rating V2 产品化与发布 Hardening
+
+- Rating V2 算法参数冻结；展示层不会改变 Outcome、Combat、Consistency、Mastery、Specialization、Confidence 或 Hero Archetype 计算。
+- 四个个人 V2 页面统一以 Mastery、Performance、Specialization、Confidence 为一级指标，以 Outcome、Combat、Consistency、Experience 为二级指标。
+- V2 页面新增官方职责、中文 CombatStyle（切入/缠斗/消耗）和 TacticalFunction 展示，并将常用英雄拆分为强势英雄、高熟练英雄、低样本、相对弱势等展示状态。
+- Shadow 模式继续保留原有 V1 展示；V2 页面不再重复展示 V1 的绝活指数、绝症指数、使用指数和旧版综合表现。
+- 缺失专精、低样本、无竞技记录或 Meta 不可用时显示明确的数据状态，不暴露异常堆栈。
 
 ## 1.3.9 Rating V2 Calibration Round 1
 

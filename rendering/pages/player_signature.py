@@ -6,8 +6,10 @@ from typing import Any
 
 try:
     from ...marvel_rivals_bot.analytics.models import PlayerSignatureProfile, analysis_scope_label
+    from ...marvel_rivals_bot.analytics.archetypes import archetype_summary, product_status
 except ImportError:
     from marvel_rivals_bot.analytics.models import PlayerSignatureProfile, analysis_scope_label
+    from marvel_rivals_bot.analytics.archetypes import archetype_summary, product_status
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
 from ..formatters import escape_text
@@ -75,11 +77,12 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
             '<div class="mr-signature-card__main">'
             '<div class="mr-signature-card__identity">'
             f'<div class="mr-signature-card__name">{escape_text(item.hero_name)}</div>'
-            f'<span class="mr-signature-card__badge">{escape_text(rating.classification)}</span>'
+            f'<span class="mr-signature-card__badge">{escape_text(product_status(rating))}</span>'
             '</div>'
             f'<div class="mr-signature-card__stats"><span>总计 {_count(_first(item, "total_matches"))} 场</span>'
             f'<span>竞技 {_count(_first(item, "competitive_matches", "ranked_matches"))} 场</span>'
             f'<span>使用占比 {_percent(_first(item, "usage_share"))}</span></div>'
+            f'<div class="mr-signature-card__archetype">战术原型：{escape_text(archetype_summary(getattr(rating, "archetype", None)))}</div>'
             '</div>'
             '<div class="mr-signature-card__metrics mr-signature-card__metrics--v2">'
             f'<div><span>Mastery</span><strong>{rating.mastery:.1f}</strong></div>'

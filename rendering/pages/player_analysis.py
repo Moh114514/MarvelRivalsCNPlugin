@@ -4,8 +4,10 @@ from __future__ import annotations
 
 try:
     from ...marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerSignatureProfile, analysis_scope_label
+    from ...marvel_rivals_bot.analytics.archetypes import archetype_summary, product_status
 except ImportError:
     from marvel_rivals_bot.analytics.models import CareerHeroSignature, PlayerSignatureProfile, analysis_scope_label
+    from marvel_rivals_bot.analytics.archetypes import archetype_summary, product_status
 
 from ..components import empty_state, metric_grid, page_header, page_shell, section_title
 from ..formatters import escape_text
@@ -74,8 +76,9 @@ def build_player_hero_analysis_html(
     scope_label = analysis_scope_label(profile.scope)
     is_career = profile.scope.kind == "career"
     title = f"{hero.hero_name} · {scope_label}分析"
-    conclusion = hero.status
-    if is_career and conclusion in {"招牌绝活", "强势绝活", "潜力绝活"}:
+    rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
+    conclusion = product_status(rating) if rating is not None else hero.status
+    if is_career and conclusion in {"招牌绝活", "强势绝活", "潜力绝活", "强势英雄"}:
         description = "生涯表现高于个人基准和可用同期环境。"
     elif not is_career and conclusion in {"赛季强势", "赛季表现优秀"}:
         description = "本赛季表现高于个人基准和可用同期环境。"
@@ -97,7 +100,6 @@ def build_player_hero_analysis_html(
         meta_items=header_metrics,
     )
     content += '<section class="mr-section">' + section_title(conclusion, "CONCLUSION")
-    rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
     usage_metrics = [
         ("绝活指数", f"{hero.signature_score:.1f}"),
         ("绝症指数", f"{hero.sickness_score:.1f}"),
@@ -116,7 +118,6 @@ def build_player_hero_analysis_html(
             *usage_metrics[2:],
         ]
     content += metric_grid(tuple(usage_metrics)) + '</section>'
-    rating = getattr(hero, "rating", None) if profile.rating_version == "v2" else None
     if rating is not None:
         dimensions = " / ".join(
             f"{key.upper()} {value:.1f}" if value is not None else f"{key.upper()} —"
@@ -135,23 +136,34 @@ def build_player_hero_analysis_html(
                 ("Consistency", _value(rating.consistency)),
                 ("Experience", f"{rating.experience:.1f}"),
             ))
-            + f'<div class="mr-meta-source">战术原型：{escape_text({"dive": "切入", "brawl": "缠斗", "poke": "消耗"}.get(rating.archetype.primary_style.value, rating.archetype.primary_style.value))} / {escape_text(rating.archetype.function.value)} · {escape_text(dimensions)}</div>'
-            + '</section>'
-        )
-    content += f'<section class="mr-section{" mr-v2-legacy-environment" if profile.rating_version == "v2" else ""}">' + section_title("竞技环境比较", "ENVIRONMENT")
-    content += metric_grid((
-        ("可比较竞技胜率", _percent(hero.comparable_competitive_win_rate)),
-        ("同期同段位 Meta", _percent(hero.expected_meta_win_rate)),
-        ("原始环境差值", _delta(hero.raw_meta_delta if hero.raw_meta_delta is not None else hero.raw_delta)),
-        ("稳健环境差值", _delta(
-            hero.adjusted_meta_delta
-            if hero.adjusted_meta_delta is not None else hero.adjusted_delta
-        )),
-        ("个人竞技相对表现", _delta(hero.personal_competitive_delta)),
-        ("个人快速相对表现", _delta(hero.personal_quick_delta)),
-        ("Meta 覆盖", f"{hero.meta_coverage:.0f}%"),
-        ("证据修正", f"{hero.evidence_factor:.2f}"),
-    )) + '</section>'
+             + f'<div class="mr-meta-source">战术原型：{escape_text(archetype_summary(rating.archetype))} · 核心维度：{escape_text(dimensions)}</div>'
+             + (
+                 '<div class="mr-meta-source">当前专精证据不足，Specialization 暂无可比较数据。</div>'
+                 if rating.specialization is None else ""
+             )
+             + (
+                 '<div class="mr-meta-source">当前样本较少，结论仍处于待验证状态。</div>'
+                 if rating.confidence < 0.55 else ""
+             )
+             + '</section>'
+         )
+    if profile.rating_version != "v2":
+        content += '<section class="mr-section">' + section_title("竞技环境比较", "ENVIRONMENT")
+        content += metric_grid((
+            ("可比较竞技胜率", _percent(hero.comparable_competitive_win_rate)),
+            ("同期同段位 Meta", _percent(hero.expected_meta_win_rate)),
+            ("原始环境差值", _delta(hero.raw_meta_delta if hero.raw_meta_delta is not None else hero.raw_delta)),
+            ("稳健环境差值", _delta(
+                hero.adjusted_meta_delta
+                if hero.adjusted_meta_delta is not None else hero.adjusted_delta
+            )),
+            ("个人竞技相对表现", _delta(hero.personal_competitive_delta)),
+            ("个人快速相对表现", _delta(hero.personal_quick_delta)),
+            ("Meta 覆盖", f"{hero.meta_coverage:.0f}%"),
+            ("证据修正", f"{hero.evidence_factor:.2f}"),
+        )) + '</section>'
+    elif rating is None:
+        content += '<div class="mr-meta-source">V2 评分暂不可用，暂无可比较数据。</div>'
     if not profile.meta_available:
         content += '<div class="mr-meta-source">当前缺少同期 Meta，综合表现仅基于个人竞技/快速基准，可信度已降级。</div>'
     content += _mode_block("竞技详细数据", hero.competitive_stats)

@@ -10,6 +10,14 @@ from .models import (
     TacticalFunction,
 )
 from .profiles import METRIC_PROFILES, validate_metric_profiles
+from .presentation import (
+    FUNCTION_LABELS,
+    ROLE_LABELS,
+    STYLE_LABELS,
+    archetype_labels,
+    archetype_summary,
+    product_status,
+)
 
 __all__ = [
     "CombatStyle",
@@ -23,5 +31,10 @@ __all__ = [
     "get_archetype",
     "validate_archetypes",
     "validate_metric_profiles",
+    "archetype_labels",
+    "archetype_summary",
+    "product_status",
+    "FUNCTION_LABELS",
+    "ROLE_LABELS",
+    "STYLE_LABELS",
 ]
-

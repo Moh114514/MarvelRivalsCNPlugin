@@ -7,6 +7,13 @@ from dataclasses import replace
 from .combat import calculate_combat
 from .confidence import calculate_confidence, shrink_performance
 from .consistency import calculate_consistency
+from .constants import (
+    RATING_V2_COMBAT_WEIGHT,
+    RATING_V2_CONSISTENCY_WEIGHT,
+    RATING_V2_MASTERY_EXPERIENCE_WEIGHT,
+    RATING_V2_MASTERY_PERFORMANCE_WEIGHT,
+    RATING_V2_OUTCOME_WEIGHT,
+)
 from .experience import calculate_experience
 from .models import HeroRatingResult, RatingContext, RatingHeroSnapshot
 from .outcome import calculate_outcome
@@ -55,7 +62,7 @@ class HeroRatingEngine:
             combat_result.observable_coverage,
             hero.comparable_seasons,
         )
-        raw = weighted_mean(((outcome, 0.50), (combat_result.combat, 0.35), (consistency, 0.15)))
+        raw = weighted_mean(((outcome, RATING_V2_OUTCOME_WEIGHT), (combat_result.combat, RATING_V2_COMBAT_WEIGHT), (consistency, RATING_V2_CONSISTENCY_WEIGHT)))
         raw = 50.0 if raw is None else raw
         performance = shrink_performance(raw, confidence)
         result = HeroRatingResult(
@@ -69,7 +76,10 @@ class HeroRatingEngine:
             performance_raw=raw,
             performance=performance,
             confidence=confidence,
-            mastery=0.75 * performance + 0.25 * experience,
+            mastery=(
+                RATING_V2_MASTERY_PERFORMANCE_WEIGHT * performance
+                + RATING_V2_MASTERY_EXPERIENCE_WEIGHT * experience
+            ),
             dimensions=combat_result.dimensions,
             confidence_components=components,
             observable_coverage=combat_result.observable_coverage,

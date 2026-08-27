@@ -2,6 +2,14 @@
 
 本项目遵循 SemVer。`1.0.0` 是首个稳定版本；国服接口仍属于观察到的非公开稳定 API，接口适配和配置仍可能随上游变化调整。
 
+## [1.4.0] - 2026-08-27
+
+- 冻结当前 Rating V2 算法参数，保留 DynamicFields 仅用于数据保存，不参与评分。
+- 完成四个个人页面的 V2 产品化信息层级：Mastery、Performance、Specialization、Confidence 为一级指标，Outcome、Combat、Consistency、Experience 为二级指标。
+- V2 页面展示官方职责、切入/缠斗/消耗战斗风格和战术职责；Shadow 继续使用原有展示，缓存与版本隔离策略保持不变。
+- 将常用英雄拆为强势英雄、高熟练英雄、低样本、相对弱势等展示状态，未改动评分结果、阈值或排序。
+- 补充 V2 页面回退状态与产品化渲染测试。
+
 ## [1.3.9] - 2026-08-27
 
 - Calibration Round 1：仅将 Career Scope“潜力绝活”的最低 Mastery 从 70.0 调整为 68.0；Specialization、Confidence、强势绝活、招牌绝活及绝症门槛保持不变。
