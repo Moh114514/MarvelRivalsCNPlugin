@@ -22,6 +22,7 @@ from .specialization import (
     apply_specialization,
     classify_rating,
 )
+from .temporal import apply_temporal_ratings, calculate_temporal_rating, classify_temporal_state
 from .transforms import weighted_mean
 
 
@@ -91,11 +92,27 @@ class HeroRatingEngine:
             raw_dimension_score=combat_result.raw_dimension_score,
             shrunk_dimension_score=combat_result.shrunk_dimension_score,
         )
-        return result
+        temporal = calculate_temporal_rating(context, hero, result)
+        result = replace(
+            result,
+            freshness=temporal.freshness,
+            recent_outcome=temporal.recent_outcome,
+            recent_combat=temporal.recent_combat,
+            recent_consistency=temporal.recent_consistency,
+            recent_performance=temporal.recent_performance,
+            recent_mastery=temporal.recent_mastery,
+            recent_confidence=temporal.recent_confidence,
+            trend=temporal.trend,
+            temporal_label=temporal.temporal_label,
+            last_active_season=temporal.last_active_season,
+            recent_effective_matches=temporal.recent_effective_matches,
+        )
+        return replace(result, temporal_label=classify_temporal_state(result))
 
     def rate_many(self, context: RatingContext) -> dict[str, HeroRatingResult]:
         results = {hero.hero_id: self.rate(context, hero) for hero in context.heroes}
         results = apply_specialization(results, evidence_policy=self.specialization_evidence_policy)
+        results = apply_temporal_ratings(results, context)
         return {
             hero_id: replace(result, classification=classify_rating(result, scope=context.scope))
             for hero_id, result in results.items()

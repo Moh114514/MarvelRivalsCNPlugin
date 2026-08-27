@@ -264,7 +264,7 @@ class TestRatingV2(unittest.TestCase):
         shadow = cache._analysis_path("123", career, rating_version="shadow")
         v2 = cache._analysis_path("123", career, rating_version="v2")
         self.assertNotEqual(shadow, v2)
-        self.assertIn("_r4", str(v2))
+        self.assertIn("_r5", str(v2))
 
 
 class TestRatingIntegration(unittest.IsolatedAsyncioTestCase):

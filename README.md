@@ -1,10 +1,16 @@
 # Marvel Rivals CN AstrBot Plugin
 
+Current stable version: `1.5.0`
+
 漫威争锋国服战绩查询插件，面向 AstrBot，支持 QQ Official、NapCat/OneBot 和其他兼容的 QQ 适配器。
 
-当前稳定版本：`1.4.0`
+当前稳定版本：`1.5.0`
 
 ## Player Rating V2
+
+## Rating V2.1 时间有效性层
+
+V2.1 在保留 Career Performance / Mastery 的基础上，新增独立的 Freshness、Recent Performance、Trend 和时间标签。Freshness 按最后一个至少 3 个有效竞技场次的赛季计算，并结合最近 6 个半赛季的样本量；Recent Rating 对 Outcome、Combat、Consistency 按半赛季衰减后重新计算。因此长期未使用的英雄会保留“曾经强势”的历史信息，但不会继续占用当前绝活资格；近期持续变强的英雄可以标记为“近期崛起”。该层只复用已加载的逐赛季数据，不增加网络请求。
 
 个人英雄分析已接入可解释的 Rating V2 与英雄战术原型层。V2 将结果拆为 Outcome、Combat、Consistency、Experience、Confidence、Performance、Mastery 和 Leave-one-out Specialization；Combat 按英雄的战术原型与同类英雄稳健基线比较，缺失指标不会被当作零分。快速模式只参与经验与辅助证据，不直接参与 HeroPerformance。
 

@@ -34,7 +34,8 @@ from .models import (
 from .hero_pool import build_hero_pool_analysis
 from .archetypes import get_archetype
 from .rating import HeroRatingEngine, SpecializationEvidencePolicy
-from .rating.models import RatingContext, RatingHeroSnapshot, HeroRatingResult
+from .rating.models import RatingContext, RatingHeroSnapshot, HeroRatingResult, SeasonRatingSnapshot
+from .rating.temporal import TEMPORAL_RISING, TEMPORAL_STABLE
 from .performance import (
     PERSONAL_COMPETITIVE_PRIOR_MATCHES,
     PERSONAL_QUICK_PRIOR_MATCHES,
@@ -64,7 +65,7 @@ logger = logging.getLogger(__name__)
 SIGNATURE_CACHE_SCHEMA_VERSION = 9
 # Frozen Rating V2 cache schema.  Presentation-only label changes do not
 # invalidate cached ratings; algorithm or serialized-result changes do.
-RATING_V2_SCHEMA_VERSION = 4
+RATING_V2_SCHEMA_VERSION = 5
 RATING_SCHEMA_VERSION = RATING_V2_SCHEMA_VERSION
 SICKNESS_TOP_N = 10
 
@@ -847,6 +848,7 @@ class PlayerCareerAnalysisService:
         # Top-N list.  Shadow keeps all legacy display and candidate fields.
         if self.rating_version == "v1":
             return enriched
+        season_contexts = _build_season_rating_contexts(enriched, seasons, scope=scope)
         snapshots = tuple(
             RatingHeroSnapshot(
                 hero_id=item.hero_id,
@@ -863,6 +865,7 @@ class PlayerCareerAnalysisService:
                 seasons=tuple(item.seasons),
                 comparable_seasons=int(item.comparable_seasons or 0),
                 active_seasons=int(item.active_seasons or 0),
+                season_snapshots=_season_rating_snapshots(item, seasons),
             )
             for item in enriched
             if get_archetype(item.hero_id) is not None
@@ -875,6 +878,7 @@ class PlayerCareerAnalysisService:
                     if seasons else None
                 ),
                 scope=scope.kind,
+                season_contexts=season_contexts,
             )
         )
         output: list[CareerHeroSignature] = []
@@ -918,7 +922,26 @@ class PlayerCareerAnalysisService:
                         )
                     ),
                     is_analysis_eligible=item.is_analysis_eligible,
+                    freshness=rating.freshness,
+                    recent_outcome=rating.recent_outcome,
+                    recent_combat=rating.recent_combat,
+                    recent_consistency=rating.recent_consistency,
+                    recent_performance=rating.recent_performance,
+                    recent_mastery=rating.recent_mastery,
+                    recent_specialization=rating.recent_specialization,
+                    trend=rating.trend,
+                    temporal_label=rating.temporal_label,
+                    last_active_season=rating.last_active_season,
+                    recent_effective_matches=rating.recent_effective_matches,
                 )
+                if scope.kind == "career":
+                    updated = replace(
+                        updated,
+                        is_signature_candidate=(
+                            updated.is_signature_candidate
+                            or rating.temporal_label in {TEMPORAL_STABLE, TEMPORAL_RISING}
+                        ),
+                    )
             output.append(updated)
         return output
 
@@ -1237,6 +1260,120 @@ def _rank_level_for(profile: PlayerProfile, season_code: str) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _season_row_for(item: CareerHeroSignature, season_code: str) -> Any | None:
+    return next(
+        (row for row in item.seasons if str(row.season_code) == str(season_code)),
+        None,
+    )
+
+
+def _season_rating_snapshots(
+    item: CareerHeroSignature,
+    seasons: list[_NormalizedSeason],
+) -> tuple[SeasonRatingSnapshot, ...]:
+    """Adapt the existing normalized per-season rows for Temporal Rating."""
+
+    snapshots: list[SeasonRatingSnapshot] = []
+    for season in seasons:
+        hero = season.heroes.get(item.hero_id)
+        if hero is None:
+            continue
+        row = _season_row_for(item, season.season_code)
+        competitive = hero.competitive or NormalizedModeStats(
+            matches=hero.competitive_matches,
+            wins=hero.competitive_wins,
+        )
+        quick = hero.quick or NormalizedModeStats(
+            matches=hero.quick_matches,
+            wins=hero.quick_wins,
+        )
+        snapshots.append(
+            SeasonRatingSnapshot(
+                season_code=season.season_code,
+                season_label=season.season_label,
+                competitive_stats=competitive,
+                quick_stats=quick,
+                competitive_matches=int(competitive.matches or 0),
+                competitive_wins=(
+                    row.competitive_wins if row is not None else competitive.wins
+                ),
+                competitive_effective_matches=(
+                    row.competitive_effective_matches
+                    if row is not None
+                    else competitive.effective_matches
+                ),
+                competitive_effective_wins=(
+                    row.competitive_effective_wins
+                    if row is not None
+                    else competitive.effective_wins
+                ),
+                quick_effective_matches=quick.effective_matches,
+                outcome_delta=row.raw_delta if row is not None else None,
+                meta_win_rate=row.meta_win_rate if row is not None else None,
+                meta_coverage=(100.0 if row is not None and row.raw_delta is not None else 0.0),
+            )
+        )
+    return tuple(snapshots)
+
+
+def _build_season_rating_contexts(
+    signatures: list[CareerHeroSignature],
+    seasons: list[_NormalizedSeason],
+    *,
+    scope: AnalysisScope,
+) -> dict[str, RatingContext]:
+    """Build local same-season peer groups for time-weighted Combat."""
+
+    contexts: dict[str, RatingContext] = {}
+    for season in seasons:
+        snapshots: list[RatingHeroSnapshot] = []
+        for item in signatures:
+            hero = season.heroes.get(item.hero_id)
+            archetype = get_archetype(item.hero_id)
+            if hero is None or archetype is None:
+                continue
+            row = _season_row_for(item, season.season_code)
+            competitive = hero.competitive or NormalizedModeStats(
+                matches=hero.competitive_matches,
+                wins=hero.competitive_wins,
+            )
+            quick = hero.quick or NormalizedModeStats(
+                matches=hero.quick_matches,
+                wins=hero.quick_wins,
+            )
+            c_effective = _mode_effective_matches(competitive, competitive.matches)
+            snapshots.append(
+                RatingHeroSnapshot(
+                    hero_id=item.hero_id,
+                    hero_name=item.hero_name,
+                    archetype=archetype,
+                    competitive_stats=competitive,
+                    quick_stats=quick,
+                    competitive_matches=int(competitive.matches or 0),
+                    competitive_effective_matches=c_effective,
+                    competitive_effective_wins=(
+                        row.competitive_effective_wins
+                        if row is not None
+                        else competitive.effective_wins
+                    ),
+                    quick_effective_matches=quick.effective_matches,
+                    outcome_delta=row.raw_delta if row is not None else None,
+                    meta_coverage=(
+                        100.0 if row is not None and row.raw_delta is not None else 0.0
+                    ),
+                    seasons=((row,) if row is not None else ()),
+                    comparable_seasons=(1 if row is not None and row.raw_delta is not None else 0),
+                    active_seasons=(1 if _hero_effective_total(hero) > 0 else 0),
+                )
+            )
+        contexts[season.season_code] = RatingContext(
+            heroes=tuple(snapshots),
+            latest_season_code=season.season_code,
+            scope=scope.kind,
+        )
+    return contexts
 
 
 def _meta_result(board: Any, hero_id: str) -> Any | None:

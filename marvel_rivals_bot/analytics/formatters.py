@@ -447,7 +447,14 @@ def _rating_lines(rating) -> list[str]:
     )
     specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
     archetype = rating.archetype
+    freshness_value = getattr(rating, "freshness", None)
+    freshness = "—" if freshness_value is None else f"{freshness_value:.2f}"
+    recent_performance = _format_rating_value(getattr(rating, "recent_performance", None))
+    trend_value = getattr(rating, "trend", None)
+    trend = "—" if trend_value is None else f"{trend_value:+.1f}"
+    temporal_label = getattr(rating, "temporal_label", None) or "—"
     return [
+        f"{temporal_label} · Freshness {freshness} · Recent Performance {recent_performance} · Trend {trend} · Recent matches {_format_rating_value(getattr(rating, 'recent_effective_matches', None))}",
         f"V2评级：{product_status(rating)}｜{archetype_summary(archetype)}",
         f"Mastery {rating.mastery:.1f}｜Performance {rating.performance:.1f}｜Specialization {specialization}",
         f"Outcome {_format_rating_value(rating.outcome)}｜Combat {_format_rating_value(rating.combat)}｜Consistency {_format_rating_value(rating.consistency)}｜Experience {rating.experience:.1f}",

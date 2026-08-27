@@ -27,6 +27,33 @@ class RatingHeroSnapshot:
     competitive_effective_matches: float | None = None
     competitive_effective_wins: float | None = None
     quick_effective_matches: float | None = None
+    season_snapshots: tuple["SeasonRatingSnapshot", ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SeasonRatingSnapshot:
+    """One hero's already-normalized data for one half-season."""
+
+    season_code: str
+    season_label: str = ""
+    competitive_stats: "NormalizedModeStats" = field(default_factory=lambda: _empty_stats())
+    quick_stats: "NormalizedModeStats" = field(default_factory=lambda: _empty_stats())
+    competitive_matches: int = 0
+    competitive_wins: float | None = None
+    competitive_effective_matches: float | None = None
+    competitive_effective_wins: float | None = None
+    quick_effective_matches: float | None = None
+    outcome_delta: float | None = None
+    meta_win_rate: float | None = None
+    meta_coverage: float = 0.0
+
+
+def _empty_stats():
+    # Local import avoids importing the analytics model during module import
+    # while keeping the rating package transport/rendering independent.
+    from ..models import NormalizedModeStats
+
+    return NormalizedModeStats()
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +61,7 @@ class RatingContext:
     heroes: tuple[RatingHeroSnapshot, ...]
     latest_season_code: str | None = None
     scope: str = "career"
+    season_contexts: dict[str, "RatingContext"] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +91,18 @@ class HeroRatingResult:
     final_quality: float = 0.0
     raw_dimension_score: dict[str, float | None] = field(default_factory=dict)
     shrunk_dimension_score: dict[str, float | None] = field(default_factory=dict)
+    freshness: float | None = None
+    recent_outcome: float | None = None
+    recent_combat: float | None = None
+    recent_consistency: float | None = None
+    recent_performance: float | None = None
+    recent_mastery: float | None = None
+    recent_specialization: float | None = None
+    recent_confidence: float = 0.0
+    trend: float | None = None
+    temporal_label: str | None = None
+    last_active_season: str | None = None
+    recent_effective_matches: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +136,18 @@ class HeroRatingResult:
             "final_quality": self.final_quality,
             "raw_dimension_score": dict(self.raw_dimension_score),
             "shrunk_dimension_score": dict(self.shrunk_dimension_score),
+            "freshness": self.freshness,
+            "recent_outcome": self.recent_outcome,
+            "recent_combat": self.recent_combat,
+            "recent_consistency": self.recent_consistency,
+            "recent_performance": self.recent_performance,
+            "recent_mastery": self.recent_mastery,
+            "recent_specialization": self.recent_specialization,
+            "recent_confidence": self.recent_confidence,
+            "trend": self.trend,
+            "temporal_label": self.temporal_label,
+            "last_active_season": self.last_active_season,
+            "recent_effective_matches": self.recent_effective_matches,
         }
 
     @classmethod
@@ -129,6 +181,18 @@ class HeroRatingResult:
             final_quality=float(value.get("final_quality", 0.0) or 0.0),
             raw_dimension_score={str(k): _float(v) for k, v in (value.get("raw_dimension_score") or {}).items()},
             shrunk_dimension_score={str(k): _float(v) for k, v in (value.get("shrunk_dimension_score") or {}).items()},
+            freshness=_float(value.get("freshness")),
+            recent_outcome=_float(value.get("recent_outcome")),
+            recent_combat=_float(value.get("recent_combat")),
+            recent_consistency=_float(value.get("recent_consistency")),
+            recent_performance=_float(value.get("recent_performance")),
+            recent_mastery=_float(value.get("recent_mastery")),
+            recent_specialization=_float(value.get("recent_specialization")),
+            recent_confidence=float(value.get("recent_confidence", 0.0) or 0.0),
+            trend=_float(value.get("trend")),
+            temporal_label=value.get("temporal_label"),
+            last_active_season=value.get("last_active_season"),
+            recent_effective_matches=float(value.get("recent_effective_matches", 0.0) or 0.0),
         )
 
 

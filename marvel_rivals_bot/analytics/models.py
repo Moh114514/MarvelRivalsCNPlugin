@@ -419,6 +419,18 @@ class CareerHeroSignature:
     competitive_effective_wins: float | None = None
     # V2 is additive: old fields remain populated for v1/shadow consumers.
     rating: "HeroRatingResult | None" = None
+    # Independent temporal view; Career fields above remain historical.
+    freshness: float | None = None
+    recent_outcome: float | None = None
+    recent_combat: float | None = None
+    recent_consistency: float | None = None
+    recent_performance: float | None = None
+    recent_mastery: float | None = None
+    recent_specialization: float | None = None
+    trend: float | None = None
+    temporal_label: str | None = None
+    last_active_season: str | None = None
+    recent_effective_matches: float = 0.0
 
 
 @dataclass(slots=True)

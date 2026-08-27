@@ -4,6 +4,12 @@
 
 ## [1.4.0] - 2026-08-27
 
+## [1.5.0] - 2026-08-27
+
+- 新增 Rating V2.1 独立时间有效性层：保留 Career Rating，按最近 6 个半赛季计算 Freshness、Recent Performance、Trend 与时间标签。
+- Freshness 要求至少 3 个有效竞技场次，并使用半赛季衰减与最近样本量修正；近期 Combat 复用逐赛季基线，不增加网络请求。
+- 时间标签区分“稳定强势”“近期崛起”“曾经强势”“状态回落”和“近期待验证”，并让近期有效表现参与当前绝活资格；缓存 schema 升级至 r5。
+
 - 冻结当前 Rating V2 算法参数，保留 DynamicFields 仅用于数据保存，不参与评分。
 - 完成四个个人页面的 V2 产品化信息层级：Mastery、Performance、Specialization、Confidence 为一级指标，Outcome、Combat、Consistency、Experience 为二级指标。
 - V2 页面展示官方职责、切入/缠斗/消耗战斗风格和战术职责；Shadow 继续使用原有展示，缓存与版本隔离策略保持不变。

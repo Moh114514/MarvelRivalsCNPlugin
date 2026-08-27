@@ -62,11 +62,17 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
     v2_markup = ""
     if rating is not None:
         specialization = "—" if rating.specialization is None else f"{rating.specialization:+.1f}"
+        freshness_value = getattr(rating, "freshness", None)
+        recent_value = getattr(rating, "recent_performance", None)
+        trend_value = getattr(rating, "trend", None)
+        freshness = "—" if freshness_value is None else f"{freshness_value:.2f}"
+        recent = "—" if recent_value is None else f"{recent_value:.1f}"
+        trend = "—" if trend_value is None else f"{trend_value:+.1f}"
         v2_markup = (
             '<div class="mr-signature-card__v2">'
             f'V2 {escape_text(rating.classification)} · Mastery {rating.mastery:.1f} · '
             f'Performance {rating.performance:.1f} · Specialization {specialization} · '
-            f'Confidence {rating.confidence:.2f}'
+            f'Confidence {rating.confidence:.2f} · {escape_text(getattr(rating, "temporal_label", None) or "—")} · Freshness {freshness} · Recent {recent} · Trend {trend}'
             '</div>'
         )
     if rating is not None:
@@ -92,7 +98,9 @@ def _hero_card(index: int, item: Any, *, career: bool, show_v2: bool = False) ->
             '</div>'
             f'<div class="mr-signature-card__quality"><span>Outcome {_score(rating.outcome)}</span>'
             f'<span>Combat {_score(rating.combat)}</span><span>Consistency {_score(rating.consistency)}</span>'
-            f'<span>Experience {_score(rating.experience)}</span></div>'
+            f'<span>Experience {_score(rating.experience)}</span>'
+            f'<span>{escape_text(getattr(rating, "temporal_label", None) or "—")}</span>'
+            f'<span>Freshness {freshness} · Recent {recent} · Trend {trend}</span></div>'
             '</article>'
         )
     competitive_matches = _first(item, "competitive_matches", "ranked_matches")
