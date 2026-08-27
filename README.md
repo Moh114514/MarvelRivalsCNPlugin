@@ -1,10 +1,10 @@
 # Marvel Rivals CN AstrBot Plugin
 
-Current stable version: `1.5.0`
+Current stable version: `1.4.1`
 
 漫威争锋国服战绩查询插件，面向 AstrBot，支持 QQ Official、NapCat/OneBot 和其他兼容的 QQ 适配器。
 
-当前稳定版本：`1.5.0`
+当前稳定版本：`1.4.1`
 
 ## Player Rating V2
 
